@@ -50,7 +50,7 @@ run_case() {                    # name want-rc want-text manifest-file|- script 
     local name=$1 want_rc=$2 want_text=$3 man=$4; shift 4
     local out rc s=${SCRIPT:-$script} extra=()
     [ "$man" = - ] || extra=(--manifest "$man")
-    out=$(cd "$sup" && "$s" "${extra[@]}" "$@" 2>&1)
+    out=$(cd "$sup" && "$s" ${extra[@]+"${extra[@]}"} "$@" 2>&1)
     rc=$?
     cases=$((cases + 1))
     if [ "$rc" != "$want_rc" ] ||
