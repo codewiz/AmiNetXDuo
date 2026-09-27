@@ -25,6 +25,9 @@
 #ifndef NT_MSGPORT
 #define NT_MSGPORT  4
 #endif
+#ifndef NT_REPLYMSG
+#define NT_REPLYMSG 7
+#endif
 
 VOID            Disable(VOID);
 VOID            Enable(VOID);
@@ -35,6 +38,9 @@ VOID            ReplyMsg(struct Message *msg);
 VOID            SendIO(struct IORequest *req);
 LONG            AbortIO(struct IORequest *req);
 BYTE            WaitIO(struct IORequest *req);
+struct IORequest *CheckIO(struct IORequest *req);
+BYTE            OpenDevice(STRPTR name, ULONG unit, struct IORequest *req,
+                           ULONG flags);
 
 VOID            NewList(struct List *list);
 VOID            AddTail(struct List *list, struct Node *node);

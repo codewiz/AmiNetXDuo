@@ -128,6 +128,22 @@
 #endif
 
 /*
+ * S2_OFFLINE's two deadlines, in milliseconds (ami_sana2_offline()).  The
+ * first is for the command, the second for the AbortIO() after it.  Every
+ * caller holds nx_ip_protection or ami_ns_lock, so together they are what a
+ * device that never answers adds to either hold: three seconds, next to the
+ * reader join's five (5 x NX_IP_PERIODIC_RATE) on the same path.  Two
+ * seconds covers a driver that powers its PHY down before replying; the rx
+ * reap gives an AbortIO() one second, and so does this.
+ */
+#ifndef AMI_SANA2_OFFLINE_WAIT_MS
+#define AMI_SANA2_OFFLINE_WAIT_MS   2000UL
+#endif
+#ifndef AMI_SANA2_OFFLINE_ABORT_MS
+#define AMI_SANA2_OFFLINE_ABORT_MS  1000UL
+#endif
+
+/*
  * How many completed reads one reader may take before it must release the
  * ThreadX baton once, even with another completion already on its port.
  *
@@ -866,6 +882,17 @@ struct AmiSana2If
     /* S2_OFFLINE is never issued to this device: ami_sana2_keeps_online() in
        sana2_device.c names the drivers and why. */
     BOOL                keep_online;
+    /*
+     * S2_OFFLINE's request and reply port, here and not on the stack: a device
+     * that answers neither the command nor its AbortIO() keeps both, and so
+     * keeps this whole interface (ami_sana2_offline()).  offline_held is TRUE
+     * from then until the reply is taken off the port; the port is PA_IGNORE
+     * with no task for that span.
+     */
+    struct IOSana2Req   offline_req;
+    struct MsgPort      offline_port;
+    BOOL                offline_held;
+    UWORD               offline_orphans;    /* times it was abandoned */
     /* Administrative state: the stack's intent, not the wire's condition.
        Only the driver entry's enable/disable cases write it. */
     BOOL                admin_up;
