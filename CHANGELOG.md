@@ -9,6 +9,12 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `anxwifipi.device`: WirelessManager 1.3 and 1.5 connect.
+- `anxwifipi.device`: inbound Wi-Fi 58.5 -> 62.9 Mbit/s on the CM4.
+- `anxwifipi.device`: an unanswered control request returns after 2.5 s.
+- `anxwifipi.device`: offline and flush return queued reads.
+- `anxwifipi.device`: an open fails when the Wi-Fi chip cannot start.
+
 ## 1.0.0-beta6
 
 - A blocking `accept()` keeps waiting after rejecting a connection delivered
