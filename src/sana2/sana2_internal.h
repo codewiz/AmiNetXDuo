@@ -132,7 +132,9 @@
  * first is for the command, the second for the AbortIO() after it.  Every
  * caller holds nx_ip_protection or ami_ns_lock, so together they are what a
  * device that never answers adds to either hold: three seconds, next to the
- * reader join's five (5 x NX_IP_PERIODIC_RATE) on the same path.  Two
+ * reader join's five (5 x NX_IP_PERIODIC_RATE) on the same path.  They bound
+ * only the waits for a reply: a driver whose BeginIO() or AbortIO() itself
+ * blocks holds the locks for as long as it blocks (#92).  Two
  * seconds covers a driver that powers its PHY down before replying; the rx
  * reap gives an AbortIO() one second, and so does this.
  */
