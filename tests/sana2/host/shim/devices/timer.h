@@ -10,6 +10,25 @@
 #define AMINETXDUO_SANA2_TEST_DEVICES_TIMER_H
 
 #include <exec/types.h>
+#include <exec/io.h>
 #include <sys/time.h>
+
+struct s2_timeval
+{
+    ULONG tv_secs;
+    ULONG tv_micro;
+};
+
+/* ami_sana2_offline()'s deadline. */
+struct timerequest
+{
+    struct IORequest  tr_node;
+    struct s2_timeval tr_time;
+};
+
+#define TIMERNAME       "timer.device"
+#define UNIT_MICROHZ    0
+#define UNIT_VBLANK     1
+#define TR_ADDREQUEST   9
 
 #endif

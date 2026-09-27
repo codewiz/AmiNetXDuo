@@ -68,7 +68,10 @@ BUDGETS=(
     # (#53), 2026-09-26 (micro 203,512, minimal 237,596): 16 over.  363,988
     # after one shared _tx_amiga_sigbit and a dead nc_Signal store removed
     # (#67 code), so the 364,000 budget stands.
-    "default:src/bsdsocket/bsdsocket.library:364000"
+    # 364,664 with the bounded S2_OFFLINE: timer-bounded reply wait, abort,
+    # and an abandoned request kept with its interface until the device
+    # replies (#90, 5473e26e), 2026-09-26 (micro 204,052, minimal 238,240).
+    "default:src/bsdsocket/bsdsocket.library:365000"
     # 41,412 after stateless receive-checksum verification was added to the
     # EL3 and word/long NE2000 direct paths, 2026-09-15.  43,620 with
     # ANXD_CMD_RX_BATCH in the shell (claim, completion, staging copy, the
@@ -128,7 +131,8 @@ BUDGETS=(
     # 2026-09-25.
     # 237,348 with the #67 dormant-slot eviction (see the default row),
     # 2026-09-26.
-    "minimal:src/bsdsocket/bsdsocket.library:238000"
+    # 238,240 with the bounded S2_OFFLINE (#90, see the default row).
+    "minimal:src/bsdsocket/bsdsocket.library:239000"
     "minimal:src/netdev/anxnet.device:46000"
     "minimal:src/netdev/anxgenet.device:29000"
     "minimal:src/wifipi/anxwifipi.device:56000"
@@ -147,7 +151,8 @@ BUDGETS=(
     # 2026-09-25.
     # 203,264 with the #67 dormant-slot eviction (see the default row),
     # 2026-09-26.
-    "micro:src/bsdsocket/bsdsocket.library:204000"
+    # 204,052 with the bounded S2_OFFLINE (#90, see the default row).
+    "micro:src/bsdsocket/bsdsocket.library:205000"
     "micro:src/netdev/anxnet.device:46000"
     "micro:src/netdev/anxgenet.device:29000"
     "micro:src/wifipi/anxwifipi.device:56000"

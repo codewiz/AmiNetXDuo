@@ -409,6 +409,10 @@ typedef struct AmiSana2Unit
     struct Device *device;
     struct Unit *unit;
     UWORD        users;
+    /* The interface whose abandoned S2_OFFLINE the device still holds, or
+       NULL.  Keeps the slot past its last user: until that request is back,
+       no interface may online the unit (ami_sana2_online()). */
+    struct AmiSana2If *held_by;
 } AmiSana2Unit;
 
 static AmiSana2Unit ami_sana2_units[AMI_CFG_MAX_ATTACHED];
@@ -423,7 +427,8 @@ static AmiSana2Unit *ami_sana2_unit_slot(const AmiSana2If *iface, BOOL create)
     {
         AmiSana2Unit *u = &ami_sana2_units[i];
 
-        if (u->users != 0 && u->device == device && u->unit == identity)
+        if ((u->users != 0 || u->held_by != NULL) &&
+            u->device == device && u->unit == identity)
             return u;
     }
 
@@ -434,7 +439,7 @@ static AmiSana2Unit *ami_sana2_unit_slot(const AmiSana2If *iface, BOOL create)
     {
         AmiSana2Unit *u = &ami_sana2_units[i];
 
-        if (u->users == 0)
+        if (u->users == 0 && u->held_by == NULL)
         {
             u->device = device;
             u->unit = identity;
@@ -481,7 +486,7 @@ static BOOL ami_sana2_unit_leave(AmiSana2If *iface)
 
     u->users--;
 
-    if (u->users == 0)
+    if (u->users == 0 && u->held_by == NULL)
     {
         u->device = NULL;
         u->unit = NULL;
@@ -492,10 +497,42 @@ static BOOL ami_sana2_unit_leave(AmiSana2If *iface)
 
 /* ------------------------------------------------------------ online state */
 
+static BOOL ami_sana2_offline_reap(AmiSana2If *iface);
+
+/*
+ * TRUE while the device still holds an abandoned S2_OFFLINE for this unit,
+ * this interface's or a sibling's.  Reaps it first if its reply is back, so
+ * S2_ONLINE follows S2_OFFLINE in the order the device completed them.
+ */
+static BOOL ami_sana2_offline_pending(AmiSana2If *iface)
+{
+    AmiSana2Unit *u;
+
+    if (ami_sana2_offline_reap(iface))
+        return TRUE;
+
+    u = ami_sana2_unit_slot(iface, FALSE);
+    if (u != NULL && u->held_by != NULL &&
+        ami_sana2_offline_reap(u->held_by))
+        return TRUE;
+
+    return FALSE;
+}
+
 LONG ami_sana2_online(AmiSana2If *iface)
 {
     struct IOSana2Req req = iface->templ;
     LONG              err;
+
+    /* An S2_OFFLINE the device still holds could complete after this
+       S2_ONLINE and leave the wire down under a stack that reports it up.
+       Refused, with nothing joined or marked: the next link-up tries again. */
+    if (ami_sana2_offline_pending(iface))
+    {
+        AMI_WARN("sana2: %s still holds the last S2_OFFLINE; not onlining",
+                 iface->device);
+        return (LONG)IOERR_UNITBUSY;
+    }
 
     if (ami_sana2_unit_join(iface))
     {
@@ -545,10 +582,186 @@ BOOL ami_sana2_keeps_online(const char *device)
     return ami_str_equal(device, "genet.device");
 }
 
+/* ------------------------------------------------------- bounded offline */
+
+/* S2_OFFLINE's deadlines: the command's, then its AbortIO()'s. */
+static const ULONG ami_offline_wait_ms[2] =
+{
+    AMI_SANA2_OFFLINE_WAIT_MS,
+    AMI_SANA2_OFFLINE_ABORT_MS
+};
+
+/*
+ * The abandoned S2_OFFLINE, if the device has given it back since.  Never
+ * waits.  TRUE while the device still holds it: the reply is taken off the
+ * port, not merely seen on it, before the request counts as ours again.
+ */
+static BOOL ami_sana2_offline_reap(AmiSana2If *iface)
+{
+    struct Message *msg;
+
+    if (!iface->offline_held)
+        return FALSE;
+
+    Disable();
+    msg = GetMsg(&iface->offline_port);
+    Enable();
+
+    if (msg == NULL)
+        return TRUE;
+
+    iface->offline_held = FALSE;
+    {
+        AmiSana2Unit *u = ami_sana2_unit_slot(iface, FALSE);
+
+        if (u != NULL && u->held_by == iface)
+        {
+            u->held_by = NULL;
+            if (u->users == 0)
+            {
+                u->device = NULL;
+                u->unit = NULL;
+            }
+        }
+    }
+    AMI_INFO("sana2: %s answered the abandoned S2_OFFLINE", iface->device);
+    return FALSE;
+}
+
+/*
+ * Wait for offline_req with a deadline, or for timer.device to say it has
+ * passed.  Both ports share one signal.  Runs in the baton bracket.
+ */
+static VOID ami_sana2_offline_wait(struct IORequest *req,
+                                   struct timerequest *tr, ULONG ms)
+{
+    tr->tr_node.io_Command = TR_ADDREQUEST;
+    tr->tr_time.tv_secs    = ms / 1000UL;
+    tr->tr_time.tv_micro   = (ms % 1000UL) * 1000UL;
+    SendIO((struct IORequest *)tr);
+
+    while (CheckIO(req) == NULL && CheckIO((struct IORequest *)tr) == NULL)
+        (VOID)Wait(1UL << req->io_Message.mn_ReplyPort->mp_SigBit);
+
+    /* timer.device always honours AbortIO(), so this WaitIO() is short. */
+    if (CheckIO((struct IORequest *)tr) == NULL)
+        (VOID)AbortIO((struct IORequest *)tr);
+    (VOID)WaitIO((struct IORequest *)tr);
+}
+
+/*
+ * S2_OFFLINE, bounded.  SendIO(), then the command's deadline, then AbortIO()
+ * and the abort's deadline.  A device that answers neither keeps the request:
+ * the port goes PA_IGNORE under Disable(), so a late ReplyMsg() only queues,
+ * and offline_held keeps the interface from CloseDevice() and from being
+ * freed until ami_sana2_offline_reap() takes the reply off the port.  A device
+ * that answers inside BeginIO() never sees the timer.
+ */
+static LONG ami_sana2_offline_io(AmiSana2If *iface, ULONG *wire)
+{
+    struct IOSana2Req  *req  = &iface->offline_req;
+    struct MsgPort     *port = &iface->offline_port;
+    struct IORequest   *io   = (struct IORequest *)req;
+    struct timerequest  tr    = { 0 };
+    struct MsgPort      tport = { 0 };
+    struct Task        *self;
+    BYTE                sig;
+    UWORD               phase;
+    BOOL                replied;
+
+    /* What ami_sana2_command() left in its copy when it failed early. */
+    *wire = iface->templ.ios2_WireError;
+
+    sig = AllocSignal(-1);
+    if (sig < 0)
+        return (LONG)S2ERR_NO_RESOURCES;
+    self = FindTask(NULL);
+
+    ami_sana2_port_init(port, self, sig, PA_SIGNAL);
+
+    *req = iface->templ;
+    req->ios2_Req.io_Message.mn_Node.ln_Type = NT_MESSAGE;
+    req->ios2_Req.io_Message.mn_ReplyPort    = port;
+    req->ios2_Req.io_Message.mn_Length       = (UWORD)sizeof(struct IOSana2Req);
+    req->ios2_Req.io_Command                 = S2_OFFLINE;
+    req->ios2_Req.io_Flags                   = 0;
+    req->ios2_Req.io_Error                   = 0;
+    req->ios2_WireError                      = 0;
+
+    /* The whole exchange in the baton bracket, SendIO() included: a
+       BeginIO() that waits (ObtainSemaphore() on a busy unit) must not
+       hold the hosted scheduler, as DoIO() did not. */
+    ami_sana2_block_enter();
+    SendIO(io);
+
+    if (CheckIO(io) == NULL)
+    {
+        ami_sana2_port_init(&tport, self, sig, PA_SIGNAL);
+        tr.tr_node.io_Message.mn_Node.ln_Type = NT_MESSAGE;
+        tr.tr_node.io_Message.mn_ReplyPort    = &tport;
+        tr.tr_node.io_Message.mn_Length       = (UWORD)sizeof(tr);
+
+        if (OpenDevice((STRPTR)TIMERNAME, UNIT_VBLANK,
+                       (struct IORequest *)&tr, 0) != 0)
+        {
+            /* No clock to bound a wait with: abort at once, and abandon
+               the request below if that does not return it. */
+            (VOID)AbortIO(io);
+        }
+        else
+        {
+            for (phase = 0; phase < 2 && CheckIO(io) == NULL; phase++)
+            {
+                if (phase != 0)
+                    (VOID)AbortIO(io);
+                ami_sana2_offline_wait(io, &tr, ami_offline_wait_ms[phase]);
+            }
+            CloseDevice((struct IORequest *)&tr);
+        }
+    }
+    ami_sana2_block_leave();
+
+    /* The last look and the switch in one Disable(): a ReplyMsg() lands
+       wholly before it, and is taken here, or wholly after, and only
+       queues. */
+    Disable();
+    replied = (CheckIO(io) != NULL) ? TRUE : FALSE;
+    if (!replied)
+    {
+        port->mp_Flags   = PA_IGNORE;
+        port->mp_SigTask = NULL;
+        iface->offline_held = TRUE;
+        iface->offline_orphans++;
+    }
+    Enable();
+
+    if (replied)
+        (VOID)WaitIO(io);
+    FreeSignal(sig);
+
+    if (!replied)
+    {
+        /* The unit's last user has left: the slot is taken again to say
+           the device still holds this request.  No slot: only this
+           interface's own online is held back. */
+        AmiSana2Unit *u = ami_sana2_unit_slot(iface, TRUE);
+
+        if (u != NULL)
+            u->held_by = iface;
+        AMI_ERROR("sana2: %s answered neither S2_OFFLINE nor its AbortIO. "
+                  "The interface leaks until it does",
+                  iface->device);
+        return (LONG)IOERR_ABORTED;
+    }
+
+    *wire = req->ios2_WireError;
+    return (LONG)(BYTE)req->ios2_Req.io_Error;
+}
+
 LONG ami_sana2_offline(AmiSana2If *iface)
 {
-    struct IOSana2Req req = iface->templ;
-    LONG              err;
+    ULONG wire;
+    LONG  err;
 
     /* offline_state, not iface->online: online is what the STACK believes and
        any reader clears it on one S2ERR_OUTOFSERVICE; offline_state is what
@@ -574,13 +787,29 @@ LONG ami_sana2_offline(AmiSana2If *iface)
         return 0;
     }
 
-    err = ami_sana2_command(iface, &req, S2_OFFLINE);
-    if (err != 0 && req.ios2_WireError != S2WERR_UNIT_OFFLINE)
+    /* One abandoned S2_OFFLINE per interface at most: the request is the
+       interface's own, and the device still has it. */
+    if (ami_sana2_offline_reap(iface))
     {
-        ami_event(NETEVENT_OFFLINE_FAILED, (UWORD)iface->index,
-                  (ULONG)req.ios2_WireError);
+        AMI_WARN("sana2: %s still holds the last S2_OFFLINE",
+                 iface->device);
+        return (LONG)IOERR_UNITBUSY;
+    }
+
+    if (iface->device_open)
+    {
+        err = ami_sana2_offline_io(iface, &wire);
+    }
+    else
+    {
+        err  = (LONG)IOERR_OPENFAIL;
+        wire = iface->templ.ios2_WireError;
+    }
+    if (err != 0 && wire != S2WERR_UNIT_OFFLINE)
+    {
+        ami_event(NETEVENT_OFFLINE_FAILED, (UWORD)iface->index, wire);
         AMI_WARN("sana2: S2_OFFLINE failed (%ld/%ld)", (long)err,
-                 (long)req.ios2_WireError);
+                 (long)wire);
         return err;
     }
 
@@ -1296,7 +1525,8 @@ BOOL ami_sana2_close(AmiSana2If *iface)
      * and into a reply port inside it.  That is true of a queued CMD_WRITE as
      * much as a CMD_READ -- tx_port and the tx ring are fields of AmiSana2If.
      */
-    if (iface->rx_orphaned || iface->tx_orphaned)
+    if (iface->rx_orphaned || iface->tx_orphaned ||
+        ami_sana2_offline_reap(iface))
     {
         ami_sana2_retain(iface);
         return FALSE;
@@ -1368,7 +1598,8 @@ UWORD ami_sana2_retained_sweep(BOOL release_packets)
 
         rx_clear = ami_sana2_rx_reclaim(iface, release_packets);
 
-        if (!rx_clear || iface->tx_orphaned)
+        if (!rx_clear || iface->tx_orphaned ||
+            ami_sana2_offline_reap(iface))
         {
             link = &iface->retained_next;
             continue;
