@@ -152,6 +152,35 @@ lib $b0..$b3
 EOF
 )" vA vB vB
 
+# 7b. A gitlink added outright (vC -> vH adds lib2 at b1) and deleted
+# outright (vH -> vI): the zero side in the header, the one pin listed.
+g -C "$sup" checkout -q vC 2>/dev/null
+g -C "$sup" update-index --add --cacheinfo "160000,$b1,lib2"
+g -C "$sup" commit -q -m "add lib2"
+g -C "$sup" tag vH
+g -C "$sup" update-index --force-remove lib2
+g -C "$sup" commit -q -m "drop lib2"
+g -C "$sup" tag vI
+Z=0000000000000000000000000000000000000000
+run_case "gitlink added, no manifest" 1 "reason=no_manifest" - vC vH vH
+run_case "gitlink added, template" 1 "manifest_template=lib2 $Z..$b1" - vC vH vH
+run_case "gitlink added, complete" 0 "submodule_delta=gitlink_added path=lib2" "$(m <<EOF
+lib2 $Z..$b1
++$b1 reviewer=alice new dependency, reviewed whole
+EOF
+)" vC vH vH
+run_case "gitlink added, listed as removed" 1 "reason=missing_added" "$(m <<EOF
+lib2 $Z..$b1
+-$b1 reviewer=alice wrong side
+EOF
+)" vC vH vH
+run_case "gitlink removed, no manifest" 1 "reason=no_manifest" - vH vI vI
+run_case "gitlink removed, complete" 0 "submodule_delta=gitlink_removed path=lib2" "$(m <<EOF
+lib2 $b1..$Z
+-$b1 reviewer=alice nothing of ours links it any more
+EOF
+)" vH vI vI
+
 # 8. Objects that cannot be had: the URL points nowhere.  Distinct code 3.
 g -C "$sup" checkout -q vC 2>/dev/null
 printf '[submodule "lib"]\n\tpath = lib\n\turl = %s\n' "$work/gone" > "$sup/.gitmodules"
@@ -176,6 +205,21 @@ if cmp -s "$script" "$mutant"; then
 else
     SCRIPT=$mutant run_case "mutant (old..new only) passes the non-ancestor gap" 0 \
         "submodule_delta=PASS" "$side_part" vB vC vC
+fi
+
+# ... and a script that pairs only gitlinks present on both sides must pass
+# an unlisted add and removal, or cases 7b prove nothing.
+mutant2="$work/mutant2.sh"
+sed 's|join -a1 -a2 -e|join -e|' "$script" > "$mutant2"
+chmod +x "$mutant2"
+if cmp -s "$script" "$mutant2"; then
+    cases=$((cases + 1)); failures=$((failures + 1))
+    echo "  FAIL mutant2: the outer join was not found to disable"
+else
+    SCRIPT=$mutant2 run_case "mutant (both sides only) passes an unlisted add" 0 \
+        "submodule_delta=PASS moved=0 manifest=none" - vC vH vH
+    SCRIPT=$mutant2 run_case "mutant (both sides only) passes an unlisted removal" 0 \
+        "submodule_delta=PASS moved=0 manifest=none" - vH vI vI
 fi
 
 if [ "$failures" = 0 ]; then
