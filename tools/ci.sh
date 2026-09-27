@@ -565,6 +565,17 @@ stage_host() {
         return 1
     fi
 
+    # A gitlink moves back only as a reviewed replacement: the exact move in a
+    # release manifest, every dropped commit with a reviewer.
+    if tools/check-gitlinks-selftest.sh > "$BUILD/gitlinks-selftest.log" 2>&1; then
+        note "gitlink backward-move rule: $(sed -n \
+              's/^check_gitlinks_selftest=PASS //p' "$BUILD/gitlinks-selftest.log")"
+    else
+        cat "$BUILD/gitlinks-selftest.log"
+        fail "tools/check-gitlinks.sh selftest"
+        return 1
+    fi
+
     # The installer must not move a live library aside before it has the new
     # one on the disk.  Text order, so it costs nothing and runs everywhere.
     if tools/check-installer-transaction.sh > "$BUILD/installer-txn.log" 2>&1; then
