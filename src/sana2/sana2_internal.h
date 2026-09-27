@@ -983,6 +983,12 @@ VOID   ami_sana2_rx_filled(APTR ios2_data, ULONG len, ULONG sum, UBYTE summed);
 /* Bytes a known vendor driver's card holds from the wire, by name; 0 for
    any other (sana2_device.c). */
 ULONG  ami_sana2_known_rx_bytes(const char *device);
+/* Extra default IPv4 reads for a known burst-delivering driver, or 0 to use
+   the ordinary BPS ladder; explicit IPREQUESTS always takes precedence. */
+UWORD  ami_sana2_default_ip_reads(const char *device);
+/* The IPv4 read depth an interface asks for: IPREQUESTS, else the above
+   (sana2_rx.c). */
+UWORD  ami_sana2_rx_ask_ip(const AmiSana2If *iface);
 BOOL ami_sana2_copy_to_buff(register APTR to    __asm("a0"),
                             register APTR from  __asm("a1"),
                             register ULONG len  __asm("d0"));

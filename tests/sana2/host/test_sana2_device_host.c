@@ -1798,6 +1798,45 @@ static void case_offline_no_timer(void)
     h_check(h_dev.closes == 1, "no timer: and closes the device once");
 }
 
+static void case_bursty_wifi_reads(void)
+{
+    printf("  WiFiPi has a burst-aware read default without changing wired cards\n");
+    h_check(ami_sana2_default_ip_reads("DEVS:Networks/anxwifipi.device") == 128,
+            "the shipped WiFiPi driver gets 128 reads by default");
+    h_check(ami_sana2_default_ip_reads("WIFIPI.DEVICE") == 128,
+            "the upstream driver name is recognized case-insensitively");
+    h_check(ami_sana2_default_ip_reads("genet.device") == 0,
+            "a wired driver keeps the ordinary BPS ladder");
+    h_check(ami_sana2_default_ip_reads(NULL) == 0,
+            "an unnamed driver keeps the ordinary BPS ladder");
+
+    /* The DEVICE= lines Install-AmiNetXDuo writes for Wi-Fi, system layout
+       and self-contained drawer: neither carries IPREQUESTS. */
+    h_check(ami_sana2_default_ip_reads("DEVS:Networks/anxwifipi.device") == 128 &&
+            ami_sana2_default_ip_reads("SYS:AmiNetXDuo/Devs/Networks/anxwifipi.device") == 128,
+            "both installer-written Wi-Fi DEVICE= forms get 128");
+
+    /* Every DEVICE= in the archive's Examples/NetInterfaces, and our own
+       wired drivers, keep the ladder. */
+    {
+        static const char *const wired[] =
+        {
+            "a2065.device", "ariadne.device", "ariadne_ii.device",
+            "cnet.device", "hydra.device", "uaenet.device",
+            "x-surf.device", "x-surf-100.device",
+            "DEVS:Networks/anxnet.device", "anxgenet.device",
+            "anxzz9000.device", "anxwifipi.device.old"
+        };
+        unsigned i;
+        BOOL     all = TRUE;
+
+        for (i = 0; i < sizeof(wired) / sizeof(wired[0]); i++)
+            if (ami_sana2_default_ip_reads(wired[i]) != 0)
+                all = FALSE;
+        h_check(all, "every shipped wired profile keeps the ordinary ladder");
+    }
+}
+
 int main(void)
 {
     printf("sana2 device: open, online, offline, close\n");
@@ -1832,6 +1871,7 @@ int main(void)
     case_offline_race_before_detach();
     case_offline_race_after_detach();
     case_offline_no_timer();
+    case_bursty_wifi_reads();
 
     h_check(ami_sana2_retained_count() == 0, "nothing is left retained");
     h_check(h_ports_made > 0, "reply ports were created");

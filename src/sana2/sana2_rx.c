@@ -2768,9 +2768,19 @@ VOID ami_sana2_rx_free_slots(AmiSana2If *iface)
     }
 }
 
+/* The IPv4 depth the interface asks rx_plan() for: the file's IPREQUESTS
+   when it gave one, else the driver's own default (0 = the BPS ladder). */
+UWORD ami_sana2_rx_ask_ip(const AmiSana2If *iface)
+{
+    if (iface->rx_want_ip != 0)
+        return iface->rx_want_ip;
+    return ami_sana2_default_ip_reads(iface->device);
+}
+
 LONG ami_sana2_rx_start(AmiSana2If *iface)
 {
     UWORD       i;
+    UWORD       ask_ip;
     AmiRxDepths depths;
     UINT        txstatus;
 
@@ -2788,9 +2798,11 @@ LONG ami_sana2_rx_start(AmiSana2If *iface)
     if (iface->pool == NULL || iface->ip == NULL)
         return -1;
 
+    ask_ip = ami_sana2_rx_ask_ip(iface);
+
     ami_sana2_rx_plan(iface->bps, iface->pool->nx_packet_pool_total,
                       (BOOL)(AMI_SANA2_RX_READERS == 3),
-                      ami_sana2_bound_count(), iface->rx_want_ip,
+                      ami_sana2_bound_count(), ask_ip,
                       iface->rx_want_arp, &depths);
 
     AMI_INFO("sana2: read queues ip %ld arp %ld ip6 %ld "

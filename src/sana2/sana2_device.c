@@ -1693,6 +1693,31 @@ ULONG ami_sana2_known_rx_bytes(const char *device)
     return 0;
 }
 
+/* WiFiPi's receiver runs at Exec priority 5, above every ThreadX task, and
+ * delivers a whole wake's SDPCM frames (up to 64, each possibly a glom)
+ * before the reader can re-post one CMD_READ; a frame with no read queued is
+ * dropped into UnknownTypesReceived.  Its fixed 100 Mbit/s device query lands
+ * on the 32-read LAN rung.  Measured on the CM4 A1200 (#89): 128 reads, 59.0
+ * Mbit/s inbound, UnknownTypes 82 of 53,483 packets; 128 is also
+ * AMI_SANA2_RX_MAX_DEPTH.  Over the 32 it replaces it holds 96 more pool
+ * packets (156,672 B of the pool at the 1,632 B stride, none allocated) and
+ * 11,904 B more slot RAM; an explicit IPREQUESTS still wins, and rx_plan()
+ * still caps it at the pool budget. */
+UWORD ami_sana2_default_ip_reads(const char *device)
+{
+    const char *base;
+
+    if (device == NULL)
+        return 0;
+
+    base = ami_sana2_basename(device);
+    if (ami_str_iequal(base, "anxwifipi.device") ||
+        ami_str_iequal(base, "wifipi.device"))
+        return 128;
+
+    return 0;
+}
+
 BOOL ami_sana2_is_online(const AmiSana2If *iface)
 {
     return (iface != NULL) ? iface->online : FALSE;
