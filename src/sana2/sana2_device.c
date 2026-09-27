@@ -409,6 +409,10 @@ typedef struct AmiSana2Unit
     struct Device *device;
     struct Unit *unit;
     UWORD        users;
+    /* The interface whose abandoned S2_OFFLINE the device still holds, or
+       NULL.  Keeps the slot past its last user: until that request is back,
+       no interface may online the unit (ami_sana2_online()). */
+    struct AmiSana2If *held_by;
 } AmiSana2Unit;
 
 static AmiSana2Unit ami_sana2_units[AMI_CFG_MAX_ATTACHED];
@@ -423,7 +427,8 @@ static AmiSana2Unit *ami_sana2_unit_slot(const AmiSana2If *iface, BOOL create)
     {
         AmiSana2Unit *u = &ami_sana2_units[i];
 
-        if (u->users != 0 && u->device == device && u->unit == identity)
+        if ((u->users != 0 || u->held_by != NULL) &&
+            u->device == device && u->unit == identity)
             return u;
     }
 
@@ -434,7 +439,7 @@ static AmiSana2Unit *ami_sana2_unit_slot(const AmiSana2If *iface, BOOL create)
     {
         AmiSana2Unit *u = &ami_sana2_units[i];
 
-        if (u->users == 0)
+        if (u->users == 0 && u->held_by == NULL)
         {
             u->device = device;
             u->unit = identity;
@@ -481,7 +486,7 @@ static BOOL ami_sana2_unit_leave(AmiSana2If *iface)
 
     u->users--;
 
-    if (u->users == 0)
+    if (u->users == 0 && u->held_by == NULL)
     {
         u->device = NULL;
         u->unit = NULL;
@@ -492,10 +497,42 @@ static BOOL ami_sana2_unit_leave(AmiSana2If *iface)
 
 /* ------------------------------------------------------------ online state */
 
+static BOOL ami_sana2_offline_reap(AmiSana2If *iface);
+
+/*
+ * TRUE while the device still holds an abandoned S2_OFFLINE for this unit,
+ * this interface's or a sibling's.  Reaps it first if its reply is back, so
+ * S2_ONLINE follows S2_OFFLINE in the order the device completed them.
+ */
+static BOOL ami_sana2_offline_pending(AmiSana2If *iface)
+{
+    AmiSana2Unit *u;
+
+    if (ami_sana2_offline_reap(iface))
+        return TRUE;
+
+    u = ami_sana2_unit_slot(iface, FALSE);
+    if (u != NULL && u->held_by != NULL &&
+        ami_sana2_offline_reap(u->held_by))
+        return TRUE;
+
+    return FALSE;
+}
+
 LONG ami_sana2_online(AmiSana2If *iface)
 {
     struct IOSana2Req req = iface->templ;
     LONG              err;
+
+    /* An S2_OFFLINE the device still holds could complete after this
+       S2_ONLINE and leave the wire down under a stack that reports it up.
+       Refused, with nothing joined or marked: the next link-up tries again. */
+    if (ami_sana2_offline_pending(iface))
+    {
+        AMI_WARN("sana2: %s still holds the last S2_OFFLINE; not onlining",
+                 iface->device);
+        return (LONG)IOERR_UNITBUSY;
+    }
 
     if (ami_sana2_unit_join(iface))
     {
@@ -574,6 +611,19 @@ static BOOL ami_sana2_offline_reap(AmiSana2If *iface)
         return TRUE;
 
     iface->offline_held = FALSE;
+    {
+        AmiSana2Unit *u = ami_sana2_unit_slot(iface, FALSE);
+
+        if (u != NULL && u->held_by == iface)
+        {
+            u->held_by = NULL;
+            if (u->users == 0)
+            {
+                u->device = NULL;
+                u->unit = NULL;
+            }
+        }
+    }
     AMI_INFO("sana2: %s answered the abandoned S2_OFFLINE", iface->device);
     return FALSE;
 }
@@ -691,6 +741,13 @@ static LONG ami_sana2_offline_io(AmiSana2If *iface, ULONG *wire)
 
     if (!replied)
     {
+        /* The unit's last user has left: the slot is taken again to say
+           the device still holds this request.  No slot: only this
+           interface's own online is held back. */
+        AmiSana2Unit *u = ami_sana2_unit_slot(iface, TRUE);
+
+        if (u != NULL)
+            u->held_by = iface;
         AMI_ERROR("sana2: %s answered neither S2_OFFLINE nor its AbortIO. "
                   "The interface leaks until it does",
                   iface->device);

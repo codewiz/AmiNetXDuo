@@ -1629,11 +1629,15 @@ static void case_offline_bounded_deaf(void)
             "deaf: its port signals nobody");
     h_offline_clean("deaf");
 
-    /* A second link-down does not issue a second request. */
-    (VOID)ami_sana2_online(iface);
-    h_check(ami_sana2_offline(iface) == (LONG)IOERR_UNITBUSY,
+    /* No link-up while the device holds it, and so no second request. */
+    h_check(ami_sana2_online(iface) == (LONG)IOERR_UNITBUSY,
+            "deaf: online refused while the S2_OFFLINE is held");
+    h_check(h_dev.online_cmds == 1, "deaf: no S2_ONLINE issued");
+    h_check(!iface->online &&
+            iface->offline_state == AMI_SANA2_OFFLINE_ISSUED,
+            "deaf: still offline, S2_OFFLINE still the last word");
+    h_check(ami_sana2_offline(iface) == 0 && h_dev.offline_cmds == 1,
             "deaf: no second S2_OFFLINE while the first is held");
-    h_check(h_dev.offline_cmds == 1, "deaf: the device saw one");
 
     h_check(!h_tear_down(iface), "deaf: the close refuses");
     h_check(h_dev.closes == 0, "deaf: CloseDevice() was NOT called");
@@ -1657,6 +1661,73 @@ static void case_offline_bounded_deaf(void)
     h_check(h_free_watched == 1, "deaf: and frees the interface once");
     h_retained_iface = NULL;
     h_free_watch     = NULL;
+}
+
+/* Online after an abandoned S2_OFFLINE: refused while the device holds it,
+   then, once the late reply is back, S2_ONLINE in the order the device
+   completed them; the interface then closes normally. */
+static void case_offline_held_then_online(void)
+{
+    AmiSana2If *iface = h_bring_up_offline(H_OFF_DEAF);
+
+    h_check(iface != NULL, "held-online: the interface opened");
+    if (iface == NULL)
+        return;
+
+    h_check(ami_sana2_offline(iface) == (LONG)IOERR_ABORTED &&
+            iface->offline_held, "held-online: S2_OFFLINE abandoned");
+    h_check(ami_sana2_online(iface) == (LONG)IOERR_UNITBUSY,
+            "held-online: online refused");
+    h_check(h_dev.online_cmds == 1 && !h_dev.unit_online,
+            "held-online: no S2_ONLINE reached the device");
+    h_check(!iface->online && !iface->unit_counted &&
+            iface->offline_state == AMI_SANA2_OFFLINE_ISSUED,
+            "held-online: nothing joined or marked up");
+
+    h_offline_reply();
+    h_check(ami_sana2_online(iface) == 0, "held-online: online after the reply");
+    h_check(!iface->offline_held, "held-online: the reply was reaped first");
+    h_check(h_dev.online_cmds == 2 && h_dev.unit_online,
+            "held-online: S2_ONLINE issued after S2_OFFLINE completed");
+    h_check(iface->online && iface->offline_state == AMI_SANA2_OFFLINE_UP,
+            "held-online: up");
+
+    h_dev.offline_mode = H_OFF_SYNC;
+    h_check(h_tear_down(iface), "held-online: closes normally");
+    h_check(h_dev.closes == 1 && ami_sana2_retained_count() == 0,
+            "held-online: CloseDevice() once, nothing retained");
+}
+
+/* A sibling on the same unit may not online it past another interface's
+   abandoned S2_OFFLINE either. */
+static void case_offline_held_sibling_online(void)
+{
+    AmiSana2If *a = h_bring_up_offline(H_OFF_DEAF);
+    AmiSana2If *b;
+
+    h_check(a != NULL, "held-sibling: the first interface opened");
+    if (a == NULL)
+        return;
+
+    h_check(ami_sana2_offline(a) == (LONG)IOERR_ABORTED && a->offline_held,
+            "held-sibling: its S2_OFFLINE abandoned");
+    b = h_bring_up_unit(0);
+    h_check(b == NULL, "held-sibling: the sibling's online is refused");
+    h_check(h_dev.online_cmds == 1 && !h_dev.unit_online,
+            "held-sibling: no S2_ONLINE reached the device");
+
+    h_offline_reply();
+    b = h_bring_up_unit(0);
+    h_check(b != NULL, "held-sibling: the sibling comes up after the reply");
+    h_check(!a->offline_held, "held-sibling: it reaped the first one's reply");
+    h_check(h_dev.online_cmds == 2 && h_dev.unit_online,
+            "held-sibling: S2_ONLINE after S2_OFFLINE completed");
+
+    h_dev.offline_mode = H_OFF_SYNC;
+    h_check(h_tear_down(a), "held-sibling: the first closes");
+    if (b != NULL)
+        h_check(h_tear_down(b), "held-sibling: the sibling closes");
+    h_check(ami_sana2_retained_count() == 0, "held-sibling: nothing retained");
 }
 
 /* The reply lands inside the Disable() that would detach the port: it is
@@ -1756,6 +1827,8 @@ int main(void)
     case_offline_bounded_errors();
     case_offline_bounded_abort();
     case_offline_bounded_deaf();
+    case_offline_held_then_online();
+    case_offline_held_sibling_online();
     case_offline_race_before_detach();
     case_offline_race_after_detach();
     case_offline_no_timer();
