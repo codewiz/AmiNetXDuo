@@ -612,8 +612,8 @@ static LONG ami_sana2_offline_io(AmiSana2If *iface, ULONG *wire)
     struct IOSana2Req  *req  = &iface->offline_req;
     struct MsgPort     *port = &iface->offline_port;
     struct IORequest   *io   = (struct IORequest *)req;
-    struct timerequest  tr;
-    struct MsgPort      tport;
+    struct timerequest  tr    = { 0 };
+    struct MsgPort      tport = { 0 };
     struct Task        *self;
     BYTE                sig;
     UWORD               phase;
