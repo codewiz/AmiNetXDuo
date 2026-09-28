@@ -129,6 +129,7 @@ static const char *const ami_cfg_advice_text[] =
     "TCPACKMAX is the maximum number of received TCP bytes to wait "
     "before requesting an ACK, 1 to 65535. Leave it out for the "
     "device default; smaller values send more ACKs.",
+    "TCPGROWRTT is milliseconds, 1 to 65535. Leave it out for 10.",
 };
 
 const char *ami_cfg_advice(UWORD code)
