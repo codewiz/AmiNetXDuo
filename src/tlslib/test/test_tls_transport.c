@@ -75,7 +75,8 @@ static ULONG h_now_micros(VOID)
                    (unsigned long long)ts.tv_nsec / 1000ULL);
 }
 
-BOOL  ami_tls_timer_is_open(VOID)          { return TRUE; }
+static BOOL h_timer_open = TRUE;
+BOOL  ami_tls_timer_is_open(VOID)          { return h_timer_open; }
 ULONG ami_tls_eclock(VOID)                 { return h_now_micros(); }
 ULONG ami_tls_eclock_micros(ULONG ticks)   { return ticks; }
 
@@ -266,6 +267,24 @@ static void test_receive_budget_quiet(void)
     CHECK(_nx_tcp_socket_receive(tls_transport_socket(&rig.transport), &packet,
                                  h_ticks(30)) == NX_NO_PACKET);
     CHECK(h_now_micros() - start >= 20000UL);
+
+    /* No timer.device: the documented fallback, each wait on its own.  Three
+       60 ms waits under a 100 ms budget take their full 180 ms, and the
+       third is not cut short. */
+    h_timer_open = FALSE;
+    tls_transport_budget(&rig.transport, h_ticks(100));
+    start = h_now_micros();
+    CHECK(_nx_tcp_socket_receive(tls_transport_socket(&rig.transport), &packet,
+                                 h_ticks(60)) == NX_NO_PACKET);
+    CHECK(_nx_tcp_socket_receive(tls_transport_socket(&rig.transport), &packet,
+                                 h_ticks(60)) == NX_NO_PACKET);
+    third = h_now_micros();
+    CHECK(_nx_tcp_socket_receive(tls_transport_socket(&rig.transport), &packet,
+                                 h_ticks(60)) == NX_NO_PACKET);
+    CHECK(h_now_micros() - third >= 45000UL);
+    CHECK(h_now_micros() - start >= 150000UL);
+    tls_transport_budget_end(&rig.transport);
+    h_timer_open = TRUE;
 
     /* NX_WAIT_FOREVER is no budget, as TLSA_Timeout 0 is unlimited. */
     tls_transport_budget(&rig.transport, NX_WAIT_FOREVER);

@@ -113,9 +113,8 @@ VOID tls_transport_budget_end(TLSTransport *transport)
 /*
  * One WaitSelect() under the call's budget (F-280).  The wait is the shorter
  * of wait_option and what the budget has left, and the budget is charged the
- * time the wait took by the E-clock, or all of it on a timeout when
- * timer.device is not open.  Returns 0, as a timeout, without waiting once
- * the budget is spent.
+ * time the wait took by the E-clock.  Returns 0, as a timeout, without
+ * waiting once the budget is spent.
  */
 static LONG tls_transport_wait(TLSTransport *transport, BOOL write,
                                ULONG wait_option)
@@ -127,7 +126,10 @@ static LONG tls_transport_wait(TLSTransport *transport, BOOL write,
     ULONG                 spent;
     LONG                  ready;
 
-    if (!transport->tt_BudgetOn)
+    /* Without timer.device nothing can measure a wait that ended early, so
+       there is no honest budget: each wait gets its own wait_option, as
+       before F-280.  tlslib.h documents this. */
+    if (!transport->tt_BudgetOn || !ami_tls_timer_is_open())
     {
         timeout_ptr = tls_transport_timeout(wait_option, &timeout);
         return tls_sock_wait(transport->tt_SocketBase, transport->tt_Fd,
@@ -148,10 +150,7 @@ static LONG tls_transport_wait(TLSTransport *transport, BOOL write,
     ready = tls_sock_wait(transport->tt_SocketBase, transport->tt_Fd, write,
                           &timeout);
 
-    if (ami_tls_timer_is_open())
-        spent = ami_tls_eclock_micros(ami_tls_eclock() - start);
-    else
-        spent = (ready == 0) ? clamp : 0;
+    spent = ami_tls_eclock_micros(ami_tls_eclock() - start);
 
     transport->tt_BudgetMicros = (spent >= transport->tt_BudgetMicros)
                                  ? 0 : transport->tt_BudgetMicros - spent;
