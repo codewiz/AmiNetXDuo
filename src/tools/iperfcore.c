@@ -500,17 +500,24 @@ static VOID iperf_slice_accept(IperfRun *run)
        silent otherwise holds the server forever, past the idle test and
        Ctrl-C (F-163).  The timeout comes back as EWOULDBLOCK, which
        iperf_slice_recv() already treats as "nothing there". */
-    if (!run->plan.blocking)
-        (VOID)tool_sock_ioctl(run->sb, s, TOOL_FIONBIO, &nonblock);
-    else
+    if (run->plan.blocking)
     {
         ToolTimeval tv;
 
         tv.tv_secs  = (LONG)(IPERF_BLOCK_WAIT_MS / 1000UL);
         tv.tv_micro = (LONG)((IPERF_BLOCK_WAIT_MS % 1000UL) * 1000UL);
-        (VOID)tool_sock_setsockopt(run->sb, s, TOOL_SOL_SOCKET, TOOL_SO_RCVTIMEO,
-                                   &tv, (LONG)sizeof(tv));
+
+        /* A stack that refuses the timeout gets this run nonblocking
+           instead: a blocking recv() with no bound is what this avoids. */
+        if (tool_sock_setsockopt(run->sb, s, TOOL_SOL_SOCKET, TOOL_SO_RCVTIMEO,
+                                 &tv, (LONG)sizeof(tv)) != 0)
+            run->plan.blocking = 0;
     }
+    if (!run->plan.blocking)
+        (VOID)tool_sock_ioctl(run->sb, s, TOOL_FIONBIO, &nonblock);
+
+    /* The idle test's reference until the first byte starts the clock. */
+    run->t_lastact = ami_millis();
     (VOID)tool_sock_addr_get(&from, &run->res.peer);
     run->res.peer_port = tool_sock_addr_port(&from);
 
@@ -781,6 +788,16 @@ static VOID iperf_slice_recv(IperfRun *run)
         if (run->clock_on && (now - run->t_lastact) >= IPERF_IDLE_MS)
         {
             run->res.ms = run->t_lastact - run->t_begin;
+            run->state  = ST_DONE;
+        }
+        else if (!run->clock_on && !iperf_udp(run) &&
+                 (now - run->t_lastact) >= IPERF_IDLE_MS)
+        {
+            /* A TCP peer that connected and never sent a byte.  It ends the
+               way one that closed without sending does: done, no bytes, no
+               time -- not a measurement (F-163).  A UDP server has no
+               connection yet and keeps waiting for its first datagram. */
+            run->res.ms = 0;
             run->state  = ST_DONE;
         }
 
