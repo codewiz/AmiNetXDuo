@@ -106,17 +106,21 @@ static char ug_record_separator(const char *line)
 }
 
 /*
- * Accumulates unsigned and saturates. A multiply of a signed LONG is undefined
- * past 2^31, and a uid field in DEVS: can hold any number of digits. UBSan
- * found it through tests/fuzz/fuzz_usergroup.c.
+ * A ':'-format uid or gid.  Accumulates unsigned and saturates: a multiply of
+ * a signed LONG is undefined past 2^31, and a uid field in DEVS: can hold any
+ * number of digits (UBSan, tests/fuzz/fuzz_usergroup.c).  An optional sign,
+ * at least one digit and nothing after the digits but blanks, or FALSE: an
+ * empty or mistyped id is not uid 0 (F-290).  Unlike ug_number(), which
+ * refuses what ReadArgs /N would, a number past 2^31 saturates as before.
  */
-static LONG ug_atol(const char *s)
+static BOOL ug_id(const char *s, LONG *out)
 {
     ULONG value = 0;
     BOOL  negative = FALSE;
+    BOOL  digits = FALSE;
 
     if (s == NULL)
-        return 0;
+        return FALSE;
 
     while (*s == ' ' || *s == '\t')
         s++;
@@ -135,6 +139,7 @@ static LONG ug_atol(const char *s)
     {
         ULONG digit = (ULONG)(*s++ - '0');
 
+        digits = TRUE;
         if (value > (2147483647UL - digit) / 10UL)
         {
             value = 2147483647UL;
@@ -146,7 +151,13 @@ static LONG ug_atol(const char *s)
         value = value * 10UL + digit;
     }
 
-    return negative ? -(LONG)value : (LONG)value;
+    while (*s == ' ' || *s == '\t')
+        s++;
+    if (!digits || *s != '\0')
+        return FALSE;
+
+    *out = negative ? -(LONG)value : (LONG)value;
+    return TRUE;
 }
 
 /* ReadArgs /N rejects a field which is not entirely one signed decimal
@@ -388,8 +399,9 @@ void ug_db_parse_passwd(struct UgDatabase *db, char *text)
         pw = &db->pw[db->pw_count];
         pw->pw_name   = name;
         pw->pw_passwd = ug_field(&field, sep);
-        pw->pw_uid    = ug_atol(ug_field(&field, sep));
-        pw->pw_gid    = ug_atol(ug_field(&field, sep));
+        if (!ug_id(ug_field(&field, sep), &pw->pw_uid) ||
+            !ug_id(ug_field(&field, sep), &pw->pw_gid))
+            continue;       /* no id is not uid 0: the entry is skipped */
         pw->pw_gecos  = ug_field(&field, sep);
         pw->pw_dir    = ug_field(&field, sep);
         pw->pw_shell  = ug_field(&field, sep);
@@ -567,7 +579,8 @@ void ug_db_parse_group(struct UgDatabase *db, char *text, ULONG len)
         gr = &db->gr[db->gr_count];
         gr->gr_name   = name;
         gr->gr_passwd = ug_field(&field, sep);
-        gr->gr_gid    = ug_atol(ug_field(&field, sep));
+        if (!ug_id(ug_field(&field, sep), &gr->gr_gid))
+            continue;       /* before any member slot is taken */
         gr->gr_mem    = &db->gr_members[slot];
 
         members = field;    /* the whole remainder is the comma list */

@@ -566,10 +566,51 @@ static void test_passwd_edges(void)
     free_db(db);
 
     /* Short lines: the missing fields come back empty, not off the end. */
-    db = load_passwd("root\rjane:*\r");
+    db = load_passwd("root::0:0\rjane:*:5:6\r");
     CHECK(db->pw_count == 2);
     CHECK_STR(db->pw[1].pw_gecos, "");
     CHECK_STR(db->pw[1].pw_dir, "SYS:");
+    free_db(db);
+
+    /*
+     * F-290: a line without a usable uid and gid is not uid/gid 0.  "jane:*"
+     * used to become a second uid 0 entry, and one ahead of root would answer
+     * getpwuid(0).  Empty, non-numeric and trailing-junk ids skip the entry;
+     * blanks around a valid id and a '+' sign are still accepted.
+     */
+    db = load_passwd("jane:*\r"
+                     "empty:*::0:g:d:s\r"
+                     "alpha:*:abc:0:g:d:s\r"
+                     "junk:*:12abc:0:g:d:s\r"
+                     "sign:*:-:0:g:d:s\r"
+                     "nogid:*:7:x:g:d:s\r"
+                     "root:*:0:0:Root:SYS:\r"
+                     "spaced:*: 7 :+8:g:d:s\r");
+    CHECK(db->pw_count == 2);
+    CHECK_STR(db->pw[0].pw_name, "root");
+    CHECK_STR(db->pw[0].pw_gecos, "Root");
+    CHECK_STR(db->pw[1].pw_name, "spaced");
+    CHECK(db->pw[1].pw_uid == 7);
+    CHECK(db->pw[1].pw_gid == 8);
+    free_db(db);
+
+    /* Only malformed lines: the built-in root, as with no file. */
+    db = load_passwd("root\rjane:*\r");
+    CHECK(db->pw_count == 1);
+    CHECK(db->pw[0].pw_uid == 0);
+    free_db(db);
+
+    /* The group side, before any member slot is taken. */
+    db = load_group("bad:*:x:jane,root\r"
+                    "none:*\r"
+                    "wheel:*:0:root\r"
+                    "staff:*: 10 :jane\r");
+    CHECK(db->gr_count == 2);
+    CHECK_STR(db->gr[0].gr_name, "wheel");
+    CHECK_STR(db->gr[1].gr_name, "staff");
+    CHECK(db->gr[1].gr_gid == 10);
+    CHECK(db->gr[0].gr_mem[0] != NULL && strcmp(db->gr[0].gr_mem[0], "root") == 0);
+    CHECK(db->gr[0].gr_mem[1] == NULL);
     free_db(db);
 }
 
