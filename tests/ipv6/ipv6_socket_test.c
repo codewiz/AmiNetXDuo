@@ -1075,6 +1075,7 @@ LONG                    server, client, accepted;
 LONG                    rc;
 struct t_sockaddr_in     sa4;
 struct t_sockaddr_in6    sa6;
+struct t_timeval         timeout;
 
     t_log("TCP listener address family");
 
@@ -1096,6 +1097,20 @@ struct t_sockaddr_in6    sa6;
 
     rc = bsd_listen(server, 2);
     if (!t_check((BOOL)(rc == 0), "AF_INET listen", bsd_Errno()))
+    {
+        (VOID)bsd_CloseSocket(server);
+        return;
+    }
+
+    /* A blocking accept waits for a matching peer after it discards the
+       wrong-family handshake.  Bound this negative check so it can report
+       EWOULDBLOCK without parking the entire test indefinitely. */
+    timeout.tv_secs = 2;
+    timeout.tv_micro = 0;
+    rc = bsd_setsockopt(server, SOL_SOCKET, SO_RCVTIMEO, &timeout,
+                        sizeof(timeout));
+    if (!t_check((BOOL)(rc == 0), "AF_INET listener receive deadline",
+                 bsd_Errno()))
     {
         (VOID)bsd_CloseSocket(server);
         return;
