@@ -696,6 +696,18 @@ static const UBYTE ne_coherence_pattern[8] =
     0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88
 };
 
+/*
+ * The AX88796B's flow control.  Reading the reset port resets the MAC and
+ * puts FCR back to its default 0x07, so this follows every reset pulse after
+ * attach, not only attach itself (F-287).  Gated on the card row: on an
+ * RTL8019 or a real DP8390 this offset is not a register.
+ */
+static VOID ne2000_ax88796_flow(NetdevNic *nic)
+{
+    if (nic->card->ax88796)
+        NIC_PUT(nic, AX88796_FCR, AX88796_FCR_FLWC | AX88796_FCR_HWPC_RESET);
+}
+
 static BOOL ne2000_coherent(NetdevNic *nic)
 {
     ULONG  inbuf[2];
@@ -703,6 +715,7 @@ static BOOL ne2000_coherent(NetdevNic *nic)
     UBYTE  saved = nic->bus.dmode;
 
     ne2000_probe_reset(nic);
+    ne2000_ax88796_flow(nic);           /* the pulse cleared it (F-287) */
     NIC_PUT(nic, ED_P0_RCR, ED_RCR_MON);
     NIC_PUT(nic, ED_P0_DCR, ED_DCR_FT1 | ED_DCR_LS | ED_DCR_WTS);
 
@@ -903,15 +916,14 @@ static LONG ne2000_attach(NetdevNic *nic)
     dp8390_halt(nic);
 
     /*
-     * Once, here, after the probe's reset pulse and before the first init.
+     * Here, after the probe's reset pulse and before the first init.
      * dp8390_halt()/dp8390_init() program the DP8390 register file and leave
-     * the MAC's configuration alone, so every later reset -- the watchdog's,
-     * the overwrite recovery's -- keeps this; only the reset port would clear
-     * it, and nothing strobes that after detection.  Gated on the card row:
-     * on an RTL8019 or a real DP8390 this offset is not a register.
+     * the MAC's configuration alone, so the watchdog's and the overwrite
+     * recovery's resets keep this.  The reset port clears it, and
+     * ne2000_coherent() strobes that port again on the first Open of a 68030
+     * cache check, so it sets it again there (F-287).
      */
-    if (nic->card->ax88796)
-        NIC_PUT(nic, AX88796_FCR, AX88796_FCR_FLWC | AX88796_FCR_HWPC_RESET);
+    ne2000_ax88796_flow(nic);
 
     return 0;
 }

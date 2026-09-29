@@ -830,6 +830,19 @@ static void test_attach_flow_control(void)
     expect_u32("FCR carries FLWC and the reset-default high-water count",
                mock_reg[0x1a], 0x87u);
 
+    /*
+     * F-287: the first Open on a 68030 runs the cache check, which strobes
+     * the reset port again and puts FCR back to its default.  The check must
+     * set FLWC again, and the pulse must really have happened.
+     */
+    {
+        int resets = mock_resets;
+
+        (VOID)netdev_nic_ne2000.coherent(&nic);
+        ok("the coherence check pulses the reset port", mock_resets > resets);
+        expect_u32("and FCR carries FLWC again after it", mock_reg[0x1a], 0x87u);
+    }
+
     ok("the Ariadne II row exists and is not an AX88796B",
        plain != NULL && plain->ax88796 == 0);
     board_contiguous(&nic, plain);
@@ -838,6 +851,8 @@ static void test_attach_flow_control(void)
     prom_stage(mac, 1);
     ok("attaches", ne2000_attach(&nic) == 0);
     expect_u32("and register 0x1a is left alone", mock_reg[0x1a], 0u);
+    (VOID)netdev_nic_ne2000.coherent(&nic);
+    expect_u32("by the coherence check too", mock_reg[0x1a], 0u);
 }
 
 int main(void)
