@@ -24,6 +24,12 @@ static int hl_equal(const char *a, const char *b)
     return (a[i] == b[i]) ? 1 : 0;
 }
 
+/* Path names follow Amiga's case-insensitive lookup rules; lock tokens do not. */
+static int hl_path_equal(const char *a, const char *b)
+{
+    return http_path_within(a, b) && http_path_within(b, a);
+}
+
 /* ------------------------------------------------------------------ table --- */
 
 void httplock_reset(void)
@@ -58,7 +64,7 @@ HttpLock *httplock_on(const char *path, unsigned long now)
         if (!l->used)
             continue;
 
-        if (hl_equal(l->path, path))
+        if (hl_path_equal(l->path, path))
             return l;
 
         if (l->depth != 0 && http_path_within(l->path, path))
@@ -79,7 +85,8 @@ HttpLock *httplock_exact(const char *path)
 
     for (i = 0; i < (unsigned long)HTTPD_LOCK_MAX; i++)
     {
-        if (httplock_table[i].used && hl_equal(httplock_table[i].path, path))
+        if (httplock_table[i].used &&
+            hl_path_equal(httplock_table[i].path, path))
             return &httplock_table[i];
     }
 
@@ -137,7 +144,7 @@ int httplock_covers(const HttpLock *l, const char *path)
     if (l == 0)
         return 0;
 
-    if (hl_equal(l->path, path))
+    if (hl_path_equal(l->path, path))
         return 1;
 
     return (l->depth != 0 && http_path_within(l->path, path)) ? 1 : 0;

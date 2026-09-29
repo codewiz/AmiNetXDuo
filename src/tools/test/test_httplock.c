@@ -106,12 +106,30 @@ static void test_prefix_is_not_a_parent(void)
 /* Paths on this machine are case-insensitive, so a lock has to be too. */
 static void test_case_insensitive(void)
 {
+    HttpLock *l;
+
     httplock_reset();
 
     CHECK(place("Work:Public", TOKEN, 1, 100) != 0);
 
     CHECK(httplock_on("work:public/NOTES.TXT", 50) != 0);
     CHECK(httplock_covers(httplock_on("WORK:PUBLIC", 50), "WORK:PUBLIC") == 1);
+
+    /* A Depth: 0 lock must also cover alternate spelling of its own path. */
+    httplock_reset();
+
+    l = place("Work:Public/Notes.txt", TOKEN, 0, 100);
+    CHECK(l != 0);
+    CHECK(httplock_on("work:public/NOTES.TXT", 50) == l);
+    CHECK(httplock_exact("WORK:PUBLIC/notes.txt") == l);
+    CHECK(httplock_covers(l, "WORK:PUBLIC/notes.txt") == 1);
+    CHECK(httplock_allows(NONE, NONE, "work:public/NOTES.TXT", 50) == 0);
+    CHECK(httplock_allows(TOKEN, NONE, "work:public/NOTES.TXT", 50) == 1);
+    CHECK(httplock_on("work:public/NOTES.TXT/child", 50) == 0);
+
+    /* The resource name is case-insensitive, but the opaque token is not. */
+    CHECK(httplock_allows("OPAQUELOCKTOKEN:aabbccdd", NONE,
+                          "work:public/NOTES.TXT", 50) == 0);
 }
 
 /*
