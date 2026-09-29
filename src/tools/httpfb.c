@@ -2968,7 +2968,10 @@ BOOL http_fb_slice(ULONG now)
         {
             fb_close_saying(HTTP_WS_CLOSE_GOING,
                             "the new screen could not be read");
-            return TRUE;
+            /* fb_take_buffers() freed the old TX buffer before failing.
+               End the session now: http_fb_write() cannot send the queued
+               close frame without dereferencing that freed buffer. */
+            return FALSE;
         }
         /* A first frame again, against a shadow that is empty again. */
         fb_pass_ticks = FB_BAND_WHEN;
