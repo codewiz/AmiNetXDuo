@@ -242,6 +242,55 @@ VOID bsd_netmon_drop_owner(struct AmiSocketBase *owner)
     }
 }
 
+/*
+ * The dead-task sweep's version of the above: its owner has exited, so there
+ * is nobody to wait in, and the sweep runs from the tick task under sb_Lock
+ * where it must not block (F-050).  Each of the owner's registrations leaves
+ * its list at once, so no later dispatch finds it.  One nobody is calling is
+ * freed here; one a dispatch is inside is marked removed with no waiter, and
+ * that dispatch frees it when the call returns (the free_after path below).
+ * A call already in flight still runs the dead owner's hook: that is bounded,
+ * not closed, as on ordinary close.
+ */
+VOID bsd_netmon_detach_owner(struct AmiSocketBase *owner)
+{
+    UWORD i;
+
+    if (owner == NULL)
+        return;
+
+    Forbid();
+    if (bsd_mon_ready)
+    {
+        for (i = 0; i < (UWORD)BSD_MHT_COUNT; i++)
+        {
+            struct MinNode *n = bsd_mon_list[i].mlh_Head;
+
+            while (n->mln_Succ != NULL)
+            {
+                BsdMonitorNode *mn   = (BsdMonitorNode *)n;
+                struct MinNode *next = n->mln_Succ;
+
+                if (mn->bmn_Owner == owner)
+                {
+                    Remove((struct Node *)&mn->bmn_Node);
+                    mn->bmn_Removed  = 1;
+                    mn->bmn_Waiter   = NULL;
+                    mn->bmn_WaitMask = 0;
+                    if (mn->bmn_Refs == 0)
+                    {
+                        if (bsd_mon_count > 0)
+                            bsd_mon_count--;
+                        FreeMem(mn, sizeof(*mn));
+                    }
+                }
+                n = next;
+            }
+        }
+    }
+    Permit();
+}
+
 typedef LONG (*BsdMonitorFn)(register struct Hook *hook __asm("a0"),
                              register APTR reserved __asm("a2"),
                              register APTR message __asm("a1"));
@@ -383,6 +432,11 @@ BOOL bsd_netmon_busy(VOID)
 }
 
 VOID bsd_netmon_drop_owner(struct AmiSocketBase *owner)
+{
+    (VOID)owner;
+}
+
+VOID bsd_netmon_detach_owner(struct AmiSocketBase *owner)
 {
     (VOID)owner;
 }

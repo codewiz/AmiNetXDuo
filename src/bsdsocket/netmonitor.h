@@ -43,4 +43,9 @@ BOOL bsd_netmon_busy(VOID);
    caller's Hook storage disappear. */
 VOID bsd_netmon_drop_owner(struct AmiSocketBase *owner);
 
+/* The same for an owner whose task has already exited, from the dead-task
+   sweep: never waits; a registration a dispatch is inside is freed by that
+   dispatch when its call returns (F-050). */
+VOID bsd_netmon_detach_owner(struct AmiSocketBase *owner);
+
 #endif /* AMINETXDUO_BSDSOCKET_NETMONITOR_H */

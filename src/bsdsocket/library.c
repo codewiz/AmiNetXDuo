@@ -234,6 +234,9 @@ static VOID bsd_task_sweep(VOID)
         /* Its task is gone, so a log hook it installed lives in freed memory.
            Drop it now, not only on the next syslog() that would call it. */
         bsd_log_hook_drop_owner(child);
+        /* The same for its network monitor hooks, without waiting: nothing
+           dispatches to them after this (F-050). */
+        bsd_netmon_detach_owner(child);
 
         child->sb_NxNest     = 0;
         child->sb_NxTask     = NULL;
