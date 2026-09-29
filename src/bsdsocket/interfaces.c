@@ -889,12 +889,17 @@ static LONG bsd_if_parse_add(struct AmiSocketBase *SocketBase,
 
             case IFA_HardwareAddress:
             {
-                const UBYTE *address = (const UBYTE *)item->ti_Data;
+                const struct InterfaceHardwareAddress *hardware =
+                    (const struct InterfaceHardwareAddress *)item->ti_Data;
+                const UBYTE *address;
                 UWORD        i;
 
-                if (address == NULL)
+                if (hardware == NULL ||
+                    hardware->iha_Length != (LONG)(AMI_CFG_MAC_SIZE * 8U) ||
+                    hardware->iha_Address == NULL)
                     return bsd_fail(SocketBase, AMI_EINVAL);
 
+                address = hardware->iha_Address;
                 for (i = 0; i < (UWORD)AMI_CFG_MAC_SIZE; i++)
                     cfg->hw_address[i] = address[i];
                 cfg->have_hw_address = TRUE;
