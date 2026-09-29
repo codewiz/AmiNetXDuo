@@ -331,6 +331,67 @@ ULONG dest[4];
 }
 
 
+/*
+ * F-295: where two live interfaces could equally carry a destination, the one
+ * with the higher nx_interface_priority does, the first among equals -- the
+ * NetX fork's own nxd_ipv6_interface_find() rule.  Rule 5 then takes the
+ * source off that interface.
+ */
+static void test_interface_priority(void)
+{
+ULONG dest[4];
+
+    /* Off-link, a default router on each interface. */
+    h_reset();
+    h_addr(H_SLOT0, H_ETH0, 0x20010DB8UL, 0x00000001UL, 0, 1, 64,
+           NX_IPV6_ADDR_STATE_VALID);
+    h_addr(H_SLOT1, H_ETH1, 0x20010DB8UL, 0x00000002UL, 0, 1, 64,
+           NX_IPV6_ADDR_STATE_VALID);
+    h_ip.nx_ipv6_default_router_table[0].nx_ipv6_default_router_entry_flag = 1;
+    h_ip.nx_ipv6_default_router_table[0].nx_ipv6_default_router_entry_interface_ptr = h_if(H_ETH0);
+    h_ip.nx_ipv6_default_router_table[1].nx_ipv6_default_router_entry_flag = 1;
+    h_ip.nx_ipv6_default_router_table[1].nx_ipv6_default_router_entry_interface_ptr = h_if(H_ETH1);
+    h_set(dest, 0x20010DB8UL, 0x00010000UL, 0, 0x99);
+
+    h_check(h_select(dest, NX_NULL) == H_SLOT0,
+            "priority: equal priorities keep the first router's interface");
+    h_if(H_ETH1) -> nx_interface_priority = 10;
+    h_check(h_select(dest, NX_NULL) == H_SLOT1,
+            "priority: the higher-priority interface's router carries it");
+    h_if(H_ETH1) -> nx_interface_link_up = NX_FALSE;
+    h_check(h_select(dest, NX_NULL) == H_SLOT0,
+            "priority: a down interface is passed over whatever its priority");
+
+    /* On-link on both: the same prefix on each interface. */
+    h_reset();
+    h_addr(H_SLOT0, H_ETH0, 0x20010DB8UL, 0x00000005UL, 0, 1, 64,
+           NX_IPV6_ADDR_STATE_VALID);
+    h_addr(H_SLOT1, H_ETH1, 0x20010DB8UL, 0x00000005UL, 0, 2, 64,
+           NX_IPV6_ADDR_STATE_VALID);
+    h_set(dest, 0x20010DB8UL, 0x00000005UL, 0, 0x99);
+    h_check(h_select(dest, NX_NULL) == H_SLOT0,
+            "priority: on-link on both, equal priority keeps the first");
+    h_if(H_ETH1) -> nx_interface_priority = 10;
+    h_check(h_select(dest, NX_NULL) == H_SLOT1,
+            "priority: on-link on both, the higher priority carries it");
+
+    /* Link-local, which is on-link on every interface. */
+    h_reset();
+    h_addr(H_SLOT0, H_ETH0, 0xFE800000UL, 0, 0, 1, 64, NX_IPV6_ADDR_STATE_VALID);
+    h_addr(H_SLOT1, H_ETH1, 0xFE800000UL, 0, 0, 2, 64, NX_IPV6_ADDR_STATE_VALID);
+    h_set(dest, 0xFE800000UL, 0, 0, 0x99);
+    h_check(h_select(dest, NX_NULL) == H_SLOT0,
+            "priority: link-local, equal priority keeps the first");
+    h_if(H_ETH1) -> nx_interface_priority = 10;
+    h_check(h_select(dest, NX_NULL) == H_SLOT1,
+            "priority: link-local, the higher priority carries it");
+
+    /* An explicit interface still wins over priority. */
+    h_check(h_select(dest, h_if(H_ETH0)) == H_SLOT0,
+            "priority: an interface the caller names is not overridden");
+}
+
+
 /* ------------------------------------------------------------ §5, Rule 6 -- */
 
 static void test_rule6_label(void)
@@ -546,6 +607,7 @@ int main(void)
     test_rule2_scope();
     test_rule3_deprecated();
     test_rule5_outgoing_interface();
+    test_interface_priority();
     test_rule6_label();
     test_rule8_longest_prefix();
     test_candidate_set();

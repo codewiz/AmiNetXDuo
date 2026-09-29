@@ -262,12 +262,24 @@ UINT state;
  * routing table; NX_NULL is a destination with no route, and the callers turn
  * that into ENETUNREACH.
  */
+/*
+ * Among interfaces that could equally carry a destination, the one with the
+ * highest nx_interface_priority, the first among equals: the rule the NetX
+ * fork's own nxd_ipv6_interface_find() and the IPv4 gateway use (F-295).
+ */
+static UINT anx6_prefer(const NX_INTERFACE *candidate, const NX_INTERFACE *best)
+{
+    return (best == NX_NULL) ||
+           (candidate -> nx_interface_priority > best -> nx_interface_priority);
+}
+
 static NX_INTERFACE *anx6_outgoing_interface(NX_IP *ip_ptr, const ULONG *dest)
 {
 UINT              i;
 UINT              scope;
 NXD_IPV6_ADDRESS *addr;
 NX_INTERFACE     *first_up = NX_NULL;
+NX_INTERFACE     *best = NX_NULL;
 
     /* 1. a destination this node holds. */
     for (i = 0; i < (NX_MAX_IPV6_ADDRESSES + NX_LOOPBACK_IPV6_ENABLED); i++)
@@ -295,8 +307,7 @@ NX_INTERFACE     *first_up = NX_NULL;
      * Up is not enough: an interface with no usable IPv6 address contributes
      * no candidate, so naming it leaves a link-local destination sourceless.
      */
-    for (i = 0; (i < (NX_MAX_IPV6_ADDRESSES + NX_LOOPBACK_IPV6_ENABLED)) &&
-                (first_up == NX_NULL); i++)
+    for (i = 0; i < (NX_MAX_IPV6_ADDRESSES + NX_LOOPBACK_IPV6_ENABLED); i++)
     {
         addr = &ip_ptr -> nx_ipv6_address[i];
 
@@ -313,7 +324,10 @@ NX_INTERFACE     *first_up = NX_NULL;
         }
 #endif /* NX_DISABLE_LOOPBACK_INTERFACE */
 
-        first_up = addr -> nxd_ipv6_address_attached;
+        if (anx6_prefer(addr -> nxd_ipv6_address_attached, first_up))
+        {
+            first_up = addr -> nxd_ipv6_address_attached;
+        }
     }
 
 #ifdef NX_ENABLE_IPV6_MULTICAST
@@ -366,10 +380,16 @@ NX_INTERFACE     *first_up = NX_NULL;
 #endif /* NX_DISABLE_LOOPBACK_INTERFACE */
 
         if (anx6_prefix_covers(addr -> nxd_ipv6_address,
-                               addr -> nxd_ipv6_address_prefix_length, dest))
+                               addr -> nxd_ipv6_address_prefix_length, dest) &&
+            anx6_prefer(addr -> nxd_ipv6_address_attached, best))
         {
-            return addr -> nxd_ipv6_address_attached;
+            best = addr -> nxd_ipv6_address_attached;
         }
+    }
+
+    if (best != NX_NULL)
+    {
+        return best;
     }
 
     /* 6. a default router. */
@@ -393,10 +413,13 @@ NX_INTERFACE     *first_up = NX_NULL;
             continue;
         }
 
-        return rt -> nx_ipv6_default_router_entry_interface_ptr;
+        if (anx6_prefer(rt -> nx_ipv6_default_router_entry_interface_ptr, best))
+        {
+            best = rt -> nx_ipv6_default_router_entry_interface_ptr;
+        }
     }
 
-    return NX_NULL;
+    return best;
 }
 
 
