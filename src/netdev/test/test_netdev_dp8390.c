@@ -943,6 +943,67 @@ static void n_a_frame_that_crosses_a_page(void)
 }
 
 /*
+ * PROMISCUOUS MODE SAVES DAMAGED FRAMES.  ED_RCR_SEP -- set only in
+ * promiscuous mode -- makes the chip keep frames whose CRC, alignment, or
+ * FIFO-overrun check failed, and their ring header's rsr marks the damage.
+ * The walk must not hand one up as good, and must not count it as a receive
+ * error (the RXE interrupt already did), but it must still walk past it so a
+ * damaged frame cannot wedge the drain.
+ */
+static void n2_a_damaged_frame_is_not_handed_up(void)
+{
+    static const UBYTE damage[] = { ED_RSR_CRC, ED_RSR_FAE, ED_RSR_FO };
+    UBYTE start;
+    UWORD i;
+
+    for (i = 0; i < 3u; i++)
+    {
+        reset();
+        (VOID)dp8390_init(&nic);
+        start = nic.rec_page_start;
+        tr_n = 0;
+
+        hdr_status = damage[i];
+        hdr_next   = (UBYTE)(start + 2);
+        hdr_count  = (UWORD)(60 + sizeof(NetdevRing));
+        chip[1][ED_P1_CURR] = (UBYTE)(start + 2);
+
+        dp8390_rint(&nic);
+
+        expect(frames_up == 0, "a damaged frame is not handed up");
+        expect(ring_copies == 0, "and nothing is staged for it");
+        expect_hex("it is not counted as a receive error", nic.rx_errors, 0);
+        expect_hex("and the chip is not reset", nic.resets, 0);
+        expect_hex("and the ring still moves past it", nic.next_packet,
+                   (unsigned long)(UBYTE)(start + 2));
+    }
+}
+
+/*
+ * The damage check is CRC/FAE/FO alone.  A frame accepted on a multicast or
+ * broadcast address match carries ED_RSR_PHY with no damage bit, and must still
+ * be delivered.
+ */
+static void n3_a_good_multicast_frame_is_still_delivered(void)
+{
+    UBYTE start;
+
+    reset();
+    (VOID)dp8390_init(&nic);
+    start = nic.rec_page_start;
+    tr_n = 0;
+
+    hdr_status = (UBYTE)(ED_RSR_PRX | ED_RSR_PHY);
+    hdr_next   = (UBYTE)(start + 2);
+    hdr_count  = (UWORD)(60 + sizeof(NetdevRing));
+    chip[1][ED_P1_CURR] = (UBYTE)(start + 2);
+
+    dp8390_rint(&nic);
+
+    expect(frames_up == 1, "a good multicast frame is still handed up");
+}
+
+/*
  * PTX and OVW may be latched in the same interrupt.  The completed buffer
  * must be accounted, but overwrite recovery stops the chip: the next queued
  * buffer therefore has to start AFTER that recovery rather than immediately
@@ -1234,6 +1295,8 @@ int main(void)
     l_a_corrupt_header_resets_rather_than_spins();
     m_an_overlong_frame_is_skipped_not_reset_on();
     n_a_frame_that_crosses_a_page();
+    n2_a_damaged_frame_is_not_handed_up();
+    n3_a_good_multicast_frame_is_still_delivered();
     o_overwrite_precedes_the_next_queued_transmit();
     p_overwrite_waits_the_full_stop_delay();
     q_idle_transmitter_is_not_resent();

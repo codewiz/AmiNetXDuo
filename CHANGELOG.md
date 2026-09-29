@@ -15,6 +15,10 @@ version at the top when it merges.
 - `El3Diag` reads the 3c589 statistics counters under one `Disable()` and
   restores window 1 before printing them, so the diagnostic cannot leave the
   live driver addressing the wrong register window.
+- `anxnet.device`: in promiscuous mode, frames the DP8390 received with a CRC,
+  alignment, or FIFO-overrun error are no longer handed up to the stack as
+  good; the chip saves those frames under `ED_RCR_SEP`, and the receive walk
+  was delivering them anyway.
 
 ## 1.0.0-beta7
 

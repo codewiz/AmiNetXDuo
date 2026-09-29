@@ -353,6 +353,16 @@ static VOID dp8390_rint(NetdevNic *nic)
             return;
         }
 
+        /*
+         * Promiscuous mode sets ED_RCR_SEP, so the chip saves frames whose
+         * CRC, alignment, or FIFO-overrun check failed, and their ring header's
+         * rsr marks the damage.  Reject the frame before either hand-up and
+         * walk past it: the RXE interrupt already counted the error, so this is
+         * not an rx_errors++, and a damaged frame must not wedge the drain.
+         */
+        if ((hdr.rsr & (ED_RSR_CRC | ED_RSR_FAE | ED_RSR_FO)) != 0)
+            goto drop_frame;
+
         if (len > sizeof(NetdevRing) && len <= NETDEV_RXBUF_MAX)
         {
             UWORD        flen = (UWORD)(len - sizeof(NetdevRing));
@@ -452,6 +462,7 @@ rx_done:;
             nic->rx_errors++;
         }
 
+drop_frame:
         nic->next_packet = hdr.next_packet;
 
         boundary = (UBYTE)(nic->next_packet - 1);
