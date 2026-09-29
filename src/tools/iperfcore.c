@@ -199,6 +199,12 @@ static LONG iperf_open_client(IperfRun *run, LONG type)
 
     (VOID)tool_sock_addr(&sa, &run->plan.peer, run->plan.port);
 
+    /* The report's peer is the one this client sends to; only the server
+       paths learned it from the wire, so a client reported 0.0.0.0 port 0
+       (F-162). */
+    run->res.peer      = run->plan.peer;
+    run->res.peer_port = run->plan.port;
+
     /* Non-blocking from the start.  A slice that blocked would hold up
        httpd's whole loop, and the command wants Ctrl-C noticed. */
     (VOID)tool_sock_ioctl(run->sb, run->sock, TOOL_FIONBIO, &nonblock);
