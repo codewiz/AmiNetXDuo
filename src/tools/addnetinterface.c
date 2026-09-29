@@ -778,7 +778,9 @@ int main(int argc, char **argv)
     allowance = dynamic ? timeout : 0UL;
 
     /* Second pass. The first file's configuration is what the explainers use. */
-    (VOID)load_interface(primary, &ifc, TRUE);
+    /* Keep an explicit path: reloading only its basename could select a
+       different DEVS: or SYS: file and contradict the first-pass policy. */
+    (VOID)load_interface((const char *)names[0], &ifc, TRUE);
     name = primary;
 
     err = netstack_startup();
