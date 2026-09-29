@@ -561,7 +561,11 @@ LONG ami_sana2_online(AmiSana2If *iface)
  */
 BOOL ami_sana2_keeps_online(const char *device)
 {
-    return ami_str_equal(device, "genet.device");
+    /* A device name is a file name: DEVS:Networks/genet.device and
+       Genet.device are this driver too (F-114). */
+    if (device == NULL)
+        return FALSE;
+    return ami_str_iequal(ami_sana2_basename(device), "genet.device");
 }
 
 /* ------------------------------------------------------- bounded offline */

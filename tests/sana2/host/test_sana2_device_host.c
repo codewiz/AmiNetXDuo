@@ -1414,6 +1414,21 @@ static void case_keeps_online(void)
             "an a2065.device is not kept online");
     h_check(ami_sana2_keeps_online("genet.device") == TRUE,
             "genet.device is");
+    /* F-114: the name is a file name, so a path or another case is the same
+       driver; a different driver whose name merely ends alike is not. */
+    h_check(ami_sana2_keeps_online("DEVS:Networks/genet.device") == TRUE,
+            "a path to genet.device is kept online");
+    h_check(ami_sana2_keeps_online("Networks/genet.device") == TRUE,
+            "a relative path is too");
+    h_check(ami_sana2_keeps_online("GENET.DEVICE") == TRUE &&
+            ami_sana2_keeps_online("Genet.device") == TRUE,
+            "and any case of the name");
+    h_check(ami_sana2_keeps_online("anxgenet.device") == FALSE &&
+            ami_sana2_keeps_online("DEVS:Networks/xgenet.device") == FALSE,
+            "a different name ending in genet.device is not");
+    h_check(ami_sana2_keeps_online("genet.device/") == FALSE &&
+            ami_sana2_keeps_online(NULL) == FALSE,
+            "nor a directory or no name");
 }
 
 /* ------------------------------------------------------------------ main -- */
