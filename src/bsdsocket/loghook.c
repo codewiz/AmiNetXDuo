@@ -6,9 +6,12 @@
  * the log.
  *
  * Global, as Roadshow's is: the last SBTC_LOG_HOOK set is the one called.
- * The base that set it is remembered, so a program that exits without
- * clearing it does not leave a pointer into freed memory being called on
- * the next syslog().
+ * The base that set it is remembered; the dead-task sweep drops the pointer
+ * as a close already does, so a program that exits without clearing it is
+ * not called on later syslog()s.  That drop only bounds the window: a caller
+ * that has already read the pointer may still invoke it as its owner dies,
+ * because the hook runs outside Forbid() and Exec frees the owner's memory
+ * independently of this library.
  *
  * THE HOOK RUNS ON THE CALLER'S CONTEXT.  For syslog() that is the
  * application's task.  For the stack's own lines it is whichever task

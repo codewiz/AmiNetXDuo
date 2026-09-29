@@ -231,6 +231,10 @@ static VOID bsd_task_sweep(VOID)
                  (unsigned long)child->sb_Task,
                  (unsigned long)bsd_latched_tasks);
 
+        /* Its task is gone, so a log hook it installed lives in freed memory.
+           Drop it now, not only on the next syslog() that would call it. */
+        bsd_log_hook_drop_owner(child);
+
         child->sb_NxNest     = 0;
         child->sb_NxTask     = NULL;
         child->sb_ErrPending = 0;   /* its task is gone: nobody to call */

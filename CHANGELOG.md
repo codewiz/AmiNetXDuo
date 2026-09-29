@@ -9,6 +9,10 @@ version at the top when it merges.
 
 ## Unreleased
 
+- The dead-task sweep clears a log hook (`SBTC_LOG_HOOK`) installed by a
+  program that exited without closing the library. Deliveries after the sweep
+  cannot use that hook; an already in-flight callback is not affected.
+
 ## 1.0.0-beta7
 
 - `TCPGROWRTT=<ms>` in an interface file sets the handshake round trip
