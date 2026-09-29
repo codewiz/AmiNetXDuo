@@ -2367,6 +2367,12 @@ LONG bsd_NetStackControl(register ULONG magic __asm("d0"),
 
         case NETCTRL_ND_ADD:
 #ifdef AMINETXDUO_IPV6
+            if (ctl->nsc_Index >= (UWORD)NX_MAX_PHYSICAL_INTERFACES ||
+                ip->nx_ip_interface[ctl->nsc_Index].nx_interface_valid == 0)
+            {
+                rc = bsd_fail(SocketBase, AMI_ENXIO);
+                break;
+            }
             status = nxd_nd_cache_entry_set(ip, ctl->nsc_Destination6,
                                             (UINT)ctl->nsc_Index,
                                             (CHAR *)ctl->nsc_HwAddress);
