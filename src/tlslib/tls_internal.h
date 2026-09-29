@@ -332,6 +332,14 @@ typedef struct TLSTransport
        later call answers NX_NOT_CONNECTED rather than resuming a stream whose
        sequence numbers no longer line up. */
     UINT            tt_Broken;
+
+    /* TLSA_Timeout as a per-call network-wait budget (F-280): the handshake,
+       TLSRead() and TLSWrite() each set it on entry and clear it on exit.
+       Every WaitSelect() is clamped to what is left and charged the time it
+       actually waited; CPU time is not charged.  Off: each wait gets its own
+       wait_option, as before. */
+    UINT            tt_BudgetOn;
+    ULONG           tt_BudgetMicros;
 } TLSTransport;
 
 /* ---------------------------------------------------------- connection --- */
@@ -450,6 +458,10 @@ VOID           tls_transport_open(TLSTransport *transport, APTR socket_base,
                                   LONG fd, NX_PACKET_POOL *pool, BOOL server,
                                   BOOL ipv6);
 NX_TCP_SOCKET *tls_transport_socket(TLSTransport *transport);
+/* Start a call's waiting budget from a NetX wait option (NX_WAIT_FOREVER:
+   none); tls_transport_budget_end() goes back to per-wait timeouts. */
+VOID           tls_transport_budget(TLSTransport *transport, ULONG wait_option);
+VOID           tls_transport_budget_end(TLSTransport *transport);
 
 /* -------------------------------------------------------- tls_packet.c, */
 

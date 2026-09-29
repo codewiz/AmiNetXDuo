@@ -59,8 +59,11 @@ struct TLSConnection;
  * connection is then encrypted and NOT authenticated. */
 #define TLSA_NoVerify       (TLSA_Dummy + 4)
 
-/* ULONG milliseconds, default 120000.  Ceiling on the handshake and on any
- * single TLSRead()/TLSWrite().  Zero means wait forever. */
+/* ULONG milliseconds, default 120000.  How long the handshake, and any
+ * single TLSRead()/TLSWrite(), may spend waiting on the network in total;
+ * then TLS_ERR_TIMEOUT.  Time computing (the public-key work of a
+ * handshake) and waiting for another connection's handshake to release the
+ * library's shared state are not counted.  Zero means wait forever. */
 #define TLSA_Timeout        (TLSA_Dummy + 5)
 
 /* ULONG bytes, default 10240.  The record reassembly buffer; a certificate

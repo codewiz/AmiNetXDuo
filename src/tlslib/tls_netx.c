@@ -27,6 +27,7 @@
  */
 
 #include "tls_internal.h"
+#include "tls.h"
 #include "aminetxduo/nxstatus.h"
 
 #include <exec/semaphores.h>
@@ -88,12 +89,80 @@ static const TLSSockTimeval *tls_transport_timeout(ULONG wait_option,
     return store;
 }
 
+/* NetX ticks as microseconds, saturating. */
+static ULONG tls_ticks_micros(ULONG ticks)
+{
+    ULONG per = 1000000UL / NX_IP_PERIODIC_RATE;
+
+    return (ticks > 0xFFFFFFFFUL / per) ? 0xFFFFFFFFUL : ticks * per;
+}
+
+VOID tls_transport_budget(TLSTransport *transport, ULONG wait_option)
+{
+    transport->tt_BudgetOn     = (wait_option != NX_WAIT_FOREVER);
+    transport->tt_BudgetMicros = transport->tt_BudgetOn
+                                 ? tls_ticks_micros(wait_option) : 0;
+}
+
+VOID tls_transport_budget_end(TLSTransport *transport)
+{
+    transport->tt_BudgetOn     = NX_FALSE;
+    transport->tt_BudgetMicros = 0;
+}
+
+/*
+ * One WaitSelect() under the call's budget (F-280).  The wait is the shorter
+ * of wait_option and what the budget has left, and the budget is charged the
+ * time the wait took by the E-clock, or all of it on a timeout when
+ * timer.device is not open.  Returns 0, as a timeout, without waiting once
+ * the budget is spent.
+ */
+static LONG tls_transport_wait(TLSTransport *transport, BOOL write,
+                               ULONG wait_option)
+{
+    TLSSockTimeval        timeout;
+    const TLSSockTimeval *timeout_ptr;
+    ULONG                 clamp;
+    ULONG                 start;
+    ULONG                 spent;
+    LONG                  ready;
+
+    if (!transport->tt_BudgetOn)
+    {
+        timeout_ptr = tls_transport_timeout(wait_option, &timeout);
+        return tls_sock_wait(transport->tt_SocketBase, transport->tt_Fd,
+                             write, timeout_ptr);
+    }
+
+    if (transport->tt_BudgetMicros == 0)
+        return 0;
+
+    clamp = transport->tt_BudgetMicros;
+    if (wait_option != NX_WAIT_FOREVER && tls_ticks_micros(wait_option) < clamp)
+        clamp = tls_ticks_micros(wait_option);
+
+    timeout.tv_secs  = (LONG)(clamp / 1000000UL);
+    timeout.tv_micro = (LONG)(clamp % 1000000UL);
+
+    start = ami_tls_eclock();
+    ready = tls_sock_wait(transport->tt_SocketBase, transport->tt_Fd, write,
+                          &timeout);
+
+    if (ami_tls_timer_is_open())
+        spent = ami_tls_eclock_micros(ami_tls_eclock() - start);
+    else
+        spent = (ready == 0) ? clamp : 0;
+
+    transport->tt_BudgetMicros = (spent >= transport->tt_BudgetMicros)
+                                 ? 0 : transport->tt_BudgetMicros - spent;
+
+    return ready;
+}
+
 UINT _nx_tcp_socket_receive(NX_TCP_SOCKET *socket_ptr, NX_PACKET **packet_ptr,
                             ULONG wait_option)
 {
     TLSTransport         *transport = (TLSTransport *)(VOID *)socket_ptr;
-    TLSSockTimeval        timeout;
-    const TLSSockTimeval *timeout_ptr;
     NX_PACKET            *packet = NX_NULL;
     UINT                  status;
     LONG                  ready;
@@ -104,15 +173,12 @@ UINT _nx_tcp_socket_receive(NX_TCP_SOCKET *socket_ptr, NX_PACKET **packet_ptr,
     if (transport->tt_Broken)
         return NX_NOT_CONNECTED;
 
-    timeout_ptr = tls_transport_timeout(wait_option, &timeout);
-
     /*
      * WaitSelect() first and recv() second, never a bare blocking recv():
      * TLSA_Timeout has to be a ceiling on a peer that goes quiet, and no
      * bsdsocket.library is required to honour SO_RCVTIMEO.
      */
-    ready = tls_sock_wait(transport->tt_SocketBase, transport->tt_Fd, FALSE,
-                          timeout_ptr);
+    ready = tls_transport_wait(transport, FALSE, wait_option);
     if (ready == 0)
         return NX_NO_PACKET;
     if (ready < 0)
@@ -174,16 +240,12 @@ UINT _nx_tcp_socket_send(NX_TCP_SOCKET *socket_ptr, NX_PACKET *packet_ptr,
                          ULONG wait_option)
 {
     TLSTransport         *transport = (TLSTransport *)(VOID *)socket_ptr;
-    TLSSockTimeval        timeout;
-    const TLSSockTimeval *timeout_ptr;
     NX_PACKET            *current;
 
     if (socket_ptr == NX_NULL || packet_ptr == NX_NULL)
         return NX_PTR_ERROR;
     if (transport->tt_Broken)
         return NX_NOT_CONNECTED;
-
-    timeout_ptr = tls_transport_timeout(wait_option, &timeout);
 
     for (current = packet_ptr; current != NX_NULL;
          current = current->nx_packet_next)
@@ -197,8 +259,7 @@ UINT _nx_tcp_socket_send(NX_TCP_SOCKET *socket_ptr, NX_PACKET *packet_ptr,
             LONG ready;
             LONG sent;
 
-            ready = tls_sock_wait(transport->tt_SocketBase, transport->tt_Fd,
-                                  TRUE, timeout_ptr);
+            ready = tls_transport_wait(transport, TRUE, wait_option);
             if (ready <= 0)
             {
                 /*

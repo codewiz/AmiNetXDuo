@@ -786,9 +786,11 @@ struct TLSConnection *tls_TLSOpenA(
      * long as TLSA_Timeout allows, and nx_secure drops the protection mutex
      * around every one of those waits itself.
      */
+    tls_transport_budget(&conn->tc_Transport, conn->tc_Timeout);
     status = nx_secure_tls_session_start(&conn->tc_Session,
                                            tls_transport_socket(&conn->tc_Transport),
                                            conn->tc_Timeout);
+    tls_transport_budget_end(&conn->tc_Transport);
 
     TLS13_PROBE("start.out ", (ULONG)status);
 
@@ -903,8 +905,12 @@ LONG tls_TLSRead(register struct TLSConnection *conn    TLSLIB_REG("a0"),
 
         /* No outer lock: this blocks on the network for TLSA_Timeout, and
            nx_secure drops the protection mutex around that wait itself. */
+        /* One budget for the whole call: the vendor loop may wait for
+           several records before it has application data (F-280). */
+        tls_transport_budget(&conn->tc_Transport, conn->tc_Timeout);
         status = nx_secure_tls_session_receive(&conn->tc_Session, &packet,
                                                  conn->tc_Timeout);
+        tls_transport_budget_end(&conn->tc_Transport);
 
         tls_trace("[resume] session_receive -> %ld packet %lx state %ld",
                   (LONG)status, (LONG)packet,
@@ -1003,6 +1009,9 @@ LONG tls_TLSWrite(register struct TLSConnection *conn    TLSLIB_REG("a0"),
 
     pool = &conn->tc_Pool;
 
+    /* One budget across every chunk and partial send of this call (F-280). */
+    tls_transport_budget(&conn->tc_Transport, conn->tc_Timeout);
+
     /* No outer lock, for the reason TLSRead() gives: a send blocks on the
        network and nx_secure drops the protection mutex around it. */
     while (sent < length)
@@ -1035,6 +1044,8 @@ LONG tls_TLSWrite(register struct TLSConnection *conn    TLSLIB_REG("a0"),
 
         sent += (LONG)chunk;
     }
+
+    tls_transport_budget_end(&conn->tc_Transport);
 
     if (sent == 0 && length > 0)
     {

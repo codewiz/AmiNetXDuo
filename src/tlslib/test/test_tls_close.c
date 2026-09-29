@@ -123,6 +123,16 @@ NX_TCP_SOCKET *tls_transport_socket(TLSTransport *transport)
     return &h_socket;
 }
 
+VOID tls_transport_budget(TLSTransport *transport, ULONG wait_option)
+{
+    (VOID)transport; (VOID)wait_option;
+}
+
+VOID tls_transport_budget_end(TLSTransport *transport)
+{
+    (VOID)transport;
+}
+
 BOOL tls_sock_have_lvo(APTR base, ULONG lvo)
 {
     (VOID)lvo;

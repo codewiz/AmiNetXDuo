@@ -27,6 +27,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 static int checks;
@@ -62,6 +64,20 @@ UINT _nx_secure_tls_local_certificate_add(NX_SECURE_TLS_SESSION *session,
     (VOID)certificate;
     return NX_SUCCESS;
 }
+
+/* timer.device's E-clock, here in microseconds of real time. */
+static ULONG h_now_micros(VOID)
+{
+    struct timespec ts;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (ULONG)((unsigned long long)ts.tv_sec * 1000000ULL +
+                   (unsigned long long)ts.tv_nsec / 1000ULL);
+}
+
+BOOL  ami_tls_timer_is_open(VOID)          { return TRUE; }
+ULONG ami_tls_eclock(VOID)                 { return h_now_micros(); }
+ULONG ami_tls_eclock_micros(ULONG ticks)   { return ticks; }
 
 /* Exec.  Forbid()/Permit() are counted rather than ignored: a path out of
    tls_netx.c that leaves the machine in Forbid() is a hang, not a slowdown. */
@@ -197,6 +213,122 @@ static void test_receive_timeout(void)
        whose pool is nearly empty must not be the thing that empties it. */
     CHECK(rig.pool.nx_packet_pool_available == rig.packets);
 
+    rig_close(&rig);
+}
+
+/* Milliseconds as NetX ticks. */
+static ULONG h_ticks(ULONG ms)
+{
+    ULONG t = (ms * (ULONG)NX_IP_PERIODIC_RATE) / 1000UL;
+
+    return (t == 0) ? 1 : t;
+}
+
+/*
+ * F-280: one call's waits share one budget.  Three receives on a quiet peer,
+ * each asking for 60 ms, under a 100 ms budget: the first waits 60, the
+ * second the 40 left, and the third returns at once.  Before, every wait got
+ * its full wait_option and the three took 180 ms.
+ */
+static void test_receive_budget_quiet(void)
+{
+    Rig        rig;
+    NX_PACKET *packet = NX_NULL;
+    ULONG      start;
+    ULONG      third;
+    ULONG      total;
+
+    printf("tls_transport: a call's waits share one TLSA_Timeout budget\n");
+
+    if (!rig_open(&rig))
+    {
+        printf("  SKIP: no socketpair\n");
+        return;
+    }
+
+    tls_transport_budget(&rig.transport, h_ticks(100));
+    start = h_now_micros();
+    CHECK(_nx_tcp_socket_receive(tls_transport_socket(&rig.transport), &packet,
+                                 h_ticks(60)) == NX_NO_PACKET);
+    CHECK(_nx_tcp_socket_receive(tls_transport_socket(&rig.transport), &packet,
+                                 h_ticks(60)) == NX_NO_PACKET);
+    third = h_now_micros();
+    CHECK(_nx_tcp_socket_receive(tls_transport_socket(&rig.transport), &packet,
+                                 h_ticks(60)) == NX_NO_PACKET);
+    total = h_now_micros() - start;
+    CHECK(h_now_micros() - third < 20000UL);     /* no wait left to take   */
+    CHECK(total < 150000UL);                     /* not 3 x 60 ms          */
+    CHECK(total >= 90000UL);                     /* but the budget was used */
+
+    /* Off again: a wait gets its own wait_option. */
+    tls_transport_budget_end(&rig.transport);
+    start = h_now_micros();
+    CHECK(_nx_tcp_socket_receive(tls_transport_socket(&rig.transport), &packet,
+                                 h_ticks(30)) == NX_NO_PACKET);
+    CHECK(h_now_micros() - start >= 20000UL);
+
+    /* NX_WAIT_FOREVER is no budget, as TLSA_Timeout 0 is unlimited. */
+    tls_transport_budget(&rig.transport, NX_WAIT_FOREVER);
+    CHECK(rig.transport.tt_BudgetOn == NX_FALSE);
+    tls_transport_budget_end(&rig.transport);
+
+    rig_close(&rig);
+}
+
+/*
+ * A slow peer: one byte every 40 ms.  Every single wait succeeds, which is
+ * why a per-wait timeout never fired; under a 100 ms budget the call-level
+ * ceiling does, after about two bytes and well before the peer's ten.
+ */
+static void test_receive_budget_slow_peer(void)
+{
+    Rig        rig;
+    NX_PACKET *packet;
+    pid_t      peer;
+    int        got = 0;
+    int        i;
+    UINT       status = NX_SUCCESS;
+
+    printf("tls_transport: a slow peer runs out one call's budget\n");
+
+    if (!rig_open(&rig))
+    {
+        printf("  SKIP: no socketpair\n");
+        return;
+    }
+
+    peer = fork();
+    if (peer == 0)
+    {
+        for (i = 0; i < 10; i++)
+        {
+            usleep(40000);
+            if (write(rig.fds[1], "x", 1) != 1)
+                break;
+        }
+        _exit(0);
+    }
+    CHECK(peer > 0);
+
+    tls_transport_budget(&rig.transport, h_ticks(100));
+    for (i = 0; i < 10; i++)
+    {
+        packet = NX_NULL;
+        status = _nx_tcp_socket_receive(tls_transport_socket(&rig.transport),
+                                        &packet, h_ticks(100));
+        if (status != NX_SUCCESS)
+            break;
+        got++;
+        (VOID)_nx_packet_release(packet);
+    }
+    tls_transport_budget_end(&rig.transport);
+
+    CHECK(status == NX_NO_PACKET);
+    CHECK(got >= 1 && got <= 3);
+    CHECK(rig.transport.tt_Broken == NX_FALSE);   /* a timeout, not a hangup */
+
+    if (peer > 0)
+        (void)waitpid(peer, NULL, 0);
     rig_close(&rig);
 }
 
@@ -406,6 +538,8 @@ int main(void)
 {
     test_receive();
     test_receive_timeout();
+    test_receive_budget_quiet();
+    test_receive_budget_slow_peer();
     test_receive_hangup();
     test_send_chain();
     test_send_failure_keeps_packet();
