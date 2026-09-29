@@ -28,12 +28,19 @@ static pthread_mutex_t stub_alloc_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t  stub_alloc_cond = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t stub_pool_lock = PTHREAD_MUTEX_INITIALIZER;
 
+static int   stub_alloc_fail;              /* the next N allocations fail */
+
 APTR ami_alloc(ULONG size)
 {
     void *p;
 
     if (size == 0)
         return NULL;
+    if (stub_alloc_fail > 0)
+    {
+        stub_alloc_fail--;
+        return NULL;
+    }
 
     p = calloc(1, size);
     if (p != NULL)
@@ -276,6 +283,41 @@ static void test_exhaustion(void)
 
     ami_mbuf_freem(chain);
     expect_empty("test_exhaustion");
+
+    ami_mbuf_cleanup();
+    CHECK(ami_mbuf_init(0, 0) == 0);
+}
+
+/*
+ * F-298: one refused get is one drop.  A slab allocation that fails was
+ * counted in ami_mbuf_grow() and again by its caller.  The pool-full path
+ * and a clean get stay as they were.
+ */
+static void test_drop_counted_once(void)
+{
+    struct mbuf  *m;
+    struct mbstat before;
+    struct mbstat after;
+
+    printf("mbuf: a refused allocation is one drop\n");
+
+    ami_mbuf_cleanup();
+    CHECK(ami_mbuf_init(8, 2) == 0);
+
+    ami_mbuf_stats(&before);
+    stub_alloc_fail = 1;
+    m = ami_mbuf_get();
+    CHECK(m == NULL);
+    ami_mbuf_stats(&after);
+    CHECK(after.m_drops == before.m_drops + 1);
+    CHECK(stub_alloc_fail == 0);
+
+    /* The next get grows the pool and is not a drop. */
+    m = ami_mbuf_get();
+    CHECK(m != NULL);
+    ami_mbuf_stats(&before);
+    CHECK(before.m_drops == after.m_drops);
+    ami_mbuf_freem(m);
 
     ami_mbuf_cleanup();
     CHECK(ami_mbuf_init(0, 0) == 0);
@@ -888,6 +930,7 @@ int main(int argc, char **argv)
     test_layout();
     test_alignment_bulk();
     test_exhaustion();
+    test_drop_counted_once();
     test_length_and_free();
     test_adj();
     test_cat();

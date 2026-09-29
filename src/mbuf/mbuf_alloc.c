@@ -189,11 +189,10 @@ static BOOL ami_mbuf_grow(VOID)
     raw = ami_alloc(bytes);
     ami_mbuf_lock();
 
+    /* Not counted here: the caller counts the one drop a failed grow
+       becomes, whatever the reason (F-298). */
     if (raw == NULL)
-    {
-        ami_mbuf_pool.drops++;
         return FALSE;
-    }
 
     /* Another task can grow the pool while the lock is down. */
     if (ami_mbuf_pool.mbufs_total + want > ami_mbuf_pool.max_mbufs)
