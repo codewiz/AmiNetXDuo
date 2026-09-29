@@ -97,11 +97,13 @@ LONG bsd_fd_free(struct AmiSocketBase *base, LONG fd)
 }
 
 VOID bsd_socket_retain(AmiSocket *sock) { sock->as_RefCount++; }
+/* socket.c's release, whose owner decision is the shared bsd_owner_drop(). */
 VOID bsd_socket_release(struct AmiSocketBase *base, AmiSocket *sock)
 {
-    (VOID)base;
     if (sock->as_RefCount != 0)
         sock->as_RefCount--;
+    if (sock->as_RefCount != 0)
+        bsd_owner_drop(base, sock);
 }
 
 LONG bsd_nx_enter(struct AmiSocketBase *base) { (VOID)base; return 0; }
@@ -153,6 +155,51 @@ static VOID test_release_listener(VOID)
           "future accept events signal the obtaining base");
     CHECK((sock.as_Flags & ASF_LISTENING) != 0,
           "the listen state survives the handoff");
+}
+
+/*
+ * F-057: a Dup2Socket() alias in the same base keeps the base as the owner
+ * when another descriptor of the socket goes, by close or by ReleaseSocket().
+ */
+static VOID test_alias_keeps_owner(VOID)
+{
+    AmiSocket sock;
+    LONG id;
+
+    /* close(fd 0) with fd 1 an alias: the close path frees, then releases. */
+    reset_fixture(&sock);
+    source_base.sb_Table[1] = &sock;
+    sock.as_RefCount = 2;
+    CHECK(bsd_fd_free(&source_base, 0) == 0, "fd 0 is freed");
+    bsd_socket_release(&source_base, &sock);
+    CHECK(sock.as_RefCount == 1, "one reference is left");
+    CHECK(sock.as_Owner == &source_base,
+          "the surviving alias keeps its base as the owner after a close");
+
+    /* The last alias goes with another reference elsewhere: the owner goes. */
+    sock.as_RefCount = 2;
+    CHECK(bsd_fd_free(&source_base, 1) == 0, "fd 1 is freed");
+    bsd_socket_release(&source_base, &sock);
+    CHECK(sock.as_Owner == NULL,
+          "with no alias left the base stops being the owner");
+
+    /* ReleaseSocket() of one alias parks it, and the other still signals. */
+    reset_fixture(&sock);
+    source_base.sb_Table[1] = &sock;
+    sock.as_RefCount = 2;
+    id = bsd_ReleaseSocket(0, UNIQUE_ID, &source_base);
+    CHECK(id > 65535, "ReleaseSocket accepts an aliased descriptor");
+    CHECK(source_base.sb_Table[0] == NULL && source_base.sb_Table[1] == &sock,
+          "only the released descriptor is detached");
+    CHECK(sock.as_Owner == &source_base,
+          "the surviving alias keeps its base as the owner after ReleaseSocket");
+
+    /* Another base's ownership is never cleared by this one. */
+    reset_fixture(&sock);
+    sock.as_Owner = &target_base;
+    source_base.sb_Table[0] = NULL;
+    bsd_owner_drop(&source_base, &sock);
+    CHECK(sock.as_Owner == &target_base, "another base's ownership is left alone");
 }
 
 static VOID test_release_copy_listener(VOID)
@@ -219,6 +266,7 @@ int main(void)
 {
     test_release_listener();
     test_release_copy_listener();
+    test_alias_keeps_owner();
     test_take_and_flush();
     printf("handoff: %lu checks, %lu failures\n", checks, failures);
     return failures ? 1 : 0;

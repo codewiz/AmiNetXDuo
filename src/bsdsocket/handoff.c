@@ -173,7 +173,7 @@ static LONG bsd_handoff_park(struct AmiSocketBase *base, AmiSocket *sock,
 
         ObtainSemaphore(&master->sb_Lock);
         entry->bh_Claimed = FALSE;
-        sock->as_Owner = NULL;
+        bsd_owner_drop(base, sock);
         ReleaseSemaphore(&master->sb_Lock);
     }
 

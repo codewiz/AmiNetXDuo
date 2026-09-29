@@ -852,6 +852,30 @@ LONG       bsd_fd_free(struct AmiSocketBase *base, LONG fd);
 VOID       bsd_socket_retain(AmiSocket *sock);
 VOID       bsd_socket_release(struct AmiSocketBase *base, AmiSocket *sock);
 
+/*
+ * A descriptor of this base has just been freed and the socket lives on
+ * elsewhere (another reference, or a handoff entry).  The base stops being the
+ * one signalled -- unless it still holds a Dup2Socket() alias of the socket,
+ * which would otherwise get no events and no stack (F-057).  Callers free the
+ * descriptor first and hold Forbid() or the handoff lock.
+ */
+static inline VOID bsd_owner_drop(struct AmiSocketBase *base, AmiSocket *sock)
+{
+    LONG fd;
+
+    if (sock->as_Owner != base)
+        return;
+    if (base->sb_Table != NULL)
+    {
+        for (fd = 0; fd < base->sb_TableSize; fd++)
+        {
+            if (base->sb_Table[fd] == sock)
+                return;
+        }
+    }
+    sock->as_Owner = NULL;
+}
+
 /* socket.c, reclaim sockets whose orderly close has finished. Must be called
    inside a bsd_nx_enter() bracket. A no-op when the list is empty. */
 VOID       bsd_closing_sweep(VOID);

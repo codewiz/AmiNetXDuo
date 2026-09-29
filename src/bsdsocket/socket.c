@@ -898,8 +898,8 @@ VOID bsd_socket_release(struct AmiSocketBase *base, AmiSocket *sock)
         sock->as_RefCount--;
     remaining = sock->as_RefCount;
 
-    if (remaining > 0 && sock->as_Owner == base)
-        sock->as_Owner = NULL;
+    if (remaining > 0)
+        bsd_owner_drop(base, sock);
     Permit();
 
     if (remaining > 0)
