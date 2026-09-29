@@ -495,13 +495,18 @@ static ULONG zz_copy_payload_sum(UBYTE *dst, const volatile UBYTE *src,
         UWORD w = *(const volatile UWORD *)(const volatile void *)(src + done);
         *(UWORD *)(APTR)(dst + done) = w;
         sum  += w;
+        if (sum < w)
+            sum++;
         done  = (UWORD)(done + 2);
     }
     if (done < len)
     {
         UWORD w = *(const volatile UWORD *)(const volatile void *)(src + done);
         dst[done] = (UBYTE)(w >> 8);
-        sum += (UWORD)(w & 0xff00u);
+        w &= 0xff00u;
+        sum += w;
+        if (sum < w)
+            sum++;
     }
     return sum;
 }

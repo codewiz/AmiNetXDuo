@@ -64,10 +64,13 @@ ULONG n68k_copy_longs_sum(void *to, const volatile void *from, ULONG longs)
     if (((uintptr_t)s & 3u) != 0)
         bulk_misaligned++;
     memcpy(to, s, longs << 2);
-    for (i = 0; i < (longs << 2); i += 2)
+    for (i = 0; i < (longs << 2); i += 4)
     {
-        ULONG w = ((ULONG)s[i] << 8) | s[i + 1];
+        ULONG w;
+        memcpy(&w, s + i, sizeof(w));
         sum += w;
+        if (sum < w)
+            sum++;
     }
     return sum;
 }
@@ -192,6 +195,27 @@ static VOID payload_copy_every_length(VOID)
             expect(bulk_calls == (len >= 6 ? 1UL : 0UL), what);
         }
     }
+}
+
+/* A full 32-bit bulk sum plus either tail must fold its end-around carry. */
+static VOID summed_tail_carries(VOID)
+{
+    static union { ULONG align; UBYTE b[12]; } win;
+    static union { ULONG align; UBYTE b[12]; } out;
+    UWORD tail;
+
+    memset(win.b, 0, sizeof(win.b));
+    memset(win.b + 4, 0xff, 4);       /* bulk sum is 0xffffffff */
+
+    tail = 1;
+    memcpy(win.b + 8, &tail, sizeof(tail));
+    expect(zz_copy_payload_sum(out.b, win.b + 2, 8) == 1,
+           "word tail folds carry after full bulk sum");
+
+    tail = 0x0100;
+    memcpy(win.b + 8, &tail, sizeof(tail));
+    expect(zz_copy_payload_sum(out.b, win.b + 2, 7) == 0x0100,
+           "odd-byte tail folds carry after full bulk sum");
 }
 
 /* -------------------------------------------------------- through rint --- */
@@ -594,6 +618,7 @@ static VOID tx_offset2_checksum_owner(VOID)
 int main(void)
 {
     payload_copy_every_length();
+    summed_tail_carries();
     verified_claim_path_reads_aligned();
     summed_claim_path_still_aligned();
     staging_path_reads_aligned();
