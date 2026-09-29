@@ -932,6 +932,12 @@ if(NOT CMAKE_CROSSCOMPILING)
     # because unsigned long is 64 bits here and 32 on the target: the sign of
     # a datagram id and the carry out of the byte counter were both wrong
     # until this compiled them the other way.
+    # nslookup's TIMEOUT split into 200 ms slices over three attempts (F-170).
+    add_executable(test_nslbudget test/test_nslbudget.c)
+    target_include_directories(test_nslbudget PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_compile_options(test_nslbudget PRIVATE -Wall -Wextra)
+    add_test(NAME nslookup_budget COMMAND test_nslbudget)
+
     add_executable(test_iperfwire
         test/test_iperfwire.c
         iperfwire.c)

@@ -6,6 +6,7 @@
  */
 
 #include "toolsock.h"
+#include "nslbudget.h"
 
 #include "aminetxduo/version.h"
 
@@ -581,21 +582,14 @@ static LONG nsl_exchange(struct Library *sb, LONG sock,
                          const ToolSockAddrAny *srv, const UBYTE *q, LONG qlen,
                          UWORD id, ULONG secs)
 {
-    ULONG per   = secs / (ULONG)NSL_ATTEMPTS;
     ULONG tries;
-
-    if (per == 0)
-        per = 1;
 
     for (tries = 0; tries < (ULONG)NSL_ATTEMPTS; tries++)
     {
-        /* Five 200 ms slices per second.  Multiplying by 1000 first can
-           overflow even though the final slice count still fits. */
-        ULONG slices = per * 5UL;
+        /* TIMEOUT's five 200 ms slices a second, spread over the attempts
+           so they add up to exactly secs * 5 (F-170).  secs >= 1 here. */
+        ULONG slices = nsl_slices(secs, (ULONG)NSL_ATTEMPTS, tries);
         ULONG i;
-
-        if (slices == 0)
-            slices = 1;
 
         if (tool_sock_sendto(sb, sock, q, qlen, srv) != qlen)
         {

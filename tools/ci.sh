@@ -368,19 +368,25 @@ host_test_targets() { # builddir
 #      forgotten, not swept into the next one (#53)
 #      473 with sana2_copy_netx: a padded short TCP frame copied in more than
 #      one S2_CopyFromBuff call keeps a correct checksum (#89)
-HOST_TESTS_EXPECTED=473
+#      474 with dhcp_lease_option_regression: the requested lease is the one
+#      option 51 in DISCOVER/REQUEST (F-030); 475 with netmon_dead_owner: the
+#      dead-task sweep detaches monitor hooks (F-050).  Both merged without
+#      this number, which left main's host stage failing at 475 against 473.
+#      476 with nslookup_budget: TIMEOUT as exactly secs * 5 slices (F-170)
+HOST_TESTS_EXPECTED=476
 case "$(uname -m)" in
     x86_64|amd64) ;;
     # test_inet, test_route, test_expunge, test_expunge_cork, test_select,
     # test_rxdirect, test_sockopt, test_sockopt_cork, test_neighbour, test_dhcp6,
     # test_ifdevices, test_usergroup_hold, test_bind_share and test_handoff
     # (8ff3cc92), test_mcast_loop, test_mcast_epoch, test_scope_epoch,
-    # test_raw_mcast_send, test_accept_refused (#52) and test_closing_forget
-    # (#53), all x86_64-only for the reason in tests/bsdsocket/CMakeLists.txt:
+    # test_raw_mcast_send, test_accept_refused (#52), test_closing_forget
+    # (#53) and test_netmon (F-050), all x86_64-only for the reason in
+    # tests/bsdsocket/CMakeLists.txt:
     # elsewhere the host's LONG is eight bytes and no structure in them has
     # the target's shape.
     # darwin-arm64 registers 402 of the 412 (2026-09-20).
-    *) HOST_TESTS_EXPECTED=$((HOST_TESTS_EXPECTED - 20)) ;;
+    *) HOST_TESTS_EXPECTED=$((HOST_TESTS_EXPECTED - 21)) ;;
 esac
 
 # The on-Amiga harnesses this stage runs.  Verified 2026-07-25 against
