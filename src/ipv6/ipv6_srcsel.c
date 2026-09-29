@@ -280,6 +280,7 @@ UINT              scope;
 NXD_IPV6_ADDRESS *addr;
 NX_INTERFACE     *first_up = NX_NULL;
 NX_INTERFACE     *best = NX_NULL;
+UINT              best_length = 0;
 
     /* 1. a destination this node holds. */
     for (i = 0; i < (NX_MAX_IPV6_ADDRESSES + NX_LOOPBACK_IPV6_ENABLED); i++)
@@ -379,11 +380,17 @@ NX_INTERFACE     *best = NX_NULL;
         }
 #endif /* NX_DISABLE_LOOPBACK_INTERFACE */
 
+        /* The longest covering prefix, then the higher priority among
+           equal lengths, then the first (F-295). */
         if (anx6_prefix_covers(addr -> nxd_ipv6_address,
                                addr -> nxd_ipv6_address_prefix_length, dest) &&
-            anx6_prefer(addr -> nxd_ipv6_address_attached, best))
+            ((best == NX_NULL) ||
+             (addr -> nxd_ipv6_address_prefix_length > best_length) ||
+             ((addr -> nxd_ipv6_address_prefix_length == best_length) &&
+              anx6_prefer(addr -> nxd_ipv6_address_attached, best))))
         {
-            best = addr -> nxd_ipv6_address_attached;
+            best        = addr -> nxd_ipv6_address_attached;
+            best_length = addr -> nxd_ipv6_address_prefix_length;
         }
     }
 

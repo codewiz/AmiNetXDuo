@@ -375,6 +375,27 @@ ULONG dest[4];
     h_check(h_select(dest, NX_NULL) == H_SLOT1,
             "priority: on-link on both, the higher priority carries it");
 
+    /* Overlapping on-link prefixes: the longer one wins over priority. */
+    h_reset();
+    h_addr(H_SLOT0, H_ETH0, 0x20010DB8UL, 0x00000005UL, 0, 1, 64,
+           NX_IPV6_ADDR_STATE_VALID);
+    h_addr(H_SLOT1, H_ETH1, 0x20010DB8UL, 0x00000007UL, 0, 2, 32,
+           NX_IPV6_ADDR_STATE_VALID);
+    h_set(dest, 0x20010DB8UL, 0x00000005UL, 0, 0x99);
+    h_if(H_ETH1) -> nx_interface_priority = 10;
+    h_check(h_select(dest, NX_NULL) == H_SLOT0,
+            "priority: the longer on-link prefix wins over a higher priority");
+
+    /* And a shorter prefix listed first does not win on order either. */
+    h_reset();
+    h_addr(H_SLOT0, H_ETH1, 0x20010DB8UL, 0x00000007UL, 0, 2, 32,
+           NX_IPV6_ADDR_STATE_VALID);
+    h_addr(H_SLOT1, H_ETH0, 0x20010DB8UL, 0x00000005UL, 0, 1, 64,
+           NX_IPV6_ADDR_STATE_VALID);
+    h_set(dest, 0x20010DB8UL, 0x00000005UL, 0, 0x99);
+    h_check(h_select(dest, NX_NULL) == H_SLOT1,
+            "priority: the longer on-link prefix wins over table order");
+
     /* Link-local, which is on-link on every interface. */
     h_reset();
     h_addr(H_SLOT0, H_ETH0, 0xFE800000UL, 0, 0, 1, 64, NX_IPV6_ADDR_STATE_VALID);
