@@ -471,7 +471,7 @@ ULONG tls_store_count(const TLSStore *store);
  * needs this, checked or not.  It is how the vendored-override layer in
  * tls_resume.c gets back from an NX_SECURE_TLS_SESSION to the connection.
  */
-VOID  tls_registry_add(TLSConnection *conn);
+BOOL  tls_registry_add(TLSConnection *conn);  /* FALSE: registry full (F-281) */
 
 /* Install the lazy-loading certificate check on a session.  Must be called
    after _nx_secure_tls_session_create() and after tls_registry_add().  Call

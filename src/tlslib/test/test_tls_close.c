@@ -24,6 +24,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
+#include <sys/mman.h>
 #include <time.h>
 
 static int  checks;
@@ -351,11 +353,15 @@ UINT _nx_secure_tls_session_time_function_set(NX_SECURE_TLS_SESSION *session,
     return NX_SUCCESS;
 }
 
+static ULONG (*h_cert_callback)(NX_SECURE_TLS_SESSION *, NX_SECURE_X509_CERT *);
+static int     h_session_starts;
+
 UINT _nx_secure_tls_session_certificate_callback_set(
         NX_SECURE_TLS_SESSION *session,
         ULONG (*callback)(NX_SECURE_TLS_SESSION *, NX_SECURE_X509_CERT *))
 {
-    (VOID)session; (VOID)callback;
+    (VOID)session;
+    h_cert_callback = callback;
     return NX_SUCCESS;
 }
 
@@ -363,6 +369,7 @@ UINT _nx_secure_tls_session_start(NX_SECURE_TLS_SESSION *session,
                                   NX_TCP_SOCKET *socket, UINT wait_option)
 {
     (VOID)session; (VOID)socket; (VOID)wait_option;
+    h_session_starts++;
     return NX_SUCCESS;
 }
 
@@ -387,7 +394,8 @@ LONG tls_store_open(TLSStore *store, const char *path)
 }
 
 VOID tls_store_attach(TLSConnection *conn) { (VOID)conn; }
-VOID tls_registry_add(TLSConnection *conn) { (VOID)conn; }
+static BOOL h_registry_full;
+BOOL tls_registry_add(TLSConnection *conn) { (VOID)conn; return !h_registry_full; }
 VOID tls_resume_prepare(TLSConnection *conn) { (VOID)conn; }
 VOID tls_resume_evict(TLSConnection *conn) { (VOID)conn; }
 VOID tls_resume_record(TLSConnection *conn) { (VOID)conn; }
@@ -961,6 +969,92 @@ static VOID h_test_open_create_serialized(struct TLSLibBase *base)
     CHECK(h_transport_server == 0);
 }
 
+/*
+ * F-281: a verifying connection the registry cannot hold is refused before
+ * any handshake; an unverified one goes ahead as it always did (it only loses
+ * resumption); and the name check refuses a session it cannot map back to a
+ * connection instead of passing it.
+ */
+/* A tag carries a pointer in a ULONG.  On a 64-bit host the host name has
+   to live below 4 GB to survive that; Linux can map it there. */
+static char *h_low_string(const char *text)
+{
+#ifdef MAP_32BIT
+    char *p = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+                   MAP_PRIVATE | MAP_ANONYMOUS | MAP_32BIT, -1, 0);
+
+    if (p == MAP_FAILED)
+        return NULL;
+    strcpy(p, text);
+    return p;
+#else
+    static char low[64];
+
+    if ((uintptr_t)(ULONG)(uintptr_t)low != (uintptr_t)low)
+        return NULL;
+    strcpy(low, text);
+    return low;
+#endif
+}
+
+static VOID h_test_registry_full(struct TLSLibBase *base)
+{
+    char *name = h_low_string("example.org");
+    struct TagItem unverified[] = {
+        { TLSA_NoVerify, 1 },
+        { TAG_DONE, 0 }
+    };
+    struct TagItem verified[] = {
+        { TLSA_HostName, (ULONG)(uintptr_t)name },
+        { TAG_DONE, 0 }
+    };
+    NX_SECURE_TLS_SESSION stranger;
+    TLSConnection *conn;
+    int starts;
+
+    if (name == NULL)
+    {
+        printf("tls_open: registry checks skipped: no host memory below 4 GB for a tag\n");
+        return;
+    }
+
+    printf("tls_open: a full registry refuses a verifying open before the handshake\n");
+
+    base->tb_CryptoReady = TRUE;
+    h_create_ok = 1;                    /* sessions are made, so opens get that far */
+    h_registry_full = TRUE;
+
+    starts = h_session_starts;
+    conn = tls_TLSOpenA((APTR)base, verified, 3, base);
+    CHECK(conn == NULL);
+    if (conn != NULL)
+        tls_TLSClose(conn, base);
+    CHECK(h_session_starts == starts);
+    CHECK(h_depth == 0);
+
+    printf("tls_open: and lets an unverified open reach its handshake\n");
+    conn = tls_TLSOpenA((APTR)base, unverified, 3, base);
+    CHECK(h_session_starts == starts + 1);
+    if (conn != NULL)
+        tls_TLSClose(conn, base);
+    CHECK(h_depth == 0);
+
+    h_registry_full = FALSE;
+
+    printf("tls_open: the name check fails closed on a registry miss\n");
+    h_cert_callback = NULL;
+    conn = tls_TLSOpenA((APTR)base, verified, 3, base);
+    CHECK(h_cert_callback != NULL);
+    if (conn != NULL)
+        tls_TLSClose(conn, base);
+    if (h_cert_callback != NULL)
+    {
+        memset(&stranger, 0, sizeof(stranger));
+        CHECK(h_cert_callback(&stranger, NULL) != NX_SUCCESS);
+    }
+    h_create_ok = 0;
+}
+
 int main(void)
 {
     struct TLSLibBase *base;
@@ -1001,6 +1095,7 @@ int main(void)
     h_test_open_create_serialized(base);
     h_test_server_needs_identity(base);
     h_test_server_identity(base);
+    h_test_registry_full(base);
 
     free(base);
 

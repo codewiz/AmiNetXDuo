@@ -231,8 +231,12 @@ static ULONG tls_certificate_callback(NX_SECURE_TLS_SESSION *session,
     TLSConnection *conn = tls_conn_for_session(session);
     UINT           status;
 
+    /* Only a verifying connection installs this, so a session the registry
+       does not know is refused rather than passed.  The chain check fails
+       such a session first today; this closes the latent fail-open in the
+       name check itself (F-281).  It reaches the caller as TLS_ERR_HANDSHAKE. */
     if (conn == NULL)
-        return NX_SUCCESS;
+        return NX_NOT_SUCCESSFUL;
 
     if ((conn->tc_Flags & TLSF_VERIFY) == 0)
         return NX_SUCCESS;
@@ -729,7 +733,20 @@ struct TLSConnection *tls_TLSOpenA(
     conn->tc_ExpiryChecked = tls_time_is_known();
     conn->tc_UnixTime      = tls_time_now();
 
-    tls_registry_add(conn);
+    /*
+     * The name check and resumption find this connection from its session
+     * through the registry.  A verifying connection that is not in it already
+     * failed, but late and as TLS_ERR_UNTRUSTED: tls_store_attach() leaves the
+     * vendored chain check on an empty store.  It is refused here instead,
+     * before the handshake, with the NOMEM a resource limit gives (F-281).  An
+     * unchecked one goes ahead as before and only loses resumption.
+     */
+    if (!tls_registry_add(conn) && (conn->tc_Flags & TLSF_VERIFY) != 0)
+    {
+        tls_conn_leave(conn);
+        error = TLS_ERR_NOMEM;
+        goto fail_session;
+    }
 
     if ((conn->tc_Flags & TLSF_VERIFY) != 0)
     {

@@ -489,13 +489,14 @@ static UINT tls_store_verify(NX_SECURE_X509_CERTIFICATE_STORE *store,
  * tls_resume.c reaches a connection from an NX_SECURE_TLS_SESSION through this
  * registry too, and resumption runs whether or not the chain is checked.
  */
-VOID tls_registry_add(TLSConnection *conn)
+BOOL tls_registry_add(TLSConnection *conn)
 {
     NX_SECURE_X509_CERTIFICATE_STORE *store;
     UWORD                             i;
+    BOOL                              added = FALSE;
 
     if (conn == NULL)
-        return;
+        return FALSE;
 
     store = &conn->tc_Session.nx_secure_tls_credentials
                  .nx_secure_tls_certificate_store;
@@ -509,10 +510,16 @@ VOID tls_registry_add(TLSConnection *conn)
         {
             tls_registry[i].rs_Conn  = conn;
             tls_registry[i].rs_Store = store;
+            added = TRUE;
             break;
         }
     }
     Permit();
+
+    /* FALSE when full.  TLSOpenA() then refuses a verifying connection
+       before any handshake; an unverified one goes ahead without
+       resumption (F-281). */
+    return added;
 }
 
 VOID tls_store_attach(TLSConnection *conn)
