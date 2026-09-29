@@ -6,6 +6,21 @@
 
 #include "netdev_macgen.h"
 
+BOOL netdev_mac_blank(const UBYTE *mac)
+{
+    UBYTE ored  = 0;
+    UBYTE anded = 0xff;
+    UWORD i;
+
+    for (i = 0; i < NETDEV_ADDR_LEN; i++)
+    {
+        ored  |= mac[i];
+        anded &= mac[i];
+    }
+
+    return (BOOL)(ored == 0 || anded == 0xff);
+}
+
 BOOL netdev_mac_usable(const UBYTE *mac)
 {
     UBYTE ored  = 0;

@@ -730,6 +730,42 @@ static void test_attach_station_address(void)
        nic.factory[1] == 0x40 && nic.factory[5] == 0x66);
     ok("and the repair is counted for netstat", nic.mac_group_fix == 1);
 
+    /*
+     * F-302: an erased PROM reads ff:ff:ff:ff:ff:ff.  Clearing its group bit
+     * first made fe:ff:ff:ff:ff:ff, which passed as an address; it is no
+     * address, so it goes to the CIS or a derived one and is not counted as a
+     * repair.  The DFE-670TXD's 01:D4:FF:03:00:20 is still repaired.
+     */
+    {
+        static const unsigned char blank[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
+        static const unsigned char dfe[6]   = { 0x01, 0xD4, 0xFF, 0x03, 0x00, 0x20 };
+
+        board_contiguous(&nic, &netdev_cards[0]);
+        chip_begin(0, 0);
+        mock_wide_fault = WIDE_OK;
+        prom_stage(blank, 1);
+        ok("an all-ones PROM still attaches", ne2000_attach(&nic) == 0);
+        ok("but not as fe:ff:ff:ff:ff:ff",
+           !(nic.factory[0] == 0xfe && nic.factory[1] == 0xff &&
+             nic.factory[5] == 0xff));
+        ok("its address is not taken from the PROM",
+           nic.mac_source == (UBYTE)ANXDIAG_MAC_CIS ||
+           nic.mac_source == (UBYTE)ANXDIAG_MAC_DERIVED);
+        ok("and no repair is counted", nic.mac_group_fix == 0);
+
+        board_contiguous(&nic, &netdev_cards[0]);
+        chip_begin(0, 0);
+        mock_wide_fault = WIDE_OK;
+        prom_stage(dfe, 1);
+        ok("the DFE-670TXD PROM attaches", ne2000_attach(&nic) == 0);
+        ok("repaired to 00:D4:FF:03:00:20",
+           nic.factory[0] == 0x00 && nic.factory[1] == 0xD4 &&
+           nic.factory[5] == 0x20);
+        ok("as a counted PROM repair",
+           nic.mac_group_fix == 1 &&
+           nic.mac_source == (UBYTE)ANXDIAG_MAC_PROM_FIXED);
+    }
+
     /* A card the chip probe refuses is refused by attach, whatever is in the
        buffer. */
     board_contiguous(&nic, &netdev_cards[0]);

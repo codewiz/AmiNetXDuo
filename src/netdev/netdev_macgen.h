@@ -30,6 +30,10 @@
 /* TRUE if the chip can be programmed with this: not all-zero, not all-ones,
    and not a group address. */
 BOOL netdev_mac_usable(const UBYTE *mac);
+/* All-zero or all-ones, as read: no address at all.  Checked before the
+   group-bit repair, which would otherwise turn a blank ff:ff:ff:ff:ff:ff into
+   a usable-looking fe:ff:ff:ff:ff:ff (F-302). */
+BOOL netdev_mac_blank(const UBYTE *mac);
 
 /* Deterministic locally-administered unicast address from `len` fingerprint
    bytes.  Same bytes in, same address out, on any host and every boot. */

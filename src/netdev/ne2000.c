@@ -839,7 +839,7 @@ static LONG ne2000_attach(NetdevNic *nic)
      */
     nic->mac_source = (UBYTE)ANXDIAG_MAC_PROM;
 
-    if ((nic->factory[0] & 1u) != 0)
+    if (!netdev_mac_blank(nic->factory) && (nic->factory[0] & 1u) != 0)
     {
         nic->factory[0] &= (UBYTE)~1u;
         nic->mac_group_fix++;

@@ -283,7 +283,9 @@ static BOOL el3_take_addr(NetdevNic *nic, UBYTE word0)
         addr[i * 2 + 1] = (UBYTE)w;
     }
 
-    if ((addr[0] & 1u) != 0)
+    /* A blank word set is no address: repairing ff:ff:... would make it
+       look like one (F-302). */
+    if (!netdev_mac_blank(addr) && (addr[0] & 1u) != 0)
     {
         addr[0] &= (UBYTE)~1u;
         fixed = TRUE;

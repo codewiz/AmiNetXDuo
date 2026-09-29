@@ -640,6 +640,21 @@ static void test_eeprom_address(void)
     expect_u32("group bit cleared", (unsigned long)nic.factory[0], 0x00);
     expect_u32("and counted", (unsigned long)nic.mac_group_fix, 1);
 
+    /*
+     * F-302: an erased OEM address reads ffff ffff ffff.  Repairing its group
+     * bit first made fe:ff:ff:ff:ff:ff, which passed; it is no address, so
+     * the NODE_ADDR words are used and nothing is counted as a repair.
+     */
+    nic_reset(1);
+    mock_eeprom[EL3_EE_OEM_ADDR_0 + 0] = 0xffff;
+    mock_eeprom[EL3_EE_OEM_ADDR_0 + 1] = 0xffff;
+    mock_eeprom[EL3_EE_OEM_ADDR_0 + 2] = 0xffff;
+    expect_u32("attach with an all-ones OEM address",
+               (unsigned long)el3_attach(&nic), 0);
+    expect_u32("uses 3Com's own, octet 0", (unsigned long)nic.factory[0], 0x00);
+    expect_u32("uses 3Com's own, octet 1", (unsigned long)nic.factory[1], 0x20);
+    expect_u32("no repair counted", (unsigned long)nic.mac_group_fix, 0);
+
     /* An OEM address that is unusable falls back to 3Com's own. */
     nic_reset(1);
     mock_eeprom[EL3_EE_OEM_ADDR_0 + 0] = 0;
