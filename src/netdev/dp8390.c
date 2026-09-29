@@ -353,21 +353,17 @@ static VOID dp8390_rint(NetdevNic *nic)
             return;
         }
 
-        /*
-         * Promiscuous mode sets ED_RCR_SEP, so the chip saves frames whose
-         * CRC, alignment, or FIFO-overrun check failed, and their ring header's
-         * rsr marks the damage.  Reject the frame before either hand-up and
-         * walk past it: the RXE interrupt already counted the error, so this is
-         * not an rx_errors++, and a damaged frame must not wedge the drain.
-         */
-        if ((hdr.rsr & (ED_RSR_CRC | ED_RSR_FAE | ED_RSR_FO)) != 0)
-            goto drop_frame;
-
         if (len > sizeof(NetdevRing) && len <= NETDEV_RXBUF_MAX)
         {
             UWORD        flen = (UWORD)(len - sizeof(NetdevRing));
             LONG         src  = packet_ptr + (LONG)sizeof(NetdevRing);
             const UBYTE *fp   = NULL;
+
+            /* ED_RCR_SEP saves damaged frames in promiscuous mode.  Reject
+               those before either hand-up, but keep the existing invalid-
+               length accounting and shared ring advancement unchanged. */
+            if ((hdr.rsr & (ED_RSR_CRC | ED_RSR_FAE | ED_RSR_FO)) != 0)
+                goto drop_frame;
 
             /* A mapped buffer needs no staging: hand the frame up where it
                lies and the opener's CopyToBuff reads the card once, instead

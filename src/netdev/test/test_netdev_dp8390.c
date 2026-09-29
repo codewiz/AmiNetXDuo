@@ -870,6 +870,22 @@ static void m_an_overlong_frame_is_skipped_not_reset_on(void)
     expect_hex("and the chip is NOT reset", nic.resets, 0);
     expect(find_w(0, ED_P0_BNRY, 0) >= 0,
            "and the ring still moves past it");
+
+    /* A damaged header with an invalid length still takes the same size
+       error path; the status drop only applies to otherwise valid frames. */
+    reset();
+    (VOID)dp8390_init(&nic);
+    start = nic.rec_page_start;
+    tr_n = 0;
+    hdr_status = ED_RSR_CRC;
+    hdr_next = (UBYTE)(start + 2);
+    hdr_count = 0xffffu;
+    chip[1][ED_P1_CURR] = (UBYTE)(start + 2);
+    dp8390_rint(&nic);
+    expect(frames_up == 0, "a damaged overlong frame is not handed up");
+    expect_hex("its invalid length still counts as a receive error", nic.rx_errors, 1);
+    expect(find_w(0, ED_P0_BNRY, 0) >= 0,
+           "its ring position still advances");
 }
 
 /*
