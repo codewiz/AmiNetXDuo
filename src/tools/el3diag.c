@@ -160,24 +160,21 @@ int main(void)
     Delay(100);                      /* two seconds of LAN chatter */
 
     {
-        UWORD o;
+        UWORD stats[5];
+        UWORD o, n;
 
+        /* The card is read under one Disable(), so it never sits in window 6
+           with the driver free to run and its cached window select stale. */
         Disable();
         REG(CMD) = swp(cmd_word(1, 6));
-        Enable();
-        for (o = 0; o < 10; o += 2)
-        {
-            UWORD v;
-
-            Disable();
-            v = REG(o);
-            Enable();
-            Printf((STRPTR)"w6 stats +%ld raw=$%04lx swapped=$%04lx\n",
-                   (ULONG)o, (ULONG)v, (ULONG)swp(v));
-        }
-        Disable();
+        for (n = 0, o = 0; o < 10; o += 2, n++)
+            stats[n] = REG(o);
         REG(CMD) = swp(cmd_word(1, 1));
         Enable();
+
+        for (n = 0, o = 0; o < 10; o += 2, n++)
+            Printf((STRPTR)"w6 stats +%ld raw=$%04lx swapped=$%04lx\n",
+                   (ULONG)o, (ULONG)stats[n], (ULONG)swp(stats[n]));
     }
 
     poke_cmd(0x16, 0);               /* statistics off, as the driver runs */

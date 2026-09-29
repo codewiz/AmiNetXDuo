@@ -12,6 +12,9 @@ version at the top when it merges.
 - The dead-task sweep clears a log hook (`SBTC_LOG_HOOK`) installed by a
   program that exited without closing the library. Deliveries after the sweep
   cannot use that hook; an already in-flight callback is not affected.
+- `El3Diag` reads the 3c589 statistics counters under one `Disable()` and
+  restores window 1 before printing them, so the diagnostic cannot leave the
+  live driver addressing the wrong register window.
 
 ## 1.0.0-beta7
 
