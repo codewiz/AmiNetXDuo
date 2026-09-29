@@ -450,6 +450,52 @@ static void test_group_lookups(void)
     world_free();
 }
 
+/*
+ * F-289: ':'-format lines get the native parser's leading blank skip.  A
+ * blank-only line is no entry (it was a uid/gid 0 entry named by its blanks),
+ * and an indented name is found by its name.
+ */
+static void test_leading_blanks(void)
+{
+    static const char passwd[] =
+        "root::0:0:Root:SYS:\n"
+        "   \n"
+        "\t \n"
+        "  jane:x:100:200:Jane Doe:Work:sh\n"
+        "\t# a comment after a tab\n";
+    static const char group[] =
+        "wheel::0:root\n"
+        "  \t\n"
+        "\tstaff::50:jane\n";
+    struct ug_passwd *pw;
+    struct ug_group  *gr;
+
+    world_reset();
+    shim_dos_add_file("DEVS:Internet/passwd", passwd, (long)sizeof(passwd) - 1);
+    shim_dos_add_file("DEVS:Internet/group", group, (long)sizeof(group) - 1);
+
+    pw = ugl_getpwnam(&base, (STRPTR)"jane");
+    CHECK(pw != NULL);
+    if (pw != NULL)
+    {
+        CHECK_STR(pw->pw_name, "jane");
+        CHECK(pw->pw_uid == 100);
+        CHECK(pw->pw_gid == 200);
+    }
+    CHECK(g.db.pw_count == 2);          /* root and jane: no blank entries */
+
+    gr = ugl_getgrnam(&base, (STRPTR)"staff");
+    CHECK(gr != NULL);
+    if (gr != NULL)
+    {
+        CHECK_STR(gr->gr_name, "staff");
+        CHECK(gr->gr_gid == 50);
+    }
+    CHECK(g.db.gr_count == 2);          /* wheel and staff */
+
+    world_free();
+}
+
 int main(void)
 {
     test_no_file_gives_root();
@@ -463,6 +509,7 @@ int main(void)
     test_oversize_file_ignored();
     test_bare_task_never_opens();
     test_group_lookups();
+    test_leading_blanks();
 
     printf("\n%d checks, %d failure(s)\n", checks, failures);
 

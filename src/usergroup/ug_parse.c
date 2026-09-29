@@ -368,12 +368,17 @@ void ug_db_parse_passwd(struct UgDatabase *db, char *text)
     while (db->pw_count < UG_MAX_PASSWD && (line = ug_next_line(&cursor)) != NULL)
     {
         struct ug_passwd *pw;
-        char *field = line;
+        char *field;
         char *name;
         char sep;
 
+        /* Leading blanks, as the native parser skips them: a blank-only line
+           is no entry, and an indented name is the name (F-289). */
+        while (*line == ' ' || *line == '\t')
+            line++;
         if (*line == '\0' || *line == '#')
             continue;
+        field = line;
 
         sep = ug_record_separator(line);
         name = ug_field(&field, sep);
@@ -542,13 +547,17 @@ void ug_db_parse_group(struct UgDatabase *db, char *text, ULONG len)
     while (db->gr_count < UG_MAX_GROUP && (line = ug_next_line(&cursor)) != NULL)
     {
         struct ug_group *gr;
-        char *field = line;
+        char *field;
         char *name;
         char *members;
         char sep;
 
+        /* Leading blanks, as in ug_db_parse_passwd() (F-289). */
+        while (*line == ' ' || *line == '\t')
+            line++;
         if (*line == '\0' || *line == '#')
             continue;
+        field = line;
 
         sep = ug_record_separator(line);
         name = ug_field(&field, sep);
