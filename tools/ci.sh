@@ -1132,9 +1132,9 @@ ${rlwhy:+ -- }${rlwhy:-, see the log above}" ;;
 # target-compatible width.  The last two are the socket sources that were
 # outside the host tier until 2026-08-27, both for the same reason: they are
 # the ones whose pointer round trips through 32-bit slots are load-bearing.
-HOST32_TEST_TARGETS=(fuzz_mdns fuzz_tls_crypto test_tls_x509
+HOST32_TEST_TARGETS=(fuzz_mdns fuzz_tls_crypto tls_rsa_key_regression test_tls_x509
                      test_tcp_handler test_transfer test_cork test_cork_fast)
-HOST32_TEST_REGEX='(fuzz_mdns|fuzz_tls_crypto)_(seeds|sweep(_[0-9]+)?)$|tls_x509_checks$|^tcp_handler_packets$|^transfer_scatter_gather$|^cork_small_writes(_fastpath)?$'
+HOST32_TEST_REGEX='(fuzz_mdns|fuzz_tls_crypto)_(seeds|sweep(_[0-9]+)?)$|^tls_rsa_key_regression$|tls_x509_checks$|^tcp_handler_packets$|^transfer_scatter_gather$|^cork_small_writes(_fastpath)?$'
 # 7 until fuzz_tls_crypto_sweep was split into four streams to get under the
 # ten-second budget; 10 then, 13 once fuzz_mdns_sweep followed it at 9.31 s of
 # that budget, and 21 when four streams each turned out to still be 8.14 s on
@@ -1143,7 +1143,8 @@ HOST32_TEST_REGEX='(fuzz_mdns|fuzz_tls_crypto)_(seeds|sweep(_[0-9]+)?)$|tls_x509
 # which is how the first attempt at this failed, locally and not on a runner.
 # 23 with cork_small_writes and its _fastpath arm: cork.c with transfer.c
 # around it, whose ABI asserts make it 32-bit, as test_transfer is.
-HOST32_TESTS_EXPECTED=23
+# 24 with tls_rsa_key_regression (F-276), ami_tls_crypto.c as fuzz_tls_crypto.
+HOST32_TESTS_EXPECTED=24
 
 stage_host32() {
     hr "host tests (32-bit: mDNS, TLS crypto, X.509, TCP:, transfer)"

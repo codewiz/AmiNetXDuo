@@ -282,16 +282,6 @@ struct TLSLibBase
      */
     char                    tb_SessionPath[TLS_STORE_PATH_MAX];
     BOOL                    tb_SessionsLoaded;
-
-    /*
-     * Server connections holding a registered RSA private key.  The prime
-     * table in src/tls/ami_tls_crypto.c is process-wide and its entries POINT
-     * INTO each connection's key buffer, so it can only be cleared when the
-     * last of them has gone; clearing it per connection would strip the
-     * others of CRT, and not clearing it at all would leave the table
-     * pointing at memory AllocVec() has handed back.  Under tb_Lock.
-     */
-    ULONG                   tb_ServerKeys;
 };
 
 /* ----------------------------------------------------------- transport --- */
@@ -558,8 +548,8 @@ LONG  tls_alpn_encode(TLSConnection *conn, CONST_STRPTR list);
 LONG  tls_server_identity(TLSConnection *conn, CONST_STRPTR cert_path,
                           CONST_STRPTR key_path, ULONG key_type);
 
-/* Free the two buffers and, when this was the last server connection, clear
-   the process-wide prime table that points into them. */
+/* Drop this connection's entry in the process-wide prime table, then free
+   the two buffers it pointed into. */
 VOID  tls_server_forget(TLSConnection *conn);
 
 

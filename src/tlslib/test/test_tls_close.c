@@ -172,6 +172,8 @@ const UINT ami_crypto_ecc_offered_groups_size = 1;
 static int    h_cert_init_calls;
 static int    h_cert_add_calls;
 static int    h_key_reset_calls;
+static int    h_key_forget_calls;
+static const NX_SECURE_X509_CERT *h_key_forget_cert;
 static UINT   h_cert_key_type;
 static USHORT h_cert_der_length;
 static USHORT h_cert_key_length;
@@ -208,6 +210,12 @@ UINT ami_tls_local_certificate_add(NX_SECURE_TLS_SESSION *session,
 VOID ami_tls_rsa_key_reset(VOID)
 {
     h_key_reset_calls++;
+}
+
+VOID ami_tls_rsa_key_forget(const NX_SECURE_X509_CERT *certificate)
+{
+    h_key_forget_calls++;
+    h_key_forget_cert = certificate;
 }
 
 /* dos.library, for the two DER files tls_server.c reads. */
@@ -757,7 +765,7 @@ static VOID h_test_server_identity(struct TLSLibBase *base)
     h_cert_init_calls = 0;
     h_cert_add_calls  = 0;
     h_key_reset_calls = 0;
-    base->tb_ServerKeys = 0;
+    h_key_forget_calls = 0;
 
     CHECK(tls_server_identity(conn, (CONST_STRPTR)cert, (CONST_STRPTR)key,
                               TLS_KEY_RSA) == TLS_OK);
@@ -768,34 +776,51 @@ static VOID h_test_server_identity(struct TLSLibBase *base)
     CHECK(h_cert_key_type == NX_SECURE_X509_KEY_TYPE_RSA_PKCS1_DER);
     CHECK(conn->tc_LocalDerLength == 512);
     CHECK(conn->tc_LocalKeyLength == 300);
-    CHECK(base->tb_ServerKeys == 1);
 
     /*
-     * The prime table in ami_tls_crypto.c points into the key buffer, and it
-     * is process-wide.  A second server must not have it cleared out from
-     * under it when the first one closes, and the last one out must clear it
-     * or it points at freed memory.
+     * The prime table in ami_tls_crypto.c points into each server's own key
+     * buffer.  Closing one server drops exactly its own entry and nothing
+     * else: no process-wide reset while another server is live (F-276), and
+     * no count to underflow when an identity failed before registering (F-277).
      */
     second = (TLSConnection *)calloc(1, sizeof(*second));
     CHECK(second != NULL);
     if (second != NULL)
     {
+        TLSConnection *failed = (TLSConnection *)calloc(1, sizeof(*failed));
+
         second->tc_Base = base;
         CHECK(tls_server_identity(second, (CONST_STRPTR)cert, (CONST_STRPTR)key,
                                   TLS_KEY_RSA) == TLS_OK);
-        CHECK(base->tb_ServerKeys == 2);
+
+        /* A third identity that fails after its buffers exist, then closes. */
+        CHECK(failed != NULL);
+        if (failed != NULL)
+        {
+            failed->tc_Base = base;
+            CHECK(tls_server_identity(failed, (CONST_STRPTR)cert,
+                                      (CONST_STRPTR)"test_tls_close_missing.der",
+                                      TLS_KEY_RSA) != TLS_OK);
+            CHECK(failed->tc_LocalDer != NULL);
+            tls_server_forget(failed);
+            CHECK(h_key_forget_calls == 1);
+            CHECK(h_key_forget_cert == &failed->tc_LocalCert);
+            CHECK(failed->tc_LocalDer == NULL);
+            free(failed);
+        }
 
         tls_server_forget(conn);
-        CHECK(base->tb_ServerKeys == 1);
-        CHECK(h_key_reset_calls == 0);
+        CHECK(h_key_forget_calls == 2);
+        CHECK(h_key_forget_cert == &conn->tc_LocalCert);
 
         tls_server_forget(second);
-        CHECK(base->tb_ServerKeys == 0);
-        CHECK(h_key_reset_calls == 1);
+        CHECK(h_key_forget_calls == 3);
+        CHECK(h_key_forget_cert == &second->tc_LocalCert);
+        CHECK(h_key_reset_calls == 0);
 
         /* Idempotent: TLSClose() calls it and so does a failed TLSOpen(). */
         tls_server_forget(second);
-        CHECK(h_key_reset_calls == 1);
+        CHECK(h_key_forget_calls == 3);
         CHECK(second->tc_LocalDer == NULL);
         CHECK(second->tc_LocalKey == NULL);
 

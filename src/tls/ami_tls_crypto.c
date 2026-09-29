@@ -278,13 +278,24 @@ static NX_CRYPTO_METHOD ami_crypto_method_ec_secp256 =
 /*
  * Where a certificate's p and q live between the application parsing it and
  * nx_secure asking for a private-key exponentiation on that modulus without
- * them.  Nothing is copied: the pointers are into the caller's DER.
+ * them.  Nothing is copied: the pointers are into the owner's DER, so each
+ * slot belongs to one certificate and is cleared by ami_tls_rsa_key_forget()
+ * before that DER is freed (F-276).
+ *
+ * A slot is only ever found by its own certificate's modulus POINTER, never by
+ * the bytes: two servers loaded from the same key file have equal moduli, and
+ * a byte match would hand one of them primes inside the other's buffer, which
+ * is freed when that other one closes.  Slots are cleared in place, never
+ * moved, so a lookup running in another task cannot see an entry change under
+ * it.  Writers hold the caller's lock (tls.library: tb_Lock).
  */
 #define AMI_TLS_RSA_KEY_SLOTS   4
 
 typedef struct AMI_TLS_RSA_KEY_STRUCT
 {
-    const UCHAR    *ami_modulus;
+    const NX_SECURE_X509_CERT *ami_owner;
+    const UCHAR    *ami_modulus;            /* the private key's modulus */
+    const UCHAR    *ami_public_modulus;     /* the certificate's, what nx_secure passes */
     UINT            ami_modulus_length;
     const UCHAR    *ami_prime_p;
     UINT            ami_prime_p_length;
@@ -293,7 +304,6 @@ typedef struct AMI_TLS_RSA_KEY_STRUCT
 } AMI_TLS_RSA_KEY;
 
 static AMI_TLS_RSA_KEY  ami_rsa_keys[AMI_TLS_RSA_KEY_SLOTS];
-static UINT             ami_rsa_key_count;
 
 UINT ami_tls_rsa_key_register(const NX_SECURE_X509_CERT *certificate)
 {
@@ -318,38 +328,65 @@ UINT                                i;
     }
 
     /* Re-registering the same certificate must not consume a second slot. */
-    for (i = 0; i < ami_rsa_key_count; i++)
+    slot =  NX_NULL;
+    for (i = 0; i < (UINT)AMI_TLS_RSA_KEY_SLOTS; i++)
     {
-        if (ami_rsa_keys[i].ami_modulus == key -> nx_secure_rsa_public_modulus)
+        if (ami_rsa_keys[i].ami_owner == certificate)
         {
             return(NX_SUCCESS);
         }
+        if ((slot == NX_NULL) && (ami_rsa_keys[i].ami_owner == NX_NULL))
+        {
+            slot =  &ami_rsa_keys[i];
+        }
     }
 
-    if (ami_rsa_key_count >= (UINT)AMI_TLS_RSA_KEY_SLOTS)
+    if (slot == NX_NULL)
     {
         return(NX_NO_MORE_ENTRIES);
     }
 
-    slot =  &ami_rsa_keys[ami_rsa_key_count];
-
-    slot -> ami_modulus         = key -> nx_secure_rsa_public_modulus;
+    /* The lookup keys are written last, so a half-filled slot matches nothing. */
     slot -> ami_modulus_length  = (UINT)key -> nx_secure_rsa_public_modulus_length;
     slot -> ami_prime_p         = key -> nx_secure_rsa_private_prime_p;
     slot -> ami_prime_p_length  = (UINT)key -> nx_secure_rsa_private_prime_p_length;
     slot -> ami_prime_q         = key -> nx_secure_rsa_private_prime_q;
     slot -> ami_prime_q_length  = (UINT)key -> nx_secure_rsa_private_prime_q_length;
-
-    ami_rsa_key_count++;
+    slot -> ami_modulus         = key -> nx_secure_rsa_public_modulus;
+    slot -> ami_public_modulus  =
+        certificate -> nx_secure_x509_public_key.rsa_public_key.nx_secure_rsa_public_modulus;
+    slot -> ami_owner           = certificate;
 
     return(NX_SUCCESS);
+}
+
+VOID ami_tls_rsa_key_forget(const NX_SECURE_X509_CERT *certificate)
+{
+
+UINT    i;
+
+
+    if (certificate == NX_NULL)
+    {
+        return;
+    }
+
+    for (i = 0; i < (UINT)AMI_TLS_RSA_KEY_SLOTS; i++)
+    {
+        if (ami_rsa_keys[i].ami_owner == certificate)
+        {
+            /* The lookup keys first, so no lookup matches while it is cleared. */
+            ami_rsa_keys[i].ami_modulus         = NX_NULL;
+            ami_rsa_keys[i].ami_public_modulus  = NX_NULL;
+            NX_CRYPTO_MEMSET(&ami_rsa_keys[i], 0, sizeof(ami_rsa_keys[i]));
+        }
+    }
 }
 
 VOID ami_tls_rsa_key_reset(VOID)
 {
 
     NX_CRYPTO_MEMSET(ami_rsa_keys, 0, sizeof(ami_rsa_keys));
-    ami_rsa_key_count = 0;
 }
 
 UINT ami_tls_local_certificate_add(NX_SECURE_TLS_SESSION *tls_session,
@@ -369,9 +406,10 @@ UINT    status;
 }
 
 /*
- * Find the primes for this modulus.  The comparison is on the bytes, not the
- * pointer: nx_secure hands over the modulus out of nx_secure_x509_public_key
- * for a signature and out of nx_secure_x509_private_key for a decryption.
+ * Find the primes for this modulus by pointer: nx_secure passes the local
+ * certificate's public-key modulus for every server private-key operation
+ * (ServerKeyExchange, CertificateVerify, RSA key exchange), and the private
+ * key's is kept as well.  No byte comparison; see the slot comment.
  */
 static const AMI_TLS_RSA_KEY *ami_rsa_find_primes(const UCHAR *modulus,
                                                   UINT modulus_length)
@@ -385,11 +423,11 @@ UINT    i;
         return(NX_NULL);
     }
 
-    for (i = 0; i < ami_rsa_key_count; i++)
+    for (i = 0; i < (UINT)AMI_TLS_RSA_KEY_SLOTS; i++)
     {
-        if ((ami_rsa_keys[i].ami_modulus_length == modulus_length) &&
-            (NX_CRYPTO_MEMCMP(ami_rsa_keys[i].ami_modulus, modulus,
-                              modulus_length) == 0))
+        if (((ami_rsa_keys[i].ami_public_modulus == modulus) ||
+             (ami_rsa_keys[i].ami_modulus == modulus)) &&
+            (ami_rsa_keys[i].ami_modulus_length == modulus_length))
         {
             return(&ami_rsa_keys[i]);
         }

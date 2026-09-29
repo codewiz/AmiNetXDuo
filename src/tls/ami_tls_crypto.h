@@ -50,9 +50,14 @@ UINT ami_tls_crypto_initialize(VOID);
 /*
  * Record a certificate's RSA primes so private-key operations on its modulus
  * can use CRT.  Call after nx_secure_x509_certificate_initialize() and before
- * the handshake; nothing is copied, so the certificate must outlive the sessions.
+ * the handshake; nothing is copied, so the certificate must stay until
+ * ami_tls_rsa_key_forget().  The caller serialises register and forget.
  */
 UINT ami_tls_rsa_key_register(const NX_SECURE_X509_CERT *certificate);
+
+/* Drop this certificate's primes.  Call before its DER is freed; other
+   certificates keep theirs (F-276). */
+VOID ami_tls_rsa_key_forget(const NX_SECURE_X509_CERT *certificate);
 
 /* Forget every registered key.  Private-key operations then fall back to the
    full-width exponentiation, which is correct and 3.6x slower. */

@@ -148,8 +148,10 @@ LONG tls_server_identity(TLSConnection *conn, CONST_STRPTR cert_path,
      * and about twenty-five seconds for the private-key operation this server
      * performs on every unresumed handshake.
      */
+    ObtainSemaphore(&conn->tc_Base->tb_Lock);
     status = ami_tls_local_certificate_add(&conn->tc_Session,
                                             &conn->tc_LocalCert);
+    ReleaseSemaphore(&conn->tc_Base->tb_Lock);
     if (status != NX_SUCCESS)
         return TLS_ERR_BADCERT;
 
@@ -188,10 +190,6 @@ LONG tls_server_identity(TLSConnection *conn, CONST_STRPTR cert_path,
     }
 #endif
 
-    ObtainSemaphore(&conn->tc_Base->tb_Lock);
-    conn->tc_Base->tb_ServerKeys++;
-    ReleaseSemaphore(&conn->tc_Base->tb_Lock);
-
     return TLS_OK;
 }
 
@@ -201,19 +199,16 @@ VOID tls_server_forget(TLSConnection *conn)
         return;
 
     /*
-     * The prime table in ami_tls_crypto.c points INTO tc_LocalKey's parse and
-     * is process-wide, so it can only be cleared when the last server
-     * connection has gone.  Clearing it here unconditionally would strip
-     * every other live server of CRT; not clearing it would leave it pointing
-     * at memory that is about to be handed back by AllocVec().
+     * The prime table in ami_tls_crypto.c points INTO this connection's key
+     * and certificate buffers, so this connection's entry goes before they are
+     * freed.  Only its own: other servers, loaded from the same key file or
+     * not, keep theirs (F-276).  An identity that failed part way may not have
+     * registered anything; forgetting an absent entry does nothing (F-277).
      */
     if (conn->tc_Base != NULL)
     {
         ObtainSemaphore(&conn->tc_Base->tb_Lock);
-        if (conn->tc_Base->tb_ServerKeys > 0)
-            conn->tc_Base->tb_ServerKeys--;
-        if (conn->tc_Base->tb_ServerKeys == 0)
-            ami_tls_rsa_key_reset();
+        ami_tls_rsa_key_forget(&conn->tc_LocalCert);
         ReleaseSemaphore(&conn->tc_Base->tb_Lock);
     }
 
