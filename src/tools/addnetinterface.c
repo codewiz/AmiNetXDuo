@@ -563,6 +563,14 @@ static VOID explain_add_failure(struct Library *base, LONG err,
     }
 }
 
+static BOOL needs_async_address(const AmiIfConfig *ifc)
+{
+    return (BOOL)((ifc->iptype != AMI_IPTYPE_STATIC &&
+                   ifc->iptype != AMI_IPTYPE_NONE) ||
+                  (!ami_config_iface_wants_ipv4(ifc) &&
+                   ami_config_iface_wants_ipv6(ifc)));
+}
+
 /* Probe once even for static/no-address cases; ToolWait's zero limit means
  * unlimited, so the caller's no-wait decision must be separate. */
 static BOOL wait_for_running_ready(struct Library *base, const char *name,
@@ -747,10 +755,7 @@ int main(int argc, char **argv)
             return RETURN_FAIL;
         }
 
-        if (ifc.iptype != AMI_IPTYPE_STATIC && ifc.iptype != AMI_IPTYPE_NONE)
-            dynamic = TRUE;
-        if (!ami_config_iface_wants_ipv4(&ifc) &&
-            ami_config_iface_wants_ipv6(&ifc))
+        if (needs_async_address(&ifc))
             dynamic = TRUE;
     }
 
@@ -914,7 +919,7 @@ int main(int argc, char **argv)
 
             if (ifc.iptype == AMI_IPTYPE_DHCP || addr == 0)
                 (VOID)wait_for_running_ready(base, name, &ifc, allowance,
-                                             !dynamic,
+                                             !needs_async_address(&ifc),
                                              &addr, text6, sizeof(text6),
                                              &broken);
             else if (where >= 0)
