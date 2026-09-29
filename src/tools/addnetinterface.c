@@ -563,8 +563,11 @@ static VOID explain_add_failure(struct Library *base, LONG err,
     }
 }
 
+/* Probe once even for static/no-address cases; ToolWait's zero limit means
+ * unlimited, so the caller's no-wait decision must be separate. */
 static BOOL wait_for_running_ready(struct Library *base, const char *name,
                                    const AmiIfConfig *ifc, ULONG seconds,
+                                   BOOL no_wait,
                                    ULONG *addr_out, char *text6,
                                    ULONG text6_len, BOOL *broken)
 {
@@ -604,7 +607,7 @@ static BOOL wait_for_running_ready(struct Library *base, const char *name,
                 return TRUE;
         }
 
-        if (!tool_wait_second(&wait))
+        if (no_wait || !tool_wait_second(&wait))
         {
             *broken = wait.broken;
             return FALSE;
@@ -614,7 +617,8 @@ static BOOL wait_for_running_ready(struct Library *base, const char *name,
 
 /* The same wait, against an interface of a stack that is linked in here. */
 static BOOL wait_for_interface_ready(LONG index, const AmiIfConfig *ifc,
-                                     ULONG seconds, ULONG *addr_out,
+                                     ULONG seconds, BOOL no_wait,
+                                     ULONG *addr_out,
                                      BOOL *broken)
 {
     ToolWait wait;
@@ -637,7 +641,7 @@ static BOOL wait_for_interface_ready(LONG index, const AmiIfConfig *ifc,
             return TRUE;
         }
 
-        if (!tool_wait_second(&wait))
+        if (no_wait || !tool_wait_second(&wait))
         {
             *broken = wait.broken;
             return FALSE;
@@ -910,6 +914,7 @@ int main(int argc, char **argv)
 
             if (ifc.iptype == AMI_IPTYPE_DHCP || addr == 0)
                 (VOID)wait_for_running_ready(base, name, &ifc, allowance,
+                                             !dynamic,
                                              &addr, text6, sizeof(text6),
                                              &broken);
             else if (where >= 0)
@@ -1030,12 +1035,12 @@ int main(int argc, char **argv)
             char  live6[AMI_CFG_IP6_STRLEN];
             ULONG live_addr = 0;
             ULONG live_mask = 0;
+            BOOL  no_wait = (ifc.iptype == AMI_IPTYPE_STATIC ||
+                             ifc.iptype == AMI_IPTYPE_NONE);
             NX_IP *ip;
 
             (VOID)wait_for_interface_ready(index, &ifc,
-                                           (ifc.iptype != AMI_IPTYPE_STATIC &&
-                                            ifc.iptype != AMI_IPTYPE_NONE)
-                                               ? timeout : 0UL,
+                                           no_wait ? 0UL : timeout, no_wait,
                                            &live_addr, &broken);
 
             ip = netstack_ip();
