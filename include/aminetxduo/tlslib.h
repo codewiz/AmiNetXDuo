@@ -64,8 +64,8 @@ struct TLSConnection;
  * then TLS_ERR_TIMEOUT.  Time computing (the public-key work of a
  * handshake) and waiting for another connection's handshake to release the
  * library's shared state are not counted.  If timer.device will not open,
- * nothing can measure a wait, and the limit applies to each network wait on
- * its own instead.  Zero means wait forever. */
+ * or the value is above 4294967 (about 71.6 minutes), the limit applies to
+ * each network wait on its own instead.  Zero means wait forever. */
 #define TLSA_Timeout        (TLSA_Dummy + 5)
 
 /* ULONG bytes, default 10240.  The record reassembly buffer; a certificate

@@ -99,9 +99,14 @@ static ULONG tls_ticks_micros(ULONG ticks)
 
 VOID tls_transport_budget(TLSTransport *transport, ULONG wait_option)
 {
-    transport->tt_BudgetOn     = (wait_option != NX_WAIT_FOREVER);
-    transport->tt_BudgetMicros = transport->tt_BudgetOn
-                                 ? tls_ticks_micros(wait_option) : 0;
+    ULONG micros = (wait_option == NX_WAIT_FOREVER)
+                   ? 0 : tls_ticks_micros(wait_option);
+
+    /* A budget past 2^32 us (about 71.6 minutes) does not fit, and the
+       E-clock cannot time a wait that long: such a TLSA_Timeout keeps the
+       per-wait limit it always had.  tlslib.h says so. */
+    transport->tt_BudgetOn     = (micros != 0 && micros != 0xFFFFFFFFUL);
+    transport->tt_BudgetMicros = transport->tt_BudgetOn ? micros : 0;
 }
 
 VOID tls_transport_budget_end(TLSTransport *transport)

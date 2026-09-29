@@ -286,6 +286,13 @@ static void test_receive_budget_quiet(void)
     tls_transport_budget_end(&rig.transport);
     h_timer_open = TRUE;
 
+    /* Past 2^32 us the budget cannot be held or timed: per-wait, as before. */
+    tls_transport_budget(&rig.transport, 0xFFFFFFF0UL);
+    CHECK(rig.transport.tt_BudgetOn == NX_FALSE);
+    tls_transport_budget(&rig.transport, h_ticks(4294967UL));
+    CHECK(rig.transport.tt_BudgetOn == NX_TRUE);
+    tls_transport_budget_end(&rig.transport);
+
     /* NX_WAIT_FOREVER is no budget, as TLSA_Timeout 0 is unlimited. */
     tls_transport_budget(&rig.transport, NX_WAIT_FOREVER);
     CHECK(rig.transport.tt_BudgetOn == NX_FALSE);
