@@ -249,10 +249,14 @@ static BOOL dt_translate_up(APTR parent, ULONG addr, ULONG *out)
             {
                 ULONG child_hi = (ca > 1) ? dt_cell(v, i + ca - 2) : 0;
                 ULONG child    = dt_cell(v, i + ca - 1);
+                ULONG par_hi   = (pa > 1) ? dt_cell(v, i + ca + pa - 2) : 0;
                 ULONG par      = dt_cell(v, i + ca + pa - 1);
                 ULONG size     = dt_cell(v, i + ca + pa + cs - 1);
 
-                if (child_hi != 0)
+                /* Both sides within 4 GB, as dt_reg() demands of a reg: a
+                   parent base above it cannot be a 32-bit register base
+                   (F-293). */
+                if (child_hi != 0 || par_hi != 0)
                     continue;
                 if (addr >= child && addr - child < size)
                 {

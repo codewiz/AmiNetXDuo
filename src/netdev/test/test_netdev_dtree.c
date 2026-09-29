@@ -50,6 +50,10 @@ static const UBYTE scb_ranges[] =
     { CELL(0), CELL(0x7C000000), CELL(0), CELL(0xF6000000), CELL(0), CELL(0x03800000),
       CELL(0), CELL(0x40000000), CELL(0), CELL(0xF9800000), CELL(0), CELL(0x00800000) };
 static const UBYTE genet_reg[] = { CELL(0), CELL(0x7D580000), CELL(0), CELL(0x10000) };
+/* F-293: a bus whose ranges map into a parent base above 4 GB (parent high
+   cell 1).  The low 32 bits alone would be a plausible 0xF6000000 base. */
+static const UBYTE scbhi_ranges[] =
+    { CELL(0), CELL(0x7C000000), CELL(1), CELL(0xF6000000), CELL(0), CELL(0x03800000) };
 static const UBYTE genet_irq[] = { CELL(0), CELL(0x9D), CELL(4), CELL(0), CELL(0x9E), CELL(4) };
 static const UBYTE genet_mac[] = { 0x98, 0xFE, 0x54, 0x2D, 0xA5, 0x1E };
 static const UBYTE mdio_reg[]  = { CELL(0xe14), CELL(8) };
@@ -60,6 +64,7 @@ static const UBYTE mmc_path[]   = "/soc/mmc@7e300000";
 #define STR(s) (const UBYTE *)(s), sizeof(s)
 
 static DtNode root, memory0, scb, genet, mdio, phy, soc, decoy, aliases, mmc;
+static DtNode scbhi, genethi;
 
 static const Prop root_props[] =
 {
@@ -80,6 +85,27 @@ static const Prop scb_props[] =
     { "#address-cells", two, 4 },
     { "#size-cells",    two, 4 },
     { "ranges",         scb_ranges, sizeof(scb_ranges) },
+    { NULL, NULL, 0 }
+};
+static const Prop scbhi_props[] =
+{
+    { "compatible",     STR("simple-bus") },
+    { "#address-cells", two, 4 },
+    { "#size-cells",    two, 4 },
+    { "ranges",         scbhi_ranges, sizeof(scbhi_ranges) },
+    { NULL, NULL, 0 }
+};
+/* The GENET node's properties under another name, below the high bus. */
+static const Prop genethi_props[] =
+{
+    { "compatible",        STR("acme,genet-above-4g") },
+    { "reg",               genet_reg, sizeof(genet_reg) },
+    { "#address-cells",    one, 4 },
+    { "#size-cells",       one, 4 },
+    { "interrupts",        genet_irq, sizeof(genet_irq) },
+    { "local-mac-address", genet_mac, sizeof(genet_mac) },
+    { "status",            STR("okay") },
+    { "phy-mode",          STR("rgmii-rxid") },
     { NULL, NULL, 0 }
 };
 static const Prop genet_props[] =
@@ -134,7 +160,8 @@ static const Prop decoy_props[] =
     { NULL, NULL, 0 }
 };
 
-static DtNode *root_children[]  = { &aliases, &soc, &memory0, &scb, NULL };
+static DtNode *root_children[]  = { &aliases, &soc, &memory0, &scb, &scbhi, NULL };
+static DtNode *scbhi_children[] = { &genethi, NULL };
 static DtNode *soc_children[]   = { &decoy, &mmc, NULL };
 static DtNode *scb_children[]   = { &genet, NULL };
 static DtNode *genet_children[] = { &mdio, NULL };
@@ -153,6 +180,8 @@ static void build(void)
     decoy   = (DtNode){ "ethernet@7d000000", &soc, none, decoy_props };
     aliases = (DtNode){ "aliases", &root, none, aliases_props };
     mmc     = (DtNode){ "mmc@7e300000", &soc, none, mmc_props };
+    scbhi   = (DtNode){ "scb-hi", &root, scbhi_children, scbhi_props };
+    genethi = (DtNode){ "ethernet@7d580000", &scbhi, none, genethi_props };
 }
 
 /* ------------------------------------------ the eleven, over that tree */
@@ -273,6 +302,12 @@ int main(void)
     expect_ulong("mac[5]", dt.mac[5], 0x1E);
     expect_ulong("phy", dt.phy, 1);
     expect_ulong("every open closed", (ULONG)(opens - closes), 0);
+
+    /* F-293: a ranges row whose parent base is above 4 GB does not
+       translate; its low 32 bits would have been 0xF7580000. */
+    expect_ulong("find genet above 4 GB",
+                 netdev_dtree_find("acme,genet-above-4g", &dt), 0);
+    expect_ulong("every open closed after the refusal", (ULONG)(opens - closes), 0);
 
     /* Nothing else answers to a name the tree does not carry. */
     expect_ulong("find nonsense", netdev_dtree_find("acme,frobnicator", &dt), 0);
