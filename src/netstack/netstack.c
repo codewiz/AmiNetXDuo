@@ -2598,6 +2598,12 @@ static LONG ami_ns_dhcp_ensure(AmiNetStack *ns)
 
 LONG netstack_interface_dhcp_start(UWORD index, ULONG requested_address)
 {
+    return netstack_interface_dhcp_start_lease(index, requested_address, 0UL);
+}
+
+LONG netstack_interface_dhcp_start_lease(UWORD index, ULONG requested_address,
+                                         ULONG lease_seconds)
+{
     AmiNetStack  *ns = ami_ns;
     AmiNetCaller *caller;
     UINT          status;
@@ -2645,6 +2651,17 @@ LONG netstack_interface_dhcp_start(UWORD index, ULONG requested_address)
                 != NX_SUCCESS)
             AMI_WARN("netstack: the address this interface asked to keep was "
                      "not requested; the server will offer its own");
+
+    /*
+     * The lease goes out as the option 51 NetX already sends in DISCOVER and
+     * the first REQUEST; 0 keeps its infinite request.  Set every start, so a
+     * lease asked for once is not carried into a start that asked for none.
+     * OPTIONAL: failing leaves the infinite request and the lease still works.
+     */
+    if (nx_dhcp_interface_request_lease(&ns->ns_Dhcp, (UINT)index, lease_seconds)
+            != NX_SUCCESS && lease_seconds != 0)
+        AMI_WARN("netstack: the lease this interface asked for was not "
+                 "requested; the server will offer its own");
 
     status = nx_dhcp_interface_start(&ns->ns_Dhcp, (UINT)index);
 
@@ -2916,6 +2933,13 @@ LONG netstack_interface_dhcp_start(UWORD index, ULONG requested_address)
     (VOID)index;
     (VOID)requested_address;
     return AMI_NET_ERR_STATE;
+}
+
+LONG netstack_interface_dhcp_start_lease(UWORD index, ULONG requested_address,
+                                         ULONG lease_seconds)
+{
+    (VOID)lease_seconds;
+    return netstack_interface_dhcp_start(index, requested_address);
 }
 
 LONG netstack_interface_dhcp_state(UWORD index)

@@ -248,6 +248,10 @@ typedef struct AmiDhcpLease {
 } AmiDhcpLease;
 
 LONG    netstack_interface_dhcp_start(UWORD index, ULONG requested_address);
+/* The same with the lease to ask for in seconds; 0 asks for an infinite one, as
+   netstack_interface_dhcp_start() does (Roadshow aam_LeaseTime, F-030). */
+LONG    netstack_interface_dhcp_start_lease(UWORD index, ULONG requested_address,
+                                            ULONG lease_seconds);
 LONG    netstack_interface_dhcp_state(UWORD index);
 LONG    netstack_interface_dhcp_lease(UWORD index, AmiDhcpLease *out);
 /* Extend the lease this interface already holds; the address stays unless the

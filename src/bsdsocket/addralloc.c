@@ -486,8 +486,9 @@ static VOID bsd_aam_worker(VOID)
     aam = job->baj_Message;
     master = job->baj_Master;
 
-    rc = netstack_interface_dhcp_start(job->baj_Index,
-                                       aam->aam_RequestedAddress);
+    rc = netstack_interface_dhcp_start_lease(job->baj_Index,
+                                             aam->aam_RequestedAddress,
+                                             aam->aam_LeaseTime);
     if (rc != AMI_NET_OK)
     {
         result = (rc == AMI_NET_ERR_BUSY) ? AAMR_Busy : AAMR_AddrChangeFailed;
