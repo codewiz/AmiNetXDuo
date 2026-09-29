@@ -244,10 +244,9 @@ UBYTE *netdev_rx_claim(APTR arg, const UBYTE *hdr, UWORD frame_len,
  */
 static VOID netdev_batch_filled(NetdevUnit *unit, NetdevOpener *op,
                                 struct IOSana2Req *io, UWORD len,
-                                ULONG sum, UBYTE flags)
+                                ULONG sum, UBYTE flags, BOOL staged)
 {
     AnxdS2RxBatch *b  = (AnxdS2RxBatch *)io->ios2_Data;
-    NetdevTrack   *tr = netdev_track_find(op, io->ios2_PacketType);
 
     ((AnxdS2RxFilled)op->op_RxFilled)(b->Cookie[b->Filled], len, sum,
                                       (UBYTE)(flags & (ANXD_S2_RXF_SUMMED |
@@ -255,13 +254,19 @@ static VOID netdev_batch_filled(NetdevUnit *unit, NetdevOpener *op,
     if ((flags & op->op_RxFlags & ANXD_S2_RXF_VERIFIED) != 0)
         unit->nu_Nic.rx_verified++;
 
-    unit->nu_Stats.PacketsReceived++;
-    if (tr != NULL)
+    /* The staged path already accounted for this frame in netdev_rx_body(). */
+    if (!staged)
     {
-        tr->st.PacketsReceived++;
-        tr->st.BytesReceived += (ULONG)len + NETDEV_HDR_LEN;
+        NetdevTrack *tr = netdev_track_find(op, io->ios2_PacketType);
+
+        unit->nu_Stats.PacketsReceived++;
+        if (tr != NULL)
+        {
+            tr->st.PacketsReceived++;
+            tr->st.BytesReceived += (ULONG)len + NETDEV_HDR_LEN;
+        }
+        unit->nu_RxDirect++;
     }
-    unit->nu_RxDirect++;
 
     if (b->Filled == 0)
         unit->nu_BatchPending++;
@@ -301,7 +306,7 @@ NetdevRxResult netdev_batch_stage(NetdevUnit *unit, NetdevOpener *op,
         return NETDEV_RX_FAILED;
     for (i = 0; i < NETDEV_HDR_LEN; i++)
         dst[(LONG)i - NETDEV_HDR_LEN] = frame[i];
-    netdev_batch_filled(unit, op, io, plen, 0, 0);
+    netdev_batch_filled(unit, op, io, plen, 0, 0, TRUE);
     return NETDEV_RX_TAKEN;
 }
 
@@ -355,7 +360,7 @@ VOID netdev_rx_claimed(APTR arg, APTR token, ULONG sum, UBYTE flags)
     {
         /* The claim left the payload length in ios2_DataLength. */
         netdev_batch_filled(unit, op, io, (UWORD)io->ios2_DataLength, sum,
-                            flags);
+                            flags, FALSE);
         return;
     }
 

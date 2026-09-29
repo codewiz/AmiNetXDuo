@@ -708,6 +708,11 @@ static void test_batch_stage_copies_with_header(void)
     expect_u32("stage: not SUMMED", (unsigned long)batch_slot[0].filled_flags, 0);
     expect_u32("stage: Filled", batch_rec.b.Filled, 1);
     expect_u32("stage: pending", unit.nu_BatchPending, 1);
+    expect_u32("stage: receive stats belong to the caller",
+               unit.nu_Stats.PacketsReceived, 0);
+    expect_u32("stage: type stats belong to the caller",
+               opener_a.op_Track[0].st.PacketsReceived, 0);
+    expect_u32("stage: not a direct fill", unit.nu_RxDirect, 0);
     netdev_batch_flush(&unit);
     expect_u32("stage: one reply", (unsigned long)replies, 1);
 }
