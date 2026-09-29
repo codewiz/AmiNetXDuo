@@ -544,6 +544,15 @@ ANX6_CANDIDATE    here;
 
     NX_ASSERT(ipv6_addr != NX_NULL);
 
+    /* :: may name a local bind address, but not a packet destination.  The
+       vendored selector refused it before source/interface selection; scope
+       alone would misclassify it as a routable global destination (F-294). */
+    if (dest_address[0] == 0 && dest_address[1] == 0 &&
+        dest_address[2] == 0 && dest_address[3] == 0)
+    {
+        return NX_NO_INTERFACE_ADDRESS;
+    }
+
     /*
      * 4, "the outgoing interface".  When the caller names one it is the
      * answer: the reply has to leave by the interface the request arrived on.

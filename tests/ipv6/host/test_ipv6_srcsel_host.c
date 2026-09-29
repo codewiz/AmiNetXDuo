@@ -520,6 +520,23 @@ ULONG dest[4];
 }
 #endif /* NX_ENABLE_IPV6_MULTICAST */
 
+/* An unspecified address is valid as a local bind address, not a packet
+   destination.  A default router must not turn it into a routable target. */
+static void test_unspecified_destination(void)
+{
+ULONG dest[4] = { 0, 0, 0, 0 };
+
+    h_reset();
+    h_addr(H_SLOT0, H_ETH0, 0x20010DB8UL, 0, 0, 1, 64,
+           NX_IPV6_ADDR_STATE_VALID);
+    h_router(H_ETH0);
+
+    h_check(h_select(dest, NX_NULL) == -1,
+            "an unspecified destination is refused with a default router");
+    h_check(h_select(dest, h_if(H_ETH0)) == -1,
+            "an explicit interface cannot make it a packet destination");
+}
+
 
 int main(void)
 {
@@ -532,6 +549,7 @@ int main(void)
     test_rule6_label();
     test_rule8_longest_prefix();
     test_candidate_set();
+    test_unspecified_destination();
 #ifdef NX_ENABLE_IPV6_MULTICAST
     test_multicast_join();
 #endif
