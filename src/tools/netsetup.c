@@ -622,11 +622,24 @@ static BOOL ask_device(Plan *plan)
         /* A name. "ariadne" is almost certainly "ariadne.device". */
         {
             ULONG len = 0;
+            BOOL  add_suffix;
 
             while (answer[len] != '\0')
                 len++;
 
-            if (len < 7 || tool_stricmp(answer + len - 7, ".device") != 0)
+            add_suffix = (len < 7 ||
+                          tool_stricmp(answer + len - 7, ".device") != 0);
+
+            /* Check the input length before using it as a destination offset.
+               tool_copy_string() may truncate a longer name to 39 bytes. */
+            if (len >= sizeof(plan->device) ||
+                (add_suffix && len + sizeof(".device") > sizeof(plan->device)))
+            {
+                tool_printf("  The driver name is too long.\n");
+                continue;
+            }
+
+            if (add_suffix)
             {
                 tool_copy_string(plan->device, sizeof(plan->device), answer);
                 tool_copy_string(plan->device + len,
