@@ -30,6 +30,9 @@ enum
  * the measurement and not on the peer.
  */
 #define IPERF_IDLE_MS       2000UL
+/* A blocking server's recv() gives up after this long without data, so a
+   silent peer cannot park it: the idle test and the break check then run. */
+#define IPERF_BLOCK_WAIT_MS  500UL
 
 /* An unpaced sender still has to come back to the caller. */
 #define IPERF_SEND_BURST    64
@@ -492,9 +495,22 @@ static VOID iperf_slice_accept(IperfRun *run)
     }
 
     /* A blocking plan leaves the accepted socket blocking: the data-phase
-       recv() then parks in the library instead of polling it in slices. */
+       recv() then parks in the library instead of polling it in slices.  It
+       parks for IPERF_BLOCK_WAIT_MS at most: a peer that connects and goes
+       silent otherwise holds the server forever, past the idle test and
+       Ctrl-C (F-163).  The timeout comes back as EWOULDBLOCK, which
+       iperf_slice_recv() already treats as "nothing there". */
     if (!run->plan.blocking)
         (VOID)tool_sock_ioctl(run->sb, s, TOOL_FIONBIO, &nonblock);
+    else
+    {
+        ToolTimeval tv;
+
+        tv.tv_secs  = (LONG)(IPERF_BLOCK_WAIT_MS / 1000UL);
+        tv.tv_micro = (LONG)((IPERF_BLOCK_WAIT_MS % 1000UL) * 1000UL);
+        (VOID)tool_sock_setsockopt(run->sb, s, TOOL_SOL_SOCKET, TOOL_SO_RCVTIMEO,
+                                   &tv, (LONG)sizeof(tv));
+    }
     (VOID)tool_sock_addr_get(&from, &run->res.peer);
     run->res.peer_port = tool_sock_addr_port(&from);
 

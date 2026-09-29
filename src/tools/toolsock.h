@@ -124,6 +124,7 @@ typedef struct ToolAddrInfo
 #define TOOL_SOL_SOCKET     0xffff
 #define TOOL_SO_REUSEADDR   0x0004
 #define TOOL_SO_BROADCAST   0x0020
+#define TOOL_SO_RCVTIMEO    0x1006
 #define TOOL_SO_ERROR       0x1007
 
 /*
