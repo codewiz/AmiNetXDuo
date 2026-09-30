@@ -827,6 +827,7 @@ int main(int argc, char **argv)
             char  text[16];
             char  text6[AMI_CFG_IP6_STRLEN];
             LONG  where;
+            BOOL  left_down = FALSE;
 
             name = tool_basename((const char *)names[n]);
             (VOID)load_interface((const char *)names[n], &ifc, TRUE);
@@ -864,7 +865,14 @@ int main(int argc, char **argv)
                     LONG idx = running_index(base, name, NULL);
 
                     add_err = 0;
-                    if (idx >= 0 && !running_is_up(base, (UWORD)idx))
+
+                    /* STATE=DOWN in the file: left down, as a fresh add
+                       leaves it (F-150), and reported as configured down,
+                       not by an address it is only remembering. */
+                    if (idx >= 0 && !ifc.up &&
+                        !running_is_up(base, (UWORD)idx))
+                        left_down = TRUE;
+                    else if (idx >= 0 && !running_is_up(base, (UWORD)idx))
                     {
                         NetStatusControl upctl;
                         ULONG            w;
@@ -919,7 +927,9 @@ int main(int argc, char **argv)
 
             text6[0] = '\0';
 
-            if (ifc.iptype == AMI_IPTYPE_DHCP || addr == 0)
+            if (left_down)
+                addr = 0;
+            else if (ifc.iptype == AMI_IPTYPE_DHCP || addr == 0)
                 (VOID)wait_for_running_ready(base, name, &ifc, allowance,
                                              !needs_async_address(&ifc),
                                              &addr, text6, sizeof(text6),
