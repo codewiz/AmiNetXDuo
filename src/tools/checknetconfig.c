@@ -201,23 +201,6 @@ static VOID cnc_report(const AmiCfgProblem *problem, APTR user)
         note(problem_advice(problem));
 }
 
-/* TRUE when `line` begins with `keyword` as a whole word. */
-static BOOL line_starts_with(const char *line, const char *keyword)
-{
-    ULONG n = 0;
-
-    while (keyword[n] != '\0')
-        n++;
-
-    if (tool_stricmp_n(line, keyword, n) != 0)
-        return FALSE;
-
-    /* "DEVICELESS" does not begin with the keyword DEVICE. */
-    return (BOOL)(line[n] == '\0' || line[n] == '=' ||
-                  line[n] == ' '  || line[n] == '\t' ||
-                  line[n] == '\n' || line[n] == '\r');
-}
-
 /*
  * The file the stack reads.  In a self-contained installation DEVS: means
  * AmiNetXDuo:Devs, the LAST member of the multi-assign, so the name alone
@@ -234,37 +217,16 @@ static const char *cnc_where(const char *path)
     return ami_cfg_resolve(path, where, sizeof(where));
 }
 
-/* The 1-based line of `path` whose first word is `keyword`, or 0. */
+/*
+ * The 1-based line of `path` whose first word is `keyword`, or 0.  Read whole
+ * and counted by the parser's own line splitter, so the number a finding
+ * gives is the one the parser meant: FGets() in a fixed buffer counted a long
+ * line as two and a lone CR as none (F-159).  ami_cfg_read_file() resolves the
+ * DEVS: name as cnc_where() does.
+ */
 static ULONG keyword_line(const char *path, const char *keyword)
 {
-    char  line[CNC_LINE_MAX];
-    BPTR  file;
-    ULONG lineno = 0;
-    ULONG found  = 0;
-
-    file = Open((CONST_STRPTR)cnc_where(path), MODE_OLDFILE);
-    if (file == (BPTR)0)
-        return 0;
-
-    while (FGets(file, (STRPTR)line, (LONG)sizeof(line)) != NULL)
-    {
-        const char *p = line;
-
-        lineno++;
-
-        while (*p == ' ' || *p == '\t')
-            p++;
-
-        if (line_starts_with(p, keyword))
-        {
-            found = lineno;
-            break;
-        }
-    }
-
-    Close(file);
-
-    return found;
+    return ami_cfg_keyword_line_file(path, keyword);
 }
 
 /*

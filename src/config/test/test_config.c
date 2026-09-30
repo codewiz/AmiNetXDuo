@@ -2575,6 +2575,69 @@ static void test_netdb_nomem(void)
     CHECK(ami_alloc_count() == 0);
 }
 
+/*
+ * CheckNetConfig's keyword line numbers are the parser's (F-159): a line
+ * longer than its old 200-byte FGets() buffer is one line, and CR, LF, CRLF
+ * and LFCR each end exactly one.
+ */
+static void test_keyword_line(void)
+{
+    char buf[512];
+    char *p;
+    int   i;
+
+    printf("keyword line\n");
+
+    /* A 300-character first line, then the keyword on line 2. */
+    p = buf;
+    *p++ = '#';
+    for (i = 0; i < 299; i++)
+        *p++ = 'x';
+    strcpy(p, "\nGATEWAY 192.168.1.1\n");
+    CHECK(ami_cfg_keyword_line(buf, "GATEWAY") == 2);
+
+    /* A long line whose continuation would start with the keyword. */
+    p = buf;
+    *p++ = '#';
+    for (i = 0; i < 198; i++)
+        *p++ = 'x';
+    strcpy(p, "GATEWAY 1.2.3.4\nNAMESERVER 1.1.1.1\n");
+    CHECK(ami_cfg_keyword_line(buf, "GATEWAY") == 0);
+    p = buf;
+    *p++ = '#';
+    for (i = 0; i < 198; i++)
+        *p++ = 'x';
+    strcpy(p, "GATEWAY 1.2.3.4\nNAMESERVER 1.1.1.1\n");
+    CHECK(ami_cfg_keyword_line(buf, "NAMESERVER") == 2);
+
+    strcpy(buf, "a\rb\rGATEWAY 1.2.3.4\r");        /* CR only */
+    CHECK(ami_cfg_keyword_line(buf, "GATEWAY") == 3);
+    strcpy(buf, "a\r\nb\r\nGATEWAY=1.2.3.4\r\n");  /* CRLF, '=' form */
+    CHECK(ami_cfg_keyword_line(buf, "GATEWAY") == 3);
+    strcpy(buf, "a\n\rb\n\r  gateway 1.2.3.4\n");   /* LFCR, indented, case */
+    CHECK(ami_cfg_keyword_line(buf, "GATEWAY") == 3);
+    strcpy(buf, "GATEWAYS 1\nGATEWAY\n");               /* whole word; bare */
+    CHECK(ami_cfg_keyword_line(buf, "GATEWAY") == 2);
+    strcpy(buf, "nothing here\n");
+    CHECK(ami_cfg_keyword_line(buf, "GATEWAY") == 0);
+
+    /* Lines shorter than the keyword, the last one at the very end of an
+       allocation of exactly its size: run under ASan, a read past a line's
+       NUL is a report. */
+    {
+        static const char text[] = "N\nNAME\r\nNAMESERVE\nN";
+        char *heap = (char *)malloc(sizeof(text));
+
+        CHECK(heap != NULL);
+        if (heap != NULL)
+        {
+            memcpy(heap, text, sizeof(text));
+            CHECK(ami_cfg_keyword_line(heap, "NAMESERVER") == 0);
+            free(heap);
+        }
+    }
+}
+
 static void test_netdb(void)
 {
     const AmiNetdbEntry *e;
@@ -3280,6 +3343,7 @@ int main(int argc, char **argv)
     test_gateway();
     test_tcp_handler();
     test_netdb();
+    test_keyword_line();
     test_netdb_checker();
     test_netdb_nomem();
     test_netdb_missing_files();

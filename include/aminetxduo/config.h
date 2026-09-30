@@ -760,6 +760,13 @@ const AmiNetdbEntry *ami_netdb_proto_by_number(LONG number);
 const AmiNetdbEntry *ami_netdb_serv_by_name(const char *name, const char *proto);
 const AmiNetdbEntry *ami_netdb_serv_by_port(LONG port, const char *proto);
 
+/* The 1-based line whose first word is `keyword`, counted as the parser
+   counts lines, or 0.  `buf` is a whole file's text, split in place. */
+ULONG ami_cfg_keyword_line(char *buf, const char *keyword);
+/* The same for a file, read through ami_cfg_read_file(); 0 when it cannot
+   be read. */
+ULONG ami_cfg_keyword_line_file(const char *path, const char *keyword);
+
 /*
  * One line of a netdb file judged by the loader's rules, for CheckNetConfig
  * (src/config/netdb_check.c, F-094).  word, when not NULL, gets the column the
