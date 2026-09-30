@@ -233,14 +233,28 @@ static BOOL ping_pause(ULONG seconds)
     return FALSE;
 }
 
-/* The pause, cut to what TIMEOUT has left, in the whole seconds the check at
-   the top of the loop uses; that check then ends the run on time rather
-   than a whole INTERVAL late. */
-static ULONG ping_pause_cap(ULONG interval, ULONG timeout, ULONG elapsed)
+/* Milliseconds TIMEOUT has left.  Seconds are compared first so that the
+   product fits: past 4294966 seconds the clock itself cannot count it. */
+static ULONG ping_left_ms(ULONG timeout, ULONG elapsed_ms)
 {
-    ULONG left = (elapsed >= timeout) ? 0UL : timeout - elapsed;
+    ULONG secs = elapsed_ms / 1000UL;
 
-    return (interval < left) ? interval : left;
+    if (secs >= timeout)
+        return 0;
+    if (timeout - secs > 4294966UL)
+        return 0xffffffffUL;
+
+    return (timeout - secs) * 1000UL - elapsed_ms % 1000UL;
+}
+
+/* The last pause of a run that TIMEOUT ends: whole seconds, then the rest in
+   ticks rounded up.  TRUE on a break. */
+static BOOL ping_pause_ms(ULONG ms)
+{
+    if (ping_pause(ms / 1000UL))
+        return TRUE;
+
+    return tool_delay_ticks((ms % 1000UL + 19UL) / 20UL);
 }
 
 static int ping_main(int argc, char **argv);
@@ -266,7 +280,6 @@ static int ping_main(int argc, char **argv)
     ToolAddr        target;
     ULONG           count;
     ULONG           interval;
-    ULONG           pause;
     ULONG           preload;
     ULONG           size;
     ULONG           timeout;
@@ -601,12 +614,23 @@ static int ping_main(int argc, char **argv)
         if (i + 1 < preload)
             continue;
 
-        pause = interval;
+        /* TIMEOUT bounds the pause too: one that would run past it is cut to
+           the milliseconds left, and then the run is over. */
         if (timeout != 0)
-            pause = ping_pause_cap(interval, timeout,
-                                   (ami_millis() - started) / 1000UL);
+        {
+            ULONG left = ping_left_ms(timeout, ami_millis() - started);
 
-        if (ping_pause(pause))
+            if (left / 1000UL < interval)
+            {
+                if (ping_pause_ms(left))
+                    interrupted = TRUE;
+                else
+                    expired = TRUE;
+                break;
+            }
+        }
+
+        if (ping_pause(interval))
         {
             interrupted = TRUE;
             break;
