@@ -455,6 +455,13 @@ VOID bsd_handoff_flush(struct AmiSocketBase *b, struct MinList *list,
         h_flushes_bracketed++;
 }
 VOID bsd_closing_drain(VOID) { h_drains++; }
+/* Reached by the drain gate since F-059's owed releases; nothing is owed in
+   these runs. */
+VOID bsd_defer_sweep(struct AmiSocketBase *b) { (VOID)b; }
+/* library.c names these since F-095 and F-050; nothing here makes them do
+   anything. */
+ULONG ami_netdb_unloaded(VOID) { return 0; }
+VOID bsd_netmon_detach_owner(struct AmiSocketBase *owner) { (VOID)owner; }
 /* socket.c's parked closes, kept by a last close that cannot drain. */
 AmiSocket *bsd_closing_head;
 static AmiSocket h_parked;
