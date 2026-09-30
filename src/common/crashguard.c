@@ -377,6 +377,7 @@ BOOL ami_crash_install_alert_hook(VOID)
     if (ami_alert_stub != NULL)
         return TRUE;
 
+    /* Allocated first: AllocMem() cannot be called with interrupts off. */
     stub = (UWORD *)AllocMem(AMI_ALERT_STUB_BYTES, MEMF_PUBLIC);
     if (stub == NULL)
         return FALSE;
@@ -389,34 +390,46 @@ BOOL ami_crash_install_alert_hook(VOID)
     *ami_alert_stub_cell(stub, AMI_ALERT_STUB_OLD) = NULL;
     CacheClearU();
 
+    /* The check, the patch and the publishing are one step, so a second
+       installer in this image finds the hook in, not half of it. */
     Disable();
+    if (ami_alert_stub != NULL)
+    {
+        Enable();
+        FreeMem(stub, AMI_ALERT_STUB_BYTES);     /* never published */
+        return TRUE;
+    }
     old = SetFunction((struct Library *)SysBase, -108, (APTR)stub);
     *ami_alert_stub_cell(stub, AMI_ALERT_STUB_OLD) = old;
-    ami_alert_old = old;
+    ami_alert_old  = old;
+    ami_alert_stub = stub;
     Enable();
 
-    ami_alert_stub = stub;
     return TRUE;
 }
 
 VOID ami_crash_remove_alert_hook(VOID)
 {
-    UWORD *stub = ami_alert_stub;
+    UWORD *stub;
     APTR   old;
     APTR   was;
 
+    /* Taking the stub, restoring the vector and making the stub a pass-through
+       are one step.  ami_alert_old is left as it was: a Guru already inside
+       the trampoline still goes on to the right place. */
+    Disable();
+    stub = ami_alert_stub;
     if (stub == NULL)
+    {
+        Enable();
         return;
+    }
+    ami_alert_stub = NULL;
 
     old = *ami_alert_stub_cell(stub, AMI_ALERT_STUB_OLD);
-
-    Disable();
     was = SetFunction((struct Library *)SysBase, -108, old);
     if (was != (APTR)stub)
         (VOID)SetFunction((struct Library *)SysBase, -108, was);
     *ami_alert_stub_cell(stub, AMI_ALERT_STUB_TARGET) = old;
     Enable();
-
-    ami_alert_stub = NULL;
-    ami_alert_old  = NULL;
 }
