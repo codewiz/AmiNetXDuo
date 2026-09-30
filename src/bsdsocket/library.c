@@ -1015,7 +1015,10 @@ struct AmiSocketBase *bsd_lib_open(
 
     ObtainSemaphore(&master->sb_Lock);
 
-    (VOID)ami_netdb_load();
+    /* Out of memory is the one failure; the tables answer nothing, which a
+       lookup cannot tell from a name that is not there (F-095). */
+    if (ami_netdb_load() == AMI_CFG_ERR_NOMEM)
+        ami_event(NETEVENT_NETDB_NOMEM, NETEVENT_NOINDEX, ami_netdb_unloaded());
 
     bsd_usergroup_open();
 

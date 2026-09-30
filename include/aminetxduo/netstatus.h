@@ -782,6 +782,11 @@ typedef struct NetStatusOpener
                                        an address change is noticed by
                                        polling, late, or not at all;
                                        value = the NX_ status                */
+#define NETEVENT_NETDB_NOMEM    52  /* a DEVS:Internet netdb table could not be
+                                       allocated and answers nothing until the
+                                       library is reloaded; value = 1 hosts,
+                                       2 networks, 4 protocols, 8 services
+                                       (F-095)                               */
 
 typedef struct NetStatusEvent
 {

@@ -75,6 +75,10 @@ static const ToolEventRow tool_event_rows[] =
       "DHCP will not say when it binds, so a lease can arrive that nothing "
       "acts on and anything waiting for an address goes on waiting",
       "NetX Duo status" },
+    { NETEVENT_NETDB_NOMEM,
+      "a DEVS:Internet netdb table could not be loaded, out of memory, and "
+      "its lookups find nothing until the library is reloaded",
+      "tables (1 hosts, 2 networks, 4 protocols, 8 services)" },
     { NETEVENT_ADDR_UNREPORTED,
       "nothing will be told when an address changes, so a change is noticed "
       "by polling or not at all",

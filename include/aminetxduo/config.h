@@ -749,6 +749,8 @@ typedef struct AmiNetdbEntry {
 
 LONG                 ami_netdb_load(VOID);
 VOID                 ami_netdb_free(VOID);
+/* 1 << AMI_NETDB_* for each table the load could not allocate (F-095). */
+ULONG                ami_netdb_unloaded(VOID);
 const AmiNetdbEntry *ami_netdb_host_by_name(const char *name);
 const AmiNetdbEntry *ami_netdb_host_by_addr(ULONG addr);
 const AmiNetdbEntry *ami_netdb_net_by_name(const char *name);

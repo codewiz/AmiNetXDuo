@@ -28,12 +28,20 @@ APTR ami_alloc_flags(ULONG size, ULONG memf)
     return ami_alloc(size);
 }
 
+/* Allocations left before one fails; -1 = none fails. */
+static long stub_fail_in = -1;
+
 APTR ami_alloc(ULONG size)
 {
     void *p;
 
     if (size == 0)
         return NULL;
+
+    if (stub_fail_in == 0)
+        return NULL;
+    if (stub_fail_in > 0)
+        stub_fail_in--;
 
     p = calloc(1, size);
     if (p != NULL)
@@ -2506,6 +2514,67 @@ static void test_netdb_checker(void)
     }
 }
 
+/*
+ * A netdb table that could not be allocated is reported, not left looking
+ * like an empty file (F-095).  Every allocation of the load is failed in
+ * turn: a table that answers nothing must be named by ami_netdb_unloaded()
+ * and the load must say AMI_CFG_ERR_NOMEM; one that answers must not be.
+ */
+static void test_netdb_nomem(void)
+{
+    long n;
+    int  reported = 0;
+
+    printf("netdb out of memory\n");
+
+    for (n = 0; n < 40; n++)
+    {
+        LONG  rc;
+        ULONG mask;
+        ULONG empty = 0;
+
+        ami_netdb_free();
+        clear_fixtures();
+        set_fixture(AMI_CFG_FILE_HOSTS, "10.0.0.1 hn\n");
+        set_fixture(AMI_CFG_FILE_NETWORKS, "hn 10\n");
+        set_fixture(AMI_CFG_FILE_PROTOCOLS, "hn 6\n");
+        set_fixture(AMI_CFG_FILE_SERVICES, "hn 80/tcp\n");
+
+        stub_fail_in = n;
+        rc = ami_netdb_load();
+        stub_fail_in = -1;
+        mask = ami_netdb_unloaded();
+
+        if (ami_netdb_host_by_name("hn") == NULL &&
+            ami_netdb_host_by_name("localhost") == NULL)
+            empty |= 1UL << AMI_NETDB_HOSTS;
+        if (ami_netdb_net_entry(0) == NULL)
+            empty |= 1UL << AMI_NETDB_NETWORKS;
+        if (ami_netdb_proto_entry(0) == NULL)
+            empty |= 1UL << AMI_NETDB_PROTOCOLS;
+        if (ami_netdb_serv_entry(0) == NULL)
+            empty |= 1UL << AMI_NETDB_SERVICES;
+
+        checks++;
+        if (mask != empty || (rc == AMI_CFG_ERR_NOMEM) != (empty != 0))
+        {
+            failures++;
+            printf("  FAIL alloc %ld fails: load %ld, reported 0x%lx, empty "
+                   "0x%lx\n", n, (long)rc, (unsigned long)mask,
+                   (unsigned long)empty);
+        }
+        if (empty != 0)
+            reported++;
+
+        /* Loaded is loaded: a second call is not a second report. */
+        CHECK(ami_netdb_load() == AMI_CFG_OK);
+    }
+
+    CHECK(reported > 0);
+    ami_netdb_free();
+    CHECK(ami_alloc_count() == 0);
+}
+
 static void test_netdb(void)
 {
     const AmiNetdbEntry *e;
@@ -3212,6 +3281,7 @@ int main(int argc, char **argv)
     test_tcp_handler();
     test_netdb();
     test_netdb_checker();
+    test_netdb_nomem();
     test_netdb_missing_files();
     test_netdb_garbage();
     test_service_discovery();

@@ -314,6 +314,12 @@ static VOID netdb_free_one(NetdbTable *table)
 
 /* ------------------------------------------------------------------- API */
 
+/*
+ * AMI_CFG_ERR_NOMEM from the call that loaded, when a table could not be
+ * allocated; ami_netdb_unloaded() says which.  A later call finds the store
+ * loaded and answers AMI_CFG_OK: the load is not retried, because lookups
+ * read the tables without a lock.
+ */
 LONG ami_netdb_load(VOID)
 {
     if (ami_netdb_loaded)
@@ -330,7 +336,30 @@ LONG ami_netdb_load(VOID)
     netdb_load_one(&ami_netdb[NETDB_SERVICES],  NETDB_SERVICES,
                    AMI_CFG_FILE_SERVICES,  ami_netdb_builtin_services);
 
-    return AMI_CFG_OK;
+    return (ami_netdb_unloaded() != 0) ? AMI_CFG_ERR_NOMEM : AMI_CFG_OK;
+}
+
+/*
+ * 1 << kind for each table the load could not allocate (F-095).  A loaded
+ * table always has its entry array, even for an empty file, so one without
+ * is one that ran out of memory: it answers nothing, which a lookup cannot
+ * tell from a name that is not there, so the caller is told.
+ */
+ULONG ami_netdb_unloaded(VOID)
+{
+    ULONG mask = 0;
+    ULONG i;
+
+    if (!ami_netdb_loaded)
+        return 0;
+
+    for (i = 0; i < 4; i++)
+    {
+        if (ami_netdb[i].entries == NULL)
+            mask |= 1UL << i;
+    }
+
+    return mask;
 }
 
 VOID ami_netdb_free(VOID)
