@@ -591,13 +591,16 @@ VOID el3_drain_tx_status(NetdevNic *nic)
     {
         UBYTE st = el3_tx_status(nic);
 
-        /* Bit 7 is "this entry is a completed transmit"; without it there is
-           no entry, whatever the other bits say. */
-        if ((st & EL3_TXS_COMPLETE) == 0)
+        /* Bit 7 is "this entry is a completed transmit" and bit 2 "the stack
+           overflowed"; with neither there is no entry, whatever the other
+           bits say.  An overflow stops the transmitter like any error bit
+           (el3reg.h), so it is an entry to pop and recover from (F-284; Linux
+           3c589_cs.c pop_tx_status() tests 0x84, 3c509.c re-enables on 0x3c). */
+        if ((st & (EL3_TXS_COMPLETE | EL3_TXS_OVERFLOW)) == 0)
             return;
 
         if ((st & (EL3_TXS_JABBER | EL3_TXS_UNDERRUN |
-                   EL3_TXS_MAX_COLLISION)) != 0)
+                   EL3_TXS_MAX_COLLISION | EL3_TXS_OVERFLOW)) != 0)
             nic->tx_errors++;
         if ((st & EL3_TXS_MAX_COLLISION) != 0)
             nic->collisions++;
@@ -607,7 +610,8 @@ VOID el3_drain_tx_status(NetdevNic *nic)
         /* Any value pops it.  Zero is the value, so that nothing here reads
            as a bit written back into a register that has none. */
         el3_tx_status_pop(nic);
-        nic->tx_completed++;
+        if ((st & EL3_TXS_COMPLETE) != 0)
+            nic->tx_completed++;
 
         /*
          * Any error bit disables the transmitter, and jabber and underrun need
@@ -620,7 +624,7 @@ VOID el3_drain_tx_status(NetdevNic *nic)
             (VOID)el3_wait_cmd(nic);
             el3_cmd(nic, EL3_C_TX_ENABLE, 0);
         }
-        else if ((st & EL3_TXS_MAX_COLLISION) != 0)
+        else if ((st & (EL3_TXS_MAX_COLLISION | EL3_TXS_OVERFLOW)) != 0)
         {
             el3_cmd(nic, EL3_C_TX_ENABLE, 0);
         }
