@@ -126,9 +126,11 @@ unsigned long http_ws_close_frame(unsigned char *out, unsigned long outlen,
 /* --------------------------------------------------------- peer liveness --- */
 
 /*
- * When a quiet peer counts as gone. Hearing from the peer means anything the
- * peer sent and nothing this end wrote. The budget is split in half: the ping
- * goes out at half the timeout and the answer is due by the end of it.
+ * `progress` is the reference time for the current liveness phase: initially
+ * the last peer activity, then the time a ping was queued while `pinged` is
+ * true. Callers must reset it on that transition (and on a peer response).
+ * The budget is split in half: queue a ping after the first half, and allow
+ * the peer the second half to answer. Ordinary outgoing data is not progress.
  */
 
 /* TRUE when a ping has gone unanswered for its half of the budget. */
