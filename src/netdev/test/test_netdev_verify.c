@@ -253,6 +253,66 @@ static void test_ipv6(void)
            netdev_rx_verify6(ip, (UWORD)(len + 2), packet_sum(ip, len)) == 0);
 }
 
+/*
+ * F-314: a payload length of 65516 plus the 40-byte header wrapped to 20 in
+ * sixteen bits and matched a 20-byte frame.  Bytes 8-9 balance the sum so the
+ * checksum passes too; the UDP case also takes its length and checksum from
+ * past the end of the frame.
+ */
+static void test_ipv6_short(void)
+{
+    UBYTE ip[80];
+    UWORD tlen = 0xffecu;               /* 65516 + 40 == 20 in a UWORD */
+    UWORD plen = 20;
+
+    memset(ip, 0, sizeof(ip));
+    ip[0] = 0x60;
+    put16(ip + 4, tlen);
+    ip[6] = 6;
+    put16(ip + 8, finish_sum(add16(tlen, 6)));
+    expect("a 20-byte IPv6/TCP frame claiming 65516 is refused",
+           netdev_rx_verify6(ip, plen, packet_sum(ip, plen)) == 0);
+    expect("and by the version dispatcher",
+           netdev_rx_verify(ip, plen, packet_sum(ip, plen)) == 0);
+
+    memset(ip, 0, sizeof(ip));
+    ip[0] = 0x60;
+    put16(ip + 4, tlen);
+    ip[6] = 17;
+    put16(ip + 8, finish_sum(add16(tlen, 17)));
+    put16(ip + 44, tlen);               /* beyond the frame */
+    put16(ip + 46, 1);
+    expect("a 20-byte IPv6/UDP frame claiming 65516 is refused",
+           netdev_rx_verify6(ip, plen, packet_sum(ip, plen)) == 0);
+
+    {   /* Every length short of the header, whatever the claim. */
+        UWORD n;
+        int   refused = 1;
+
+        for (n = 0; n < 40; n++)
+        {
+            memset(ip, 0, sizeof(ip));
+            ip[0] = 0x60;
+            put16(ip + 4, (UWORD)(n - 40));
+            ip[6] = 6;
+            if (n >= 10)
+                put16(ip + 8, finish_sum(add16((UWORD)(n - 40), 6)));
+            if (netdev_rx_verify6(ip, n, packet_sum(ip, n)) != 0)
+                refused = 0;
+        }
+        expect("no frame shorter than the IPv6 header is certified", refused);
+    }
+
+    /* The exact fit still verifies. */
+    {
+        UWORD len = make_ipv6_tcp(ip);
+
+        expect("a whole IPv6/TCP frame still verifies",
+               netdev_rx_verify6(ip, len, packet_sum(ip, len)) ==
+                   ANXD_S2_RXF_VERIFIED);
+    }
+}
+
 static void test_tx_checksum(void)
 {
     UBYTE frame[96];
@@ -293,6 +353,7 @@ int main(void)
 {
     test_ipv4();
     test_ipv6();
+    test_ipv6_short();
     test_tx_checksum();
     printf("%d checks, %d failures, %s\n", checks, failures,
            failures == 0 ? "PASS" : "FAIL");

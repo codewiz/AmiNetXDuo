@@ -170,8 +170,8 @@ UBYTE netdev_rx_verify6(const UBYTE *ip, UWORD plen, ULONG sum)
     if (ip == NULL || (ip[0] >> 4) != 6)
         return 0;
     tlen = nd_be16(ip + 4);
-    if ((UWORD)(tlen + 40) != plen)
-        return 0;                       /* padded or truncated */
+    if ((ULONG)tlen + 40UL != (ULONG)plen)
+        return 0;                       /* padded or truncated; no wrap (F-314) */
     nh = ip[6];
     if (nh != 6 && nh != 17)
         return 0;                       /* extension header, or other */
