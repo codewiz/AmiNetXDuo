@@ -811,10 +811,18 @@ int fetch_head_value(const char *value, char *dst, unsigned long dstlen)
 {
     unsigned long i = 0;
 
+    if (dstlen == 0)
+        return 0;
+
     while (value[i] != '\0' && value[i] != '\r' && value[i] != '\n')
     {
         if (i + 1 >= dstlen)
+        {
+            /* Too long: an empty destination, never a cut-off prefix that
+               a caller would follow as if it were the value (F-177). */
+            dst[0] = '\0';
             return 0;
+        }
         dst[i] = value[i];
         i++;
     }

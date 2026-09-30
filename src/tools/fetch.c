@@ -658,14 +658,26 @@ static LONG fetch_run(VOID)
                             goto hop_done;
                         }
 
-                        if (head.truncated)
-                        {
+                        /*
+                         * A redirect with nowhere usable to go is an error,
+                         * not an answer whose body is the file (F-177): no
+                         * Location, an empty one, or one too long to hold.
+                         */
+                        fetch_next[0] = '\0';
+                        if (loc == NULL && head.truncated)
                             tool_error("the %ld redirect gave no Location: in "
                                        "the first %ld bytes of headers",
                                        (LONG)status, (LONG)FETCH_HEAD_MAX);
-                            rc = RETURN_ERROR;
-                            goto hop_done;
-                        }
+                        else if (loc == NULL)
+                            tool_error("the %ld redirect gave no Location:",
+                                       (LONG)status);
+                        else
+                            tool_error("the %ld redirect's Location: is empty "
+                                       "or longer than %ld characters",
+                                       (LONG)status,
+                                       (LONG)(sizeof(fetch_next) - 1));
+                        rc = RETURN_ERROR;
+                        goto hop_done;
                     }
 
                     if (st.headers)

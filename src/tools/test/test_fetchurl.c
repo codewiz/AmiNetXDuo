@@ -444,6 +444,29 @@ static void test_head_fields(void)
     CHECK(fetch_head_field(&head, "loc:") == 0);
 }
 
+/*
+ * F-177: a value that does not fit leaves an empty destination, not a
+ * cut-off prefix that fetch.c followed as the redirect; an empty value is
+ * no value either.  A value that fits exactly still works.
+ */
+static void test_head_value_bounds(void)
+{
+    char dst[8];
+
+    memset(dst, 'x', sizeof(dst));
+    CHECK(fetch_head_value("/much/too/long\r\n", dst, sizeof(dst)) == 0);
+    CHECK(dst[0] == '\0');
+
+    memset(dst, 'x', sizeof(dst));
+    CHECK(fetch_head_value("\r\n", dst, sizeof(dst)) == 0);
+    CHECK(dst[0] == '\0');
+
+    CHECK(fetch_head_value("/abcdef\r\n", dst, sizeof(dst)) == 1);
+    CHECK_STR(dst, "/abcdef");
+
+    CHECK(fetch_head_value("x", dst, 0) == 0);
+}
+
 /* Running out of room loses the tail of the headers, not the transfer. */
 static void test_head_truncation(void)
 {
@@ -479,6 +502,7 @@ int main(void)
     test_interim_responses();
     test_interim_split_reads();
     test_head_fields();
+    test_head_value_bounds();
     test_head_truncation();
 
     printf("%s: %d checks, %d failures\n",
