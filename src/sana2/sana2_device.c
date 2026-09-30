@@ -434,9 +434,11 @@ static AmiSana2Unit *ami_sana2_unit_slot(const AmiSana2If *iface, BOOL create)
 
 /* TRUE when the caller must issue S2_ONLINE: the unit went from unused to
    used, or this interface already held it and is re-onlining on purpose. */
-static BOOL ami_sana2_unit_join(AmiSana2If *iface)
+static BOOL ami_sana2_unit_join(AmiSana2If *iface, BOOL *newly_counted)
 {
     AmiSana2Unit *u;
+
+    *newly_counted = FALSE;
 
     if (iface->unit_counted)
         return TRUE;
@@ -447,6 +449,7 @@ static BOOL ami_sana2_unit_join(AmiSana2If *iface)
 
     iface->unit_counted = TRUE;
     u->users++;
+    *newly_counted = TRUE;
 
     return (u->users == 1) ? TRUE : FALSE;
 }
@@ -505,6 +508,7 @@ LONG ami_sana2_online(AmiSana2If *iface)
 {
     struct IOSana2Req req = iface->templ;
     LONG              err;
+    BOOL              newly_counted;
 
     /* An S2_OFFLINE the device still holds could complete after this
        S2_ONLINE and leave the wire down under a stack that reports it up.
@@ -516,12 +520,16 @@ LONG ami_sana2_online(AmiSana2If *iface)
         return (LONG)IOERR_UNITBUSY;
     }
 
-    if (ami_sana2_unit_join(iface))
+    if (ami_sana2_unit_join(iface, &newly_counted))
     {
         err = ami_sana2_command(iface, &req, S2_ONLINE);
         if (err != 0 && req.ios2_WireError != S2WERR_UNIT_ONLINE)
         {
-            (VOID)ami_sana2_unit_leave(iface);
+            /* Undo only a count this call acquired.  A refused repeat on an
+               already-counted interface must not release a sibling's wire
+               on this interface's later OFFLINE. */
+            if (newly_counted)
+                (VOID)ami_sana2_unit_leave(iface);
             AMI_ERROR("sana2: S2_ONLINE failed (%ld/%ld)", (long)err,
                       (long)req.ios2_WireError);
             return err;

@@ -47,6 +47,8 @@ typedef struct HostDevice
     int     reads_held;         /* CMD_READs the device owns right now */
     BOOL    unit_online;        /* the DEVICE's state, not iface->online */
     BOOL    keeps_everything;   /* will not answer even S2_OFFLINE */
+    ULONG   online_wire_error;
+    LONG    online_error;
     ULONG   offline_wire_error;
     LONG    offline_error;
 
@@ -493,7 +495,10 @@ LONG DoIO(struct IORequest *ioreq)
 
     case S2_ONLINE:
         h_dev.online_cmds++;
-        h_dev.unit_online = TRUE;
+        req->ios2_Req.io_Error = (BYTE)h_dev.online_error;
+        req->ios2_WireError = h_dev.online_wire_error;
+        if (h_dev.online_error == 0)
+            h_dev.unit_online = TRUE;
         break;
 
     case S2_OFFLINE:
@@ -1257,6 +1262,45 @@ static void case_shared_unit(void)
     h_check(h_dev.closes == 2, "CloseDevice() was called for both");
 }
 
+/* A failed repeat S2_ONLINE must not remove a count the caller held before
+   this invocation.  Otherwise its later OFFLINE takes a sibling's wire down. */
+static void case_shared_unit_repeat_online_refusal(void)
+{
+    AmiSana2If *a;
+    AmiSana2If *b;
+
+    h_device_reset();
+    a = h_bring_up_unit(0);
+    b = h_bring_up_unit(0);
+    h_check(a != NULL && b != NULL,
+            "both shared-unit interfaces are online before repeat refusal");
+    if (a == NULL || b == NULL)
+    {
+        if (a != NULL) (VOID)h_tear_down(a);
+        if (b != NULL) (VOID)h_tear_down(b);
+        return;
+    }
+
+    h_dev.online_error = (LONG)S2ERR_BAD_STATE;
+    h_dev.online_wire_error = S2WERR_GENERIC_ERROR;
+    h_check(ami_sana2_online(a) != 0,
+            "a refused repeat S2_ONLINE is reported");
+    h_check(a->unit_counted,
+            "a refused repeat leaves the pre-existing unit count held");
+
+    h_dev.online_error = 0;
+    h_dev.online_wire_error = 0;
+    h_check(ami_sana2_offline(a) == 0,
+            "first interface can still go offline cleanly");
+    h_check(h_dev.offline_cmds == 0 && h_dev.unit_online,
+            "first offline does not take the sibling's shared wire down");
+
+    h_check(h_tear_down(a), "first interface closes");
+    h_check(h_tear_down(b), "second interface closes");
+    h_check(h_dev.offline_cmds == 1,
+            "last shared-unit interface issues the one S2_OFFLINE");
+}
+
 /* 9. Two units are not one: neither may borrow the other's count. */
 static void case_distinct_units(void)
 {
@@ -1925,6 +1969,7 @@ int main(void)
     case_retain_blocks_reopen();
     case_offline_refused();
     case_shared_unit();
+    case_shared_unit_repeat_online_refusal();
     case_distinct_units();
     case_distinct_devices_same_unit();
     case_special_recovery_stats();
