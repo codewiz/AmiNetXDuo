@@ -1043,7 +1043,8 @@ static LONG ami_bpf_ioctl_setf(APTR owner, LONG channel,
 
     if (count != 0)
     {
-        if (count > (ULONG)BPF_MAXINSNS || prog->bf_insns == NULL)
+        if (count > (ULONG)BPF_MAXINSNS || prog->bf_insns == NULL ||
+            (((unsigned long)prog->bf_insns) & 1UL) != 0UL)
             return AMI_BPF_EINVAL;
 
         copy = (struct bpf_insn *)ami_alloc(count *

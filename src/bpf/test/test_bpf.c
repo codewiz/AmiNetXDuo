@@ -1199,6 +1199,28 @@ static void test_zero_length(void)
     CHECK(ami_alloc_count() == 0);
 }
 
+static void test_filter_instruction_alignment(void)
+{
+    static const struct bpf_insn valid = BPF_STMT(BPF_RET | BPF_K, 64);
+    UBYTE raw[sizeof(valid) + 1];
+    UBYTE *odd = raw + ((((unsigned long)raw) & 1UL) == 0UL ? 1 : 0);
+    struct bpf_program prog;
+
+    printf("bpf: filter instruction pointer must be word-aligned\n");
+    CHECK(ami_bpf_init() == 0);
+    CHECK(ami_bpf_open(T_BPF_OWNER, 0) == 0);
+
+    memcpy(odd, &valid, sizeof(valid));
+    prog.bf_len = 1;
+    prog.bf_insns = (struct bpf_insn *)(void *)odd;
+    CHECK((((unsigned long)prog.bf_insns) & 1UL) != 0UL);
+    CHECK(ami_bpf_ioctl(T_BPF_OWNER, 0, BIOCSETF, &prog) == AMI_BPF_EINVAL);
+
+    CHECK(ami_bpf_close(T_BPF_OWNER, 0) == 0);
+    ami_bpf_cleanup();
+    CHECK(ami_alloc_count() == 0);
+}
+
 /* A channel belongs to the library base that allocated it: closed with that
    base, and EPERM for every call from anyone else. */
 static void test_channel_ownership(void)
@@ -2022,6 +2044,7 @@ int main(int argc, char **argv)
     test_filter_edges();
     test_filter_scatter();
     test_channel_basics();
+    test_filter_instruction_alignment();
     test_capture_records();
     test_overflow_and_signals();
     test_write_and_binding();
