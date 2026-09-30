@@ -17,6 +17,7 @@
 #include <exec/tasks.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
+#include <inline/macros.h>              /* LP1NR, for RawPutChar */
 
 #include <setjmp.h>
 #include <stdarg.h>
