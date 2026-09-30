@@ -107,6 +107,27 @@ if(NOT CMAKE_CROSSCOMPILING AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
     target_link_options(test_unbracketed_close PRIVATE -Wl,--gc-sections)
     add_test(NAME unbracketed_close COMMAND test_unbracketed_close)
 
+    # socket.c: the release an unbracketed close could not make is paid by
+    # the next bracketed close of any base, not leaked (F-059).
+    add_executable(test_deferred_release host/test_deferred_release_host.c)
+    target_include_directories(test_deferred_release PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/host/shim"
+        "${CMAKE_SOURCE_DIR}/src/bsdsocket"
+        "${CMAKE_SOURCE_DIR}/include"
+        "${AMINETXDUO_THREADX}/common/inc"
+        "${AMINETXDUO_THREADX}/ports/linux/gnu/inc"
+        "${AMINETXDUO_NETXDUO}/common/inc"
+        "${AMINETXDUO_NETXDUO}/ports/linux/gnu/inc"
+        "${CMAKE_SOURCE_DIR}/port/netxduo-amiga/inc")
+    target_compile_options(test_deferred_release PRIVATE
+        -include "${CMAKE_CURRENT_SOURCE_DIR}/host/shim/host_prelude.h"
+        -ffunction-sections -fdata-sections -Wno-pointer-to-int-cast)
+    target_compile_definitions(test_deferred_release PRIVATE
+        AMINETXDUO_MULTICAST AMINETXDUO_IPV6 AMINETXDUO_CMSG
+        NX_INCLUDE_USER_DEFINE_FILE)
+    target_link_options(test_deferred_release PRIVATE -Wl,--gc-sections)
+    add_test(NAME deferred_release COMMAND test_deferred_release)
+
     if(AMINETXDUO_IPV6 AND NOT AMINETXDUO_CMSG)
         add_executable(test_in6_option_level
             host/test_in6_option_level_host.c)

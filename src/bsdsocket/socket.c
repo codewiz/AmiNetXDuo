@@ -764,6 +764,51 @@ VOID bsd_closing_sweep(VOID)
     }
 }
 
+AmiSocket *bsd_defer_head;
+
+VOID bsd_socket_defer(AmiSocket *sock)
+{
+    if (sock->as_DeferRefs++ == 0)
+    {
+        sock->as_DeferNext = bsd_defer_head;
+        bsd_defer_head     = sock;
+    }
+}
+
+/*
+ * The list is taken whole under Forbid(), so a close deferring meanwhile
+ * starts a new one.  Each owed release is one bsd_socket_release(); the count
+ * never exceeds the references, so only the last can free the socket, and
+ * nothing here touches it after that.
+ */
+VOID bsd_defer_sweep(struct AmiSocketBase *base)
+{
+    AmiSocket *sock;
+
+    Forbid();
+    sock = bsd_defer_head;
+    bsd_defer_head = NULL;
+    Permit();
+
+    while (sock != NULL)
+    {
+        AmiSocket *next;
+        ULONG      owed;
+
+        Forbid();
+        next               = sock->as_DeferNext;
+        owed               = sock->as_DeferRefs;
+        sock->as_DeferNext = NULL;
+        sock->as_DeferRefs = 0;
+        Permit();
+
+        while (owed-- > 0)
+            bsd_socket_release(base, sock);
+
+        sock = next;
+    }
+}
+
 VOID bsd_closing_drain(VOID)
 {
     AmiSocket *sock;
@@ -1055,11 +1100,12 @@ VOID bsd_close_all(struct AmiSocketBase *base)
             bsd_socket_release(base, sock);
         else
         {
-            /* Left alive with its NetX callbacks installed, which reach this
-               base through as_Owner long after the base is gone (F-059):
-               ownership passes to another holder, or to nobody. */
+            /* Its NetX callbacks reach this base through as_Owner long after
+               the base is gone, so ownership passes to another holder or to
+               nobody; the release is owed to the next bracket (F-059). */
             Forbid();
             bsd_owner_drop(base, sock);
+            bsd_socket_defer(sock);
             Permit();
         }
     }
@@ -1067,6 +1113,7 @@ VOID bsd_close_all(struct AmiSocketBase *base)
     if (!bracketed)
         return;
 
+    bsd_defer_sweep(base);
     bsd_closing_sweep();
 
     bsd_nx_leave(base);
@@ -2892,21 +2939,24 @@ LONG bsd_CloseSocket(register LONG sock_fd __asm("d0"),
     {
         bsd_socket_release(SocketBase, sock);
 
+        bsd_defer_sweep(SocketBase);
         bsd_closing_sweep();
 
         bsd_nx_leave(SocketBase);
     }
     else
     {
-        /* No bracket, so no release: the socket leaks with its callbacks
-           installed.  They must not keep signalling this base, which can be
-           closed and freed before they fire (F-059). */
+        /* No bracket, so no release now: it is owed to the next bracketed
+           close.  The callbacks must not keep signalling this base, which
+           can be closed and freed before they fire (F-059). */
         Forbid();
         bsd_owner_drop(SocketBase, sock);
+        bsd_socket_defer(sock);
         Permit();
 
         AMI_WARN("bsdsocket: CloseSocket(%ld) with no ThreadX bracket. "
-                 "The socket leaks", (long)sock_fd);
+                 "The release waits for the next bracketed close",
+                 (long)sock_fd);
     }
 
     return 0;

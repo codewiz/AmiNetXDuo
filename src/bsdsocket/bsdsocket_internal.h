@@ -714,6 +714,13 @@ typedef struct AmiSocket
     struct AmiSocket       *as_ClosingNext;
     ULONG                   as_ClosingAt;
 
+    /*
+     * Releases owed by a close that had no bracket (F-059), paid by the next
+     * bracketed close of any base. socket.c
+     */
+    struct AmiSocket       *as_DeferNext;
+    ULONG                   as_DeferRefs;
+
     struct AmiSocket       *as_RawNext;     /* raw.c's registry link          */
     NX_PACKET              *as_RawHead;
     NX_PACKET              *as_RawTail;
@@ -948,6 +955,14 @@ static inline VOID bsd_owner_drop(struct AmiSocketBase *base, AmiSocket *sock)
    inside a bsd_nx_enter() bracket. A no-op when the list is empty. */
 VOID       bsd_closing_sweep(VOID);
 VOID       bsd_closing_drain(VOID);
+
+/* socket.c, a reference dropped with no bracket is owed rather than leaked
+   (F-059).  Defer under Forbid(); the sweep pays every owed release and must
+   be called inside a bracket.  The head is forgotten, like bsd_closing_head,
+   by a last close that cannot bracket. */
+VOID       bsd_socket_defer(AmiSocket *sock);
+VOID       bsd_defer_sweep(struct AmiSocketBase *base);
+extern AmiSocket *bsd_defer_head;
 /* The parked closes.  Emptied, not drained, by a last close that cannot
    drain (bsd_child_close_gate()): the stack's teardown takes their NX
    sockets and NX_IP, and a sweep after it would reach freed memory (#53). */

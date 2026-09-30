@@ -621,12 +621,15 @@ static VOID bsd_child_close_gate(struct AmiSocketBase *child)
     if (!bracketed)
     {
         /* Nothing will drain them now, and a sweep after the teardown would
-           reach a freed NX_IP (#53): forgotten, not freed. */
+           reach a freed NX_IP (#53): forgotten, not freed.  The owed
+           releases too (F-059). */
         bsd_closing_head = NULL;
+        bsd_defer_head   = NULL;
         AMI_WARN("bsdsocket: last close with the kernel down. "
                  "Closing sockets are left to the stack teardown");
         return;
     }
+    bsd_defer_sweep(child);
     bsd_closing_drain();
     bsd_nx_leave(child);
 }

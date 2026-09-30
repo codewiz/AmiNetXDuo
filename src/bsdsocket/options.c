@@ -1180,8 +1180,8 @@ int bsd_getdtablesize(register struct AmiSocketBase *SocketBase __asm("a6"))
  * descriptor was refused.  It may be the last one, if a descriptor callback
  * closed the source meanwhile, so it goes through the bracket; the refusal's
  * errno is the one the caller sees.  With no bracket a reference that is not
- * the last needs no NetX and still goes; the last leaks, as CloseSocket()'s
- * does (F-059).
+ * the last needs no NetX and still goes; the last is owed to the next
+ * bracketed close, as CloseSocket()'s is (F-059).
  */
 static VOID bsd_dup_unretain(struct AmiSocketBase *base, AmiSocket *sock)
 {
@@ -1197,6 +1197,8 @@ static VOID bsd_dup_unretain(struct AmiSocketBase *base, AmiSocket *sock)
         Forbid();
         if (sock->as_RefCount > 1)
             sock->as_RefCount--;
+        else
+            bsd_socket_defer(sock);
         bsd_owner_drop(base, sock);
         Permit();
     }
