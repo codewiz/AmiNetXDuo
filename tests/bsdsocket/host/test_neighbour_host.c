@@ -281,9 +281,11 @@ UINT netstack_ipv6_route_add(const ULONG d[4], ULONG len, const ULONG nh[4], UWO
 { (VOID)d; (VOID)len; (VOID)nh; (VOID)i;
   h_unreachable("netstack_ipv6_route_add"); return 1; }
 static UINT h_route6_delete_status;
+static UINT h_route6_delete_calls;
 
 UINT netstack_ipv6_route_delete(const ULONG d[4], ULONG len, const ULONG nh[4])
-{ (VOID)d; (VOID)len; (VOID)nh; return h_route6_delete_status; }
+{ (VOID)d; (VOID)len; (VOID)nh; h_route6_delete_calls++;
+  return h_route6_delete_status; }
 VOID netstack_pool_sample(VOID) { h_unreachable("netstack_pool_sample"); }
 
 AmiMemStats *ami_mem_stats(VOID) { h_unreachable("ami_mem_stats"); return NULL; }
@@ -495,11 +497,15 @@ static VOID t_stats_wait_revalidates_interface(VOID)
  * F-135: deleting a route that is not there is ENOENT, whatever NetX calls
  * it, and a real failure is still not ENOENT.
  */
+static ULONG h_route_gateway6;             /* last word of the next hop; 0 = none */
+
 static LONG h_route_delete(ULONG op)
 {
     NetStatusControl ctl;
 
     memset(&ctl, 0, sizeof(ctl));
+    ctl.nsc_Gateway6[0] = h_route_gateway6 ? 0xFE800000UL : 0UL;
+    ctl.nsc_Gateway6[3] = h_route_gateway6;
     ctl.nsc_Magic   = AMI_NETSTATUS_MAGIC;
     ctl.nsc_Version = (UWORD)AMI_NETSTATUS_VERSION;
     ctl.nsc_Destination = 0x0A000000UL;
@@ -536,10 +542,26 @@ static void t_route_delete_errno(void)
           h_base.sb_Errno == AMI_EINVAL,
           "any other refusal is still EINVAL");
 
+    h_route_gateway6 = 1;
+    h_ip.nx_ipv6_default_router_table_size = 1;
     h_route6_delete_status = NX_NOT_FOUND;
     CHECK(h_route_delete(NETCTRL_ROUTE6_DELETE) == -1 &&
           h_base.sb_Errno == AMI_ENOENT,
           "an IPv6 default route that is not there is ENOENT");
+
+    /* NetX says NX_SUCCESS for an empty router table. */
+    h_ip.nx_ipv6_default_router_table_size = 0;
+    h_route6_delete_calls = 0;
+    h_route6_delete_status = NX_SUCCESS;
+    CHECK(h_route_delete(NETCTRL_ROUTE6_DELETE) == -1 &&
+          h_base.sb_Errno == AMI_ENOENT && h_route6_delete_calls == 0,
+          "an empty IPv6 router table is ENOENT, and nothing is flushed");
+
+    h_ip.nx_ipv6_default_router_table_size = 1;
+    CHECK(h_route_delete(NETCTRL_ROUTE6_DELETE) == 0,
+          "an IPv6 default route that is there is deleted");
+    h_route_gateway6 = 0;
+    h_ip.nx_ipv6_default_router_table_size = 0;
 
     h_route6_delete_status = NX_ENTRY_NOT_FOUND;
     CHECK(h_route_delete(NETCTRL_ROUTE6_DELETE) == -1 &&

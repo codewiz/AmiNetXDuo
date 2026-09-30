@@ -2367,11 +2367,19 @@ LONG bsd_NetStackControl(register ULONG magic __asm("d0"),
 
         case NETCTRL_ROUTE6_DELETE:
 #ifdef AMINETXDUO_IPV6
-            status = netstack_ipv6_route_delete(ctl->nsc_Destination6,
-                                                ctl->nsc_PrefixLength,
-                                                ctl->nsc_Gateway6);
-            /* A default route that is not there is NX_NOT_FOUND from
-               nxd_ipv6_default_router_delete(): ENOENT, as a prefix's is. */
+            /* A next hop names a default route (ami_ns6_route_delete()).
+               nxd_ipv6_default_router_delete() says NX_NOT_FOUND for one that
+               is not there, and NX_SUCCESS for an empty table, after which
+               the destinations would be flushed for nothing.  Both are
+               ENOENT, as a prefix that is not there is. */
+            if ((ctl->nsc_Gateway6[0] | ctl->nsc_Gateway6[1] |
+                 ctl->nsc_Gateway6[2] | ctl->nsc_Gateway6[3]) != 0UL &&
+                ip->nx_ipv6_default_router_table_size == 0)
+                status = NX_ENTRY_NOT_FOUND;
+            else
+                status = netstack_ipv6_route_delete(ctl->nsc_Destination6,
+                                                    ctl->nsc_PrefixLength,
+                                                    ctl->nsc_Gateway6);
             if (status == NX_NOT_FOUND)
                 status = NX_ENTRY_NOT_FOUND;
             rc = ns_map_status(SocketBase, status);
