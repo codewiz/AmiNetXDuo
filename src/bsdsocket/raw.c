@@ -568,6 +568,44 @@ static LONG bsd_raw_send_v6(struct AmiSocketBase *base, AmiSocket *sock,
     return 0;
 }
 
+/*
+ * IP_HDRINCL to an IPv6 destination: the 40-byte fixed header is translated,
+ * as the IPv4 one is below, and not sent as payload behind NetX's own
+ * (F-061).  Traffic class, hop limit, next header and destination come from
+ * it; the source is chosen as for any send, and the flow label and payload
+ * length are NetX's.  An extension header is sent as the payload's first
+ * bytes with its type as the next header, which is what it is.
+ */
+static LONG bsd_raw_hdrincl_v6(NX_PACKET *packet, NXD_ADDRESS *dest,
+                               ULONG *protocol, UINT *hops, ULONG *tclass)
+{
+    const UBYTE *hdr  = (const UBYTE *)packet->nx_packet_prepend_ptr;
+    ULONG        have = (ULONG)(packet->nx_packet_append_ptr -
+                                packet->nx_packet_prepend_ptr);
+    UINT         i;
+
+    if (have < 40UL || (hdr[0] >> 4) != 6)
+        return -1;
+
+    *tclass   = ((ULONG)(hdr[0] & 0x0F) << 4) | ((ULONG)hdr[1] >> 4);
+    *protocol = (ULONG)hdr[6];
+    *hops     = (UINT)hdr[7];
+
+    dest->nxd_ip_version = NX_IP_VERSION_V6;
+    for (i = 0; i < 4; i++)
+    {
+        const UBYTE *w = hdr + 24 + i * 4;
+
+        dest->nxd_ip_address.v6[i] = ((ULONG)w[0] << 24) | ((ULONG)w[1] << 16) |
+                                     ((ULONG)w[2] <<  8) |  (ULONG)w[3];
+    }
+
+    packet->nx_packet_prepend_ptr += 40;
+    packet->nx_packet_length      -= 40;
+
+    return 0;
+}
+
 #endif /* AMINETXDUO_IPV6 */
 
 /*
@@ -623,8 +661,17 @@ LONG bsd_raw_send_packet(struct AmiSocketBase *base, AmiSocket *sock,
 
 #ifdef AMINETXDUO_IPV6
     if (dest.nxd_ip_version == NX_IP_VERSION_V6)
+    {
+        if (sock->as_HdrIncl &&
+            bsd_raw_hdrincl_v6(handed, &dest, &protocol, &ttl, &tos) != 0)
+        {
+            nx_packet_release(handed);
+            return bsd_fail(base, AMI_EINVAL);
+        }
+
         return bsd_raw_send_v6(base, sock, ip, handed, &dest, protocol, ttl,
                                tos, scope, src);
+    }
 #endif
 
     /*

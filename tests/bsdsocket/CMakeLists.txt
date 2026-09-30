@@ -209,6 +209,25 @@ if(NOT CMAKE_CROSSCOMPILING AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
     target_link_options(test_raw_mcast_send PRIVATE -Wl,--gc-sections)
     add_test(NAME raw_mcast_send COMMAND test_raw_mcast_send)
 
+    # raw.c's IP_HDRINCL to an IPv6 destination translates the header (F-061).
+    add_executable(test_raw_hdrincl6 host/test_raw_hdrincl6_host.c)
+    target_include_directories(test_raw_hdrincl6 PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/host/shim"
+        "${CMAKE_SOURCE_DIR}/src/bsdsocket"
+        "${CMAKE_SOURCE_DIR}/include"
+        "${AMINETXDUO_THREADX}/common/inc"
+        "${AMINETXDUO_THREADX}/ports/linux/gnu/inc"
+        "${AMINETXDUO_NETXDUO}/common/inc"
+        "${AMINETXDUO_NETXDUO}/ports/linux/gnu/inc"
+        "${CMAKE_SOURCE_DIR}/port/netxduo-amiga/inc")
+    target_compile_options(test_raw_hdrincl6 PRIVATE
+        -include "${CMAKE_CURRENT_SOURCE_DIR}/host/shim/host_prelude.h"
+        -ffunction-sections -fdata-sections)
+    target_compile_definitions(test_raw_hdrincl6 PRIVATE
+        AMINETXDUO_MULTICAST AMINETXDUO_IPV6 NX_INCLUDE_USER_DEFINE_FILE)
+    target_link_options(test_raw_hdrincl6 PRIVATE -Wl,--gc-sections)
+    add_test(NAME raw_hdrincl6 COMMAND test_raw_hdrincl6)
+
     add_executable(test_inet host/test_inet_host.c
                              "${CMAKE_SOURCE_DIR}/src/bsdsocket/inet.c")
 

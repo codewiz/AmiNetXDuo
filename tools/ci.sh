@@ -397,7 +397,10 @@ host_test_targets() { # builddir
 #      488 with unbracketed_close: CloseSocket() and bsd_close_all() without
 #      a bracket leave no leaked socket naming the closing base (F-059),
 #      x86_64 only
-HOST_TESTS_EXPECTED=488
+#      489 with raw_hdrincl6: IP_HDRINCL to an IPv6 destination translates
+#      the caller's header instead of sending it as payload (F-061), x86_64
+#      only
+HOST_TESTS_EXPECTED=489
 case "$(uname -m)" in
     x86_64|amd64) ;;
     # test_inet, test_route, test_expunge, test_expunge_cork, test_select,
@@ -406,14 +409,15 @@ case "$(uname -m)" in
     # (8ff3cc92), test_mcast_loop, test_mcast_epoch, test_scope_epoch,
     # test_raw_mcast_send, test_accept_refused (#52), test_closing_forget
     # (#53), test_netmon (F-050), test_icmp6_filter_nocmsg (F-036),
-    # test_nx_nest (F-042), test_aam_delete (F-029) and
-    # test_unbracketed_close (F-059), all x86_64-only for
+    # test_nx_nest (F-042), test_aam_delete (F-029),
+    # test_unbracketed_close (F-059) and test_raw_hdrincl6 (F-061), all
+    # x86_64-only for
     # the reason in
     # tests/bsdsocket/CMakeLists.txt:
     # elsewhere the host's LONG is eight bytes and no structure in them has
     # the target's shape.
     # darwin-arm64 registers 402 of the 412 (2026-09-20).
-    *) HOST_TESTS_EXPECTED=$((HOST_TESTS_EXPECTED - 25)) ;;
+    *) HOST_TESTS_EXPECTED=$((HOST_TESTS_EXPECTED - 26)) ;;
 esac
 
 # The on-Amiga harnesses this stage runs.  Verified 2026-07-25 against
