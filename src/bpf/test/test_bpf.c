@@ -2031,6 +2031,29 @@ static void test_timeout_budget(void)
 
 /* -------------------------------------------------------------------- main */
 
+/*
+ * bh_tstamp is UTC while the Amiga clock is local time (F-219): the offset
+ * is loc_GMTOffset, minutes west.  Before the fix the stamp was the clock
+ * plus the 1978->1970 epoch alone, i.e. the west == 0 answer for everyone.
+ */
+static void t_tstamp_utc(void)
+{
+    const ULONG local = 1000000000UL;       /* some Amiga seconds since 1978 */
+
+    printf("bh_tstamp in UTC\n");
+
+    CHECK(ami_bpf_utc_secs(local, 0) == local + AMI_BPF_AMIGA_EPOCH);
+    /* New York, UTC-5: west 300, UTC is five hours later than the clock. */
+    CHECK(ami_bpf_utc_secs(local, 300) == local + AMI_BPF_AMIGA_EPOCH + 18000UL);
+    /* Berlin, UTC+1: west -60, UTC is an hour earlier. */
+    CHECK(ami_bpf_utc_secs(local, -60) == local + AMI_BPF_AMIGA_EPOCH - 3600UL);
+    /* A half-hour zone, India UTC+5:30. */
+    CHECK(ami_bpf_utc_secs(local, -330) == local + AMI_BPF_AMIGA_EPOCH - 19800UL);
+    /* East of UTC at the very start of 1970 clamps, not wraps. */
+    CHECK(ami_bpf_utc_secs(0UL, -720) == AMI_BPF_AMIGA_EPOCH - 43200UL);
+    CHECK(ami_bpf_utc_secs(0UL, -0x7fffffffL / 60L) == 0UL);
+}
+
 int main(int argc, char **argv)
 {
     if (argc > 1 && strcmp(argv[1], "-v") == 0)
@@ -2038,6 +2061,8 @@ int main(int argc, char **argv)
 
     printf("bpf: record header %lu bytes, bh_hdrlen %lu\n",
            (unsigned long)AMI_BPF_HDR_BYTES, (unsigned long)AMI_BPF_HDRLEN);
+
+    t_tstamp_utc();
 
     test_validator();
     test_filter_real_programs();

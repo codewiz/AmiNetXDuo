@@ -13,6 +13,8 @@
 #include <proto/dos.h>
 #include <proto/exec.h>
 #include <proto/timer.h>
+#include <libraries/locale.h>
+#include <proto/locale.h>
 
 /*
  * A real semaphore, not a machine-wide Forbid().  Control calls may wait for
@@ -104,9 +106,47 @@ ULONG ami_bpf_signals_set(ULONG mask)
  */
 extern struct Device *TimerBase;
 
+/*
+ * Minutes west of Greenwich, read on every open, on the opener's Process and
+ * outside the channel lock (ami_bpf_open()), never on a reader and never per
+ * frame: locale.library may load its preferences through DOS.  A plain Task
+ * cannot, so an open from one keeps the offset the last Process read; with
+ * no locale.library at all it stays 0 and bh_tstamp is the clock as it is
+ * (F-219).  One LONG, so a reader sees the old value or the new one.
+ */
+static LONG ami_bpf_gmt_west;
+
+static VOID ami_bpf_read_gmt_offset(VOID)
+{
+    struct Task    *me = FindTask(NULL);
+    struct Library *base;
+    struct Locale  *locale;
+
+    if (me == NULL || me->tc_Node.ln_Type != NT_PROCESS)
+        return;
+
+    base = OpenLibrary((CONST_STRPTR)"locale.library", 38UL);
+    if (base == NULL)
+        return;
+
+    {
+        struct Library *LocaleBase = base;
+
+        locale = OpenLocale(NULL);      /* NULL: the current preferences */
+        if (locale != NULL)
+        {
+            ami_bpf_gmt_west = (LONG)locale->loc_GMTOffset;
+            CloseLocale(locale);
+        }
+    }
+
+    CloseLibrary(base);
+}
+
 VOID ami_bpf_time_init(VOID)
 {
     (VOID)ami_millis();
+    ami_bpf_read_gmt_offset();
 }
 
 VOID ami_bpf_now(ULONG *sec, ULONG *usec)
@@ -125,6 +165,6 @@ VOID ami_bpf_now(ULONG *sec, ULONG *usec)
     }
 
     GetSysTime(&tv);
-    *sec  = tv.tv_secs + AMI_BPF_AMIGA_EPOCH;
+    *sec  = ami_bpf_utc_secs(tv.tv_secs, ami_bpf_gmt_west);
     *usec = tv.tv_micro;
 }

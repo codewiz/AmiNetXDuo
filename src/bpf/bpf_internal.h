@@ -133,8 +133,30 @@ VOID ami_bpf_unlock(VOID);
    the lock. A lazy open inside the lock blocks under Forbid(). */
 VOID ami_bpf_time_init(VOID);
 
-/* Wall-clock time for bh_tstamp, seconds and microseconds since 1970. */
+/* Wall-clock time for bh_tstamp, seconds and microseconds since 1970, UTC. */
 VOID ami_bpf_now(ULONG *sec, ULONG *usec);
+
+/*
+ * The Amiga clock keeps local time, and bh_tstamp is UTC as BSD's is: a
+ * reader such as Wireshark takes it so and ignores pcap's thiszone (F-219).
+ * `since78` is GetSysTime()'s seconds since 1978, `west` locale.library's
+ * loc_GMTOffset, minutes west of Greenwich.  A result that would fall before
+ * 1970 is clamped to it rather than wrapped.
+ */
+static inline ULONG ami_bpf_utc_secs(ULONG since78, LONG west)
+{
+    ULONG secs = since78 + AMI_BPF_AMIGA_EPOCH;
+
+    if (west > 0)
+        return secs + (ULONG)west * 60UL;
+    if (west < 0)
+    {
+        ULONG east = (ULONG)(-west) * 60UL;
+
+        return (secs > east) ? secs - east : 0UL;
+    }
+    return secs;
+}
 
 /* The calling task, as an opaque token for ami_bpf_notify(). */
 APTR ami_bpf_current_task(VOID);
