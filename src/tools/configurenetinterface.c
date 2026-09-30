@@ -5,6 +5,7 @@
  */
 
 #include "tools.h"
+#include "routematch.h"
 
 /* IFC_LimitMTU, IFC_State and the four SM_ states.  <sys/types.h> first:
    libraries/bsdsocket.h reaches sys/socket.h, which names ssize_t. */
@@ -434,12 +435,6 @@ static BOOL has_zone(const char *text)
     return FALSE;
 }
 
-static BOOL same_address6(const ULONG a[4], const ULONG b[4])
-{
-    return (BOOL)(a[0] == b[0] && a[1] == b[1] &&
-                  a[2] == b[2] && a[3] == b[3]);
-}
-
 /* NETCTRL_ROUTE6_ADD and _DELETE. Only the default route is asked for here:
    a next hop, no destination and no prefix. */
 static LONG control6(struct Library *base, ULONG op, LONG index,
@@ -463,57 +458,27 @@ static LONG control6(struct Library *base, ULONG op, LONG index,
 }
 
 /*
- * One live IPv6 default router on `index`: `match` TRUE finds `want`, FALSE
- * finds any other. Re-read on every call -- NETSTATUS_ROUTES6 is a snapshot of
- * a table the stack edits, and a deletion renumbers what is left of it.
+ * One live IPv6 default router on `index` (route6_find_router): 1, 0, or -1
+ * when the table could not be read.  Re-read on every call --
+ * NETSTATUS_ROUTES6 is a snapshot of a table the stack edits, and a deletion
+ * renumbers what is left of it.
  */
-static BOOL find_router6(struct Library *base, LONG index, const ULONG *want,
+static LONG find_router6(struct Library *base, LONG index, const ULONG *want,
                          BOOL match, ULONG out[4])
 {
-    LONG n;
-    LONG i;
+    LONG n = tool_netstatus_query(base, NETSTATUS_ROUTES6, &cni_v6,
+                                  sizeof(cni_v6.route6),
+                                  sizeof(NetStatusRoute6));
 
-    n = tool_netstatus_query(base, NETSTATUS_ROUTES6, &cni_v6,
-                             sizeof(cni_v6.route6), sizeof(NetStatusRoute6));
-
-    for (i = 0; i < n && i < (LONG)CNI_MAX_ROUTES6; i++)
-    {
-        const NetStatusRoute6 *r = &cni_v6.route6.e[i];
-        BOOL                   same;
-
-        if (!(r->nsr6_Flags & NETSTATUS_RT6_GATEWAY))
-            continue;
-
-        if ((LONG)r->nsr6_Interface != index)
-            continue;
-
-        same = (BOOL)(want != NULL && same_address6(r->nsr6_NextHop, want));
-
-        if (match ? !same : same)
-            continue;
-
-        if (out != NULL)
-        {
-            out[0] = r->nsr6_NextHop[0];
-            out[1] = r->nsr6_NextHop[1];
-            out[2] = r->nsr6_NextHop[2];
-            out[3] = r->nsr6_NextHop[3];
-        }
-
-        return TRUE;
-    }
-
-    return FALSE;
-}
-
-/* TRUE when `addr` is already a default router on this interface. */
-static BOOL has_router6(struct Library *base, LONG index, const ULONG addr[4])
-{
-    return find_router6(base, index, addr, TRUE, NULL);
+    return route6_find_router(cni_v6.route6.e, n, (LONG)CNI_MAX_ROUTES6,
+                              index, want, match, out);
 }
 
 /* Every IPv6 default router on `index` except `keep`. Bounded by the table
-   size, so a delete that reports success without removing anything ends. */
+   size, so a delete that reports success without removing anything ends.
+   FALSE when a delete was refused, or the table could not be read: then
+   nothing is known to be gone, and the caller must not add or report as if
+   it were. */
 static BOOL drop_routers6(struct Library *base, LONG index, const ULONG *keep,
                           ULONG *dropped, LONG *err)
 {
@@ -524,8 +489,11 @@ static BOOL drop_routers6(struct Library *base, LONG index, const ULONG *keep,
     for (pass = 0; pass < (ULONG)CNI_MAX_ROUTES6; pass++)
     {
         ULONG gone[4];
+        LONG  found = find_router6(base, index, keep, FALSE, gone);
 
-        if (!find_router6(base, index, keep, FALSE, gone))
+        if (found < 0)
+            return FALSE;
+        if (found == 0)
             return TRUE;
 
         if (control6(base, NETCTRL_ROUTE6_DELETE, index, gone, err) != 0)
@@ -1132,9 +1100,24 @@ int main(int argc, char **argv)
         }
 
         /* Asked for what it already has: keep it rather than remove and
-           re-add, which would drop the route for the moment in between. */
-        already6 = (BOOL)(!clear_gateway6 &&
-                          has_router6(base, index, cni_gateway6));
+           re-add, which would drop the route for the moment in between.  A
+           table that cannot be read says nothing either way (F-145). */
+        if (clear_gateway6)
+            already6 = FALSE;
+        else
+        {
+            LONG found = find_router6(base, index, cni_gateway6, TRUE, NULL);
+
+            if (found < 0)
+            {
+                tool_error("%s: the IPv6 routes could not be read, so the "
+                           "default router was not changed", (LONG)name);
+                tool_netstatus_close(base);
+                FreeArgs(rda);
+                return RETURN_FAIL;
+            }
+            already6 = (BOOL)(found > 0);
+        }
 
         /* Every router on this interface except the one being asked for.
            GATEWAY6 NONE keeps none. */

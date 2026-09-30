@@ -54,4 +54,50 @@ static inline LONG route_match_static(const NetStatusRoute *r, LONG n,
     return -1;
 }
 
+/*
+ * ConfigureNetInterface: an IPv6 default router on interface `index` in the
+ * NETSTATUS_ROUTES6 rows r[0..n), n as the query returned it.  `match` TRUE
+ * finds `want`, FALSE finds any other; the row's next hop goes to out.
+ * 1 found, 0 none, and -1 when the query failed (n < 0): a table that could
+ * not be read is not an empty one (F-145).
+ */
+static inline LONG route6_find_router(const NetStatusRoute6 *r, LONG n,
+                                      LONG max, LONG index, const ULONG *want,
+                                      BOOL match, ULONG out[4])
+{
+    LONG i;
+
+    if (n < 0)
+        return -1;
+
+    for (i = 0; i < n && i < max; i++)
+    {
+        BOOL same;
+
+        if (!(r[i].nsr6_Flags & NETSTATUS_RT6_GATEWAY))
+            continue;
+        if ((LONG)r[i].nsr6_Interface != index)
+            continue;
+
+        same = (BOOL)(want != NULL &&
+                      r[i].nsr6_NextHop[0] == want[0] &&
+                      r[i].nsr6_NextHop[1] == want[1] &&
+                      r[i].nsr6_NextHop[2] == want[2] &&
+                      r[i].nsr6_NextHop[3] == want[3]);
+        if (match ? !same : same)
+            continue;
+
+        if (out != NULL)
+        {
+            out[0] = r[i].nsr6_NextHop[0];
+            out[1] = r[i].nsr6_NextHop[1];
+            out[2] = r[i].nsr6_NextHop[2];
+            out[3] = r[i].nsr6_NextHop[3];
+        }
+        return 1;
+    }
+
+    return 0;
+}
+
 #endif
