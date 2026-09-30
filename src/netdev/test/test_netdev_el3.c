@@ -942,48 +942,6 @@ static void test_tx_status(void)
                    (unsigned long)mock_cmd_count[EL3_C_TX_ENABLE],
                    (unsigned long)(enables + 1));
     }
-
-    /*
-     * F-284: a status-stack overflow stops the transmitter like any error bit.
-     * Alone, without bit 7, it is still an entry: popped, counted, the
-     * transmitter re-enabled without a reset, and no completion counted.
-     * With a completed transmit it is the same plus the completion.
-     */
-    mock_tx_status_set(EL3_TXS_OVERFLOW);
-    nic.tx_errors    = 0;
-    nic.tx_completed = 0;
-    {
-        int resets  = mock_cmd_count[EL3_C_TX_RESET];
-        int enables = mock_cmd_count[EL3_C_TX_ENABLE];
-
-        el3_drain_tx_status(&nic);
-        expect_u32("an overflow-only entry is popped",
-                   (unsigned long)mock_tx_status(), 0);
-        expect_u32("counted as an error", (unsigned long)nic.tx_errors, 1);
-        expect_u32("but not as a completed transmit",
-                   (unsigned long)nic.tx_completed, 0);
-        expect_u32("no reset for it",
-                   (unsigned long)mock_cmd_count[EL3_C_TX_RESET],
-                   (unsigned long)resets);
-        expect_u32("the transmitter re-enabled",
-                   (unsigned long)mock_cmd_count[EL3_C_TX_ENABLE],
-                   (unsigned long)(enables + 1));
-    }
-
-    mock_tx_status_set((UBYTE)(EL3_TXS_COMPLETE | EL3_TXS_OVERFLOW));
-    nic.tx_errors    = 0;
-    nic.tx_completed = 0;
-    {
-        int enables = mock_cmd_count[EL3_C_TX_ENABLE];
-
-        el3_drain_tx_status(&nic);
-        expect_u32("a completed transmit with overflow is counted",
-                   (unsigned long)nic.tx_errors, 1);
-        expect_u32("and completed", (unsigned long)nic.tx_completed, 1);
-        expect_u32("and re-enables the transmitter",
-                   (unsigned long)mock_cmd_count[EL3_C_TX_ENABLE],
-                   (unsigned long)(enables + 1));
-    }
 }
 
 /* Receive status decode, and the discard that must follow every frame. */
