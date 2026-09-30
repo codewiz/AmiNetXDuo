@@ -757,9 +757,9 @@ static VOID check_netdb_file(const NetdbFile *spec)
     if (size > (LONG)AMI_CFG_FILE_MAX)
     {
         finding(spec->path, 0, AMI_CFG_PROBLEM_WARN);
-        say("      this file is %ld bytes, more than the %ld that are read,\n",
+        say("      this file is %ld bytes, above the %ld-byte limit, so none\n",
             size, (LONG)AMI_CFG_FILE_MAX);
-        say("      so none of it is used and the built-in list is used instead\n");
+        say("      of it is used and the built-in list is used instead\n");
         Close(file);
         return;
     }
