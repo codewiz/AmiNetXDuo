@@ -56,10 +56,12 @@ for map in "$MAPS"/*.map; do
     syms=$(kept_symbols "$map")
     [ -n "$syms" ] || continue
 
-    # Every entry point below reaches netdb_table(), which loads on demand, so
-    # any one of them is enough to owe the free.  ami_netdb_free itself is not
-    # a debt, so it is taken out before the question is asked.
-    owes=$(printf '%s\n' "$syms" | grep -v '^ami_netdb_free$' || true)
+    # The lookup/load entry points reach netdb_table(), which loads on demand.
+    # ami_netdb_line_verdict is different: it parses one supplied text line in
+    # netdb_check.c without touching netdb.c's allocated tables (F-094).
+    # Neither it nor ami_netdb_free creates an allocation debt.
+    owes=$(printf '%s\n' "$syms" |
+        grep -vE '^ami_netdb_(free|line_verdict)$' || true)
     [ -n "$owes" ] || continue
 
     CARRY=$((CARRY + 1))
