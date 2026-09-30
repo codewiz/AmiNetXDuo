@@ -109,11 +109,15 @@ typedef struct Rig
     void           *memory;
 } Rig;
 
+/* The fail-closed self-test forces this so it can check that a fixture the
+   harness cannot build is a failure, not a silent skip. */
+static int rig_fail;
+
 static int rig_open(Rig *rig)
 {
     int room = 262144;
 
-    if (socketpair(AF_UNIX, SOCK_STREAM, 0, rig->fds) != 0)
+    if (rig_fail || socketpair(AF_UNIX, SOCK_STREAM, 0, rig->fds) != 0)
         return 0;
 
     /* The chained-send test writes more than one default socketpair buffer
@@ -150,6 +154,23 @@ static void rig_close(Rig *rig)
     free(rig->memory);
 }
 
+/* A test whose fixture cannot be built has verified nothing, so it must fail
+   rather than skip: a skip records no check and lets the binary exit 0 with
+   nothing actually run. */
+static int rig_ready(Rig *rig)
+{
+    if (rig_open(rig))
+        return 1;
+
+    /* The self-test forces `rig_fail` to walk this path; a forced refusal is
+       silent so the probe does not read as a real failure in the log. */
+    if (!rig_fail)
+        printf("  FAIL: rig_open could not set up a socketpair\n");
+    checks++;
+    failures++;
+    return 0;
+}
+
 /* One NetX Duo tick, so a "wait" in these tests is milliseconds and not a
    pause anybody notices. */
 #define ONE_TICK    1UL
@@ -166,11 +187,8 @@ static void test_receive(void)
 
     printf("tls_transport: recv fills a packet and credits arrival timing\n");
 
-    if (!rig_open(&rig))
-    {
-        printf("  SKIP: no socketpair\n");
+    if (!rig_ready(&rig))
         return;
-    }
 
     before = arrivals;
 
@@ -201,11 +219,8 @@ static void test_receive_timeout(void)
 
     printf("tls_transport: a quiet peer is NX_NO_PACKET, and costs no block\n");
 
-    if (!rig_open(&rig))
-    {
-        printf("  SKIP: no socketpair\n");
+    if (!rig_ready(&rig))
         return;
-    }
 
     CHECK(_nx_tcp_socket_receive(tls_transport_socket(&rig.transport), &packet,
                                  ONE_TICK) == NX_NO_PACKET);
@@ -241,11 +256,8 @@ static void test_receive_budget_quiet(void)
 
     printf("tls_transport: a call's waits share one TLSA_Timeout budget\n");
 
-    if (!rig_open(&rig))
-    {
-        printf("  SKIP: no socketpair\n");
+    if (!rig_ready(&rig))
         return;
-    }
 
     tls_transport_budget(&rig.transport, h_ticks(100));
     start = h_now_micros();
@@ -317,11 +329,8 @@ static void test_receive_budget_slow_peer(void)
 
     printf("tls_transport: a slow peer runs out one call's budget\n");
 
-    if (!rig_open(&rig))
-    {
-        printf("  SKIP: no socketpair\n");
+    if (!rig_ready(&rig))
         return;
-    }
 
     peer = fork();
     if (peer == 0)
@@ -365,11 +374,8 @@ static void test_receive_hangup(void)
 
     printf("tls_transport: a FIN is NX_NOT_CONNECTED and it is remembered\n");
 
-    if (!rig_open(&rig))
-    {
-        printf("  SKIP: no socketpair\n");
+    if (!rig_ready(&rig))
         return;
-    }
 
     close(rig.fds[1]);
     rig.fds[1] = -1;
@@ -401,11 +407,8 @@ static void test_send_chain(void)
 
     printf("tls_transport: a chained record goes out whole and in order\n");
 
-    if (!rig_open(&rig))
-    {
-        printf("  SKIP: no socketpair\n");
+    if (!rig_ready(&rig))
         return;
-    }
 
     /* Two blocks and a bit: the send loop has to walk nx_packet_next and
        respect each link's own prepend/append window, not the head's. */
@@ -453,11 +456,8 @@ static void test_send_failure_keeps_packet(void)
 
     printf("tls_transport: a failed send leaves the packet to its caller\n");
 
-    if (!rig_open(&rig))
-    {
-        printf("  SKIP: no socketpair\n");
+    if (!rig_ready(&rig))
         return;
-    }
 
     CHECK(_nx_packet_allocate(&rig.pool, &packet, NX_IPv4_TCP_PACKET, 0) ==
           NX_SUCCESS);
@@ -488,11 +488,8 @@ static void test_socket_type(void)
     printf("tls_transport: client and server present the client_type "
            "nx_secure branches on\n");
 
-    if (!rig_open(&rig))
-    {
-        printf("  SKIP: no socketpair\n");
+    if (!rig_ready(&rig))
         return;
-    }
 
     /*
      * _nx_secure_tls_session_start() reads nx_tcp_socket_client_type and
@@ -560,6 +557,40 @@ static void test_forbid_balance(void)
     CHECK(_tx_thread_identify() == TX_NULL);
 }
 
+/* The bug this guards: a rig_open failure used to skip the test and return,
+   which recorded no check and no failure, so a whole suite of skips exited 0.
+   Force the fixture open to refuse and assert the harness records it as a
+   failure, so the ctest `tls_transport` cannot pass with nothing run. */
+static void test_rig_open_fail_closed(void)
+{
+    Rig rig;
+    int checks_delta;
+    int failures_delta;
+    int before_checks;
+    int before_failures;
+
+    printf("tls_transport: a rig the fixture cannot build is a failure, not a skip\n");
+
+    before_checks   = checks;
+    before_failures = failures;
+
+    rig_fail = 1;
+    (void)rig_ready(&rig);
+    rig_fail = 0;
+
+    checks_delta   = checks   - before_checks;
+    failures_delta = failures - before_failures;
+
+    /* Undo the probe's own record before asserting, so this self-test does not
+       fail a suite whose fixtures all opened; the deltas below are what CHECK
+       looks at, and a regression that records nothing makes them 0 and fails. */
+    checks   = before_checks;
+    failures = before_failures;
+
+    CHECK(checks_delta   == 1);
+    CHECK(failures_delta == 1);
+}
+
 int main(void)
 {
     test_receive();
@@ -571,6 +602,7 @@ int main(void)
     test_send_failure_keeps_packet();
     test_socket_type();
     test_forbid_balance();
+    test_rig_open_fail_closed();
 
     printf("%d checks, %d failure(s)\n", checks, failures);
 
