@@ -318,8 +318,12 @@ static VOID load_resolver(AmiConfig *cfg)
             AmiResolverConfig extra;
 
             ami_cfg_zero(&extra, sizeof(extra));
+            /* The hosts fallback may fill a missing name, but its HOSTNAME=
+               line must not overwrite one from name_resolution. */
             ami_cfg_parse_resolver(buf, &extra,
-                                   cfg->hostname, sizeof(cfg->hostname));
+                                   (cfg->hostname[0] == '\0')
+                                       ? cfg->hostname : NULL,
+                                   sizeof(cfg->hostname));
 
             if (cfg->resolver.nameserver_count == 0)
             {
