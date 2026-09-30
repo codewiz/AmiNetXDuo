@@ -123,8 +123,19 @@ VOID ami_bpf_now(ULONG *sec, ULONG *usec)
 APTR ami_bpf_current_task(VOID) { return stub_task; }
 
 static ULONG stub_sleeps;
+static void (*stub_on_sleep)(void);
 
-VOID ami_bpf_sleep(ULONG ticks) { (VOID)ticks; stub_sleeps++; }
+VOID ami_bpf_sleep(ULONG ticks)
+{
+    (VOID)ticks;
+    stub_sleeps++;
+    if (stub_on_sleep != NULL)
+    {
+        void (*fn)(void) = stub_on_sleep;
+        stub_on_sleep = NULL;
+        fn();
+    }
+}
 ULONG ami_bpf_signals_set(ULONG mask) { (VOID)mask; return 0UL; }
 
 VOID ami_bpf_notify(APTR task, ULONG mask)
@@ -1844,6 +1855,43 @@ static void test_interface_registry_capacity(void)
     ami_bpf_cleanup();
 }
 
+static void t_close_during_bpf_sleep(void)
+{
+    CHECK(ami_bpf_close(T_BPF_OWNER, 0) == 0);
+}
+
+static void test_timeout_budget(void)
+{
+    UBYTE out[512];
+    ULONG timeout[2];
+
+    printf("bpf: read timeouts round up and do not wrap\n");
+    CHECK(ami_bpf_init() == 0);
+    CHECK(ami_bpf_attach_interface("eth0", iface_cookie, DLT_EN10MB,
+                                   1500, test_inject) == 0);
+    CHECK(ami_bpf_open(T_BPF_OWNER, 0) == 0);
+    CHECK(ami_bpf_ioctl(T_BPF_OWNER, 0, BIOCSETIF, "eth0") == 0);
+
+    timeout[0] = 0;
+    timeout[1] = 10000; /* Half of one 20-ms tick still waits one tick. */
+    CHECK(ami_bpf_ioctl(T_BPF_OWNER, 0, BIOCSRTIMEOUT, timeout) == 0);
+    stub_sleeps = 0;
+    CHECK(ami_bpf_read(T_BPF_OWNER, 0, out, sizeof(out)) == 0);
+    CHECK(stub_sleeps == 1);
+
+    timeout[0] = 0x80000000UL; /* This multiplication wrapped to zero. */
+    timeout[1] = 0;
+    CHECK(ami_bpf_ioctl(T_BPF_OWNER, 0, BIOCSRTIMEOUT, timeout) == 0);
+    stub_sleeps = 0;
+    stub_on_sleep = t_close_during_bpf_sleep;
+    CHECK(ami_bpf_read(T_BPF_OWNER, 0, out, sizeof(out)) == AMI_BPF_ENXIO);
+    CHECK(stub_sleeps == 1);
+    CHECK(stub_on_sleep == NULL);
+    stub_on_sleep = NULL;
+    ami_bpf_cleanup();
+    CHECK(ami_alloc_count() == 0);
+}
+
 /* -------------------------------------------------------------------- main */
 
 int main(int argc, char **argv)
@@ -1880,6 +1928,7 @@ int main(int argc, char **argv)
     test_reopen_under_reader();
     test_capture_state_hook();
     test_interface_registry_capacity();
+    test_timeout_budget();
 
     printf("\n%d checks, %d failure(s)\n", checks, failures);
 

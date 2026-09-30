@@ -577,6 +577,8 @@ LONG ami_bpf_read(APTR owner, LONG channel, APTR buffer, LONG len)
     ULONG        end;
     ULONG        nbytes;
     ULONG        budget;
+    ULONG        fraction;
+    ULONG        tick_usec;
     ULONG        waited = 0;
     ULONG        irq_mask;
     BOOL         pending;
@@ -603,8 +605,18 @@ LONG ami_bpf_read(APTR owner, LONG channel, APTR buffer, LONG len)
         return AMI_BPF_EINVAL;
     }
 
-    budget = ch->rtimeout_sec * AMI_BPF_TICKS_PER_SEC
-           + ch->rtimeout_usec / (1000000UL / AMI_BPF_TICKS_PER_SEC);
+    /* Round sub-tick waits up, and saturate instead of wrapping a long
+       timeout into an immediate empty read.  The division/remainder form
+       also avoids overflowing when an unnormalised timeval is supplied. */
+    tick_usec = 1000000UL / AMI_BPF_TICKS_PER_SEC;
+    fraction = ch->rtimeout_usec / tick_usec;
+    if (ch->rtimeout_usec % tick_usec != 0UL)
+        fraction++;
+    if (ch->rtimeout_sec > (~(ULONG)0 - fraction) /
+                            AMI_BPF_TICKS_PER_SEC)
+        budget = ~(ULONG)0;
+    else
+        budget = ch->rtimeout_sec * AMI_BPF_TICKS_PER_SEC + fraction;
 
     /*
      * BIOCSRTIMEOUT as 4.4BSD reads it: 0 is "do not wait".  The wait sleeps
