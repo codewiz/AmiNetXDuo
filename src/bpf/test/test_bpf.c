@@ -122,7 +122,9 @@ VOID ami_bpf_now(ULONG *sec, ULONG *usec)
 
 APTR ami_bpf_current_task(VOID) { return stub_task; }
 
-VOID ami_bpf_sleep(ULONG ticks) { (VOID)ticks; }
+static ULONG stub_sleeps;
+
+VOID ami_bpf_sleep(ULONG ticks) { (VOID)ticks; stub_sleeps++; }
 ULONG ami_bpf_signals_set(ULONG mask) { (VOID)mask; return 0UL; }
 
 VOID ami_bpf_notify(APTR task, ULONG mask)
@@ -1113,6 +1115,54 @@ static void test_interface_replace_under_tap(void)
     CHECK(ami_alloc_count() == 0);
 }
 
+/*
+ * F-022: a zero-length read can never hold a record, and the autodoc makes a
+ * length other than the buffer size EINVAL.  It is refused at once, not after
+ * the read timeout with 0; an owner or channel error still comes first.  A
+ * zero-length write is EINVAL too, as before.
+ */
+static void test_zero_length(void)
+{
+    UBYTE out[512];
+    UBYTE frame[128];
+    ULONG timeout[2] = { 1, 0 };
+    ULONG len;
+
+    printf("bpf: a zero-length read or write is refused at once\n");
+
+    CHECK(ami_bpf_init() == 0);
+    CHECK(ami_bpf_attach_interface("eth0", iface_cookie, DLT_EN10MB, 1500,
+                                   test_inject) == 0);
+    CHECK(ami_bpf_open(T_BPF_OWNER, 0) == 0);
+    CHECK(ami_bpf_ioctl(T_BPF_OWNER, 0, BIOCSETIF, "eth0") == 0);
+    CHECK(ami_bpf_ioctl(T_BPF_OWNER, 0, BIOCSRTIMEOUT, timeout) == 0);
+
+    /* Nothing buffered and a one-second timeout: no wait, EINVAL. */
+    stub_sleeps = 0;
+    CHECK(ami_bpf_read(T_BPF_OWNER, 0, out, 0) == AMI_BPF_EINVAL);
+    CHECK(stub_sleeps == 0);
+
+    /* Something buffered: EINVAL, and nothing consumed. */
+    len = make_tcp(frame, 1234, 80, 5, 0, 6);
+    ami_bpf_tap_rx(iface_cookie, frame, len);
+    CHECK(ami_bpf_read(T_BPF_OWNER, 0, out, 0) == AMI_BPF_EINVAL);
+    CHECK(ami_bpf_data_waiting(T_BPF_OWNER, 0) > 0);
+    CHECK(ami_bpf_read(T_BPF_OWNER, 0, out, (LONG)sizeof(out)) ==
+          (LONG)(AMI_BPF_HDRLEN + 60));
+
+    /* The channel and owner checks come first, as for any length. */
+    CHECK(ami_bpf_read(T_BPF_OTHER, 0, out, 0) == AMI_BPF_EPERM);
+    CHECK(ami_bpf_read(T_BPF_OWNER, 1, out, 0) == AMI_BPF_ENXIO);
+
+    /* A zero-length write is not a frame. */
+    CHECK(ami_bpf_write(T_BPF_OWNER, 0, frame, 0) == AMI_BPF_EINVAL);
+    CHECK(ami_bpf_write(T_BPF_OTHER, 0, frame, 0) == AMI_BPF_EPERM);
+
+    CHECK(ami_bpf_close(T_BPF_OWNER, 0) == 0);
+    ami_bpf_detach_interface(iface_cookie);
+    CHECK(ami_alloc_count() == 0);
+}
+
 /* A channel belongs to the library base that allocated it: closed with that
    base, and EPERM for every call from anyone else. */
 static void test_channel_ownership(void)
@@ -1815,6 +1865,7 @@ int main(int argc, char **argv)
     test_detach_under_writer();
     test_interface_replace_under_detach();
     test_interface_replace_under_tap();
+    test_zero_length();
     test_channel_ownership();
     test_reopen_under_closer();
     test_reopen_under_owner_close();

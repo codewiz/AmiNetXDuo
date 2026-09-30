@@ -590,7 +590,14 @@ LONG ami_bpf_read(APTR owner, LONG channel, APTR buffer, LONG len)
         return status;
     }
 
-    if (buffer == NULL || len < 0)
+    /*
+     * "len -- ... must be exactly the same number the packet filter uses for
+     * buffering", and EINVAL when it does not (bsdsocket.doc, bpf_read).  A
+     * shorter buffer is still served while one whole record fits, below; a
+     * zero-length one never can, so it is refused before any wait rather
+     * than sleeping out the read timeout to answer 0 (F-022).
+     */
+    if (buffer == NULL || len <= 0)
     {
         ami_bpf_unlock();
         return AMI_BPF_EINVAL;
