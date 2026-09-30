@@ -24,6 +24,7 @@
 #include "tls_internal.h"
 
 #include <stdio.h>
+#include <poll.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -316,7 +317,13 @@ static void test_receive_budget_quiet(void)
 /*
  * A slow peer: one byte every 40 ms.  Every single wait succeeds, which is
  * why a per-wait timeout never fired; under a 100 ms budget the call-level
- * ceiling does, after about two bytes and well before the peer's ten.
+ * ceiling does, well before the peer's ten.
+ *
+ * Each wait is allowed a second, so a timeout before the peer is done can
+ * only be the budget's.  The count is bounded, not pinned: the budget is
+ * charged the time inside waits, and on a loaded host the time between them
+ * lets more bytes arrive.  The first byte is there before the budget starts,
+ * so the fork and a late first write cannot take it all.
  */
 static void test_receive_budget_slow_peer(void)
 {
@@ -337,7 +344,8 @@ static void test_receive_budget_slow_peer(void)
     {
         for (i = 0; i < 10; i++)
         {
-            usleep(40000);
+            if (i > 0)
+                usleep(40000);
             if (write(rig.fds[1], "x", 1) != 1)
                 break;
         }
@@ -345,12 +353,18 @@ static void test_receive_budget_slow_peer(void)
     }
     CHECK(peer > 0);
 
+    {
+        struct pollfd first = { rig.fds[0], POLLIN, 0 };
+
+        CHECK(poll(&first, 1, 5000) == 1);
+    }
+
     tls_transport_budget(&rig.transport, h_ticks(100));
     for (i = 0; i < 10; i++)
     {
         packet = NX_NULL;
         status = _nx_tcp_socket_receive(tls_transport_socket(&rig.transport),
-                                        &packet, h_ticks(100));
+                                        &packet, h_ticks(1000));
         if (status != NX_SUCCESS)
             break;
         got++;
@@ -359,7 +373,7 @@ static void test_receive_budget_slow_peer(void)
     tls_transport_budget_end(&rig.transport);
 
     CHECK(status == NX_NO_PACKET);
-    CHECK(got >= 1 && got <= 3);
+    CHECK(got >= 1 && got < 10);
     CHECK(rig.transport.tt_Broken == NX_FALSE);   /* a timeout, not a hangup */
 
     if (peer > 0)
