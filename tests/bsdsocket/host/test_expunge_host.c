@@ -275,6 +275,10 @@ VOID netstack_shutdown(VOID)
     h.shutdown_calls++;
     if (h_model_refs && h_ns_refs > 0)
         h_ns_refs--;
+    /* The last reference gone, ami_ns is NULL (netstack.c), which is what
+       netstack_get() answers after it. */
+    if (!h_model_refs || h_ns_refs == 0)
+        h.stack_running = FALSE;
 }
 NX_IP *netstack_ip(VOID)            { return &h_stack_ip; }
 NX_PACKET_POOL *netstack_pool(VOID) { return &h_stack_pool; }
