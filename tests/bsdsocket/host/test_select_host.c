@@ -1199,6 +1199,25 @@ static void t_waitselect_terminal(void)
         CHECK(n == 0 && h.sendios == 1,
               "one second over the boundary is terminal, not re-armed");
     }
+
+    /* A break (Ctrl-C) landing while the terminal request is out must not
+       leave it behind: it has no signed due time, so the next wait could not
+       judge a zero sb_TimerDue.  It is taken back on the way to EINTR, and
+       nothing is re-armed. */
+    h_reset();
+    (void)h_tcp(0, NX_TCP_SYN_SENT);
+    h_sock[0].as_Flags = ASF_TCP | ASF_CONNECTING;
+    h.wait_plan[0]     = H_BREAK_SIG;
+    h.wait_planned     = 1;
+    memset(&s, 0, sizeof(s));
+    h_set(s.read, 0);
+
+    n = bsd_WaitSelect(1, s.read, NULL, NULL, &big, NULL, &h_base);
+    CHECK(n == -1 && h_base.sb_Errno == AMI_EINTR,
+          "a break during a terminal wait is EINTR, not an early timeout");
+    CHECK(h.sendios == 1, "the full timeval was armed once, nothing re-armed");
+    CHECK(h.abortios == 1 && !h_base.sb_TimerArmed,
+          "and its request is taken back on the break, not left out");
 }
 
 static void t_events(void)
