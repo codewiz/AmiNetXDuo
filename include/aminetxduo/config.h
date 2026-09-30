@@ -758,6 +758,24 @@ const AmiNetdbEntry *ami_netdb_proto_by_number(LONG number);
 const AmiNetdbEntry *ami_netdb_serv_by_name(const char *name, const char *proto);
 const AmiNetdbEntry *ami_netdb_serv_by_port(LONG port, const char *proto);
 
+/*
+ * One line of a netdb file judged by the loader's rules, for CheckNetConfig
+ * (src/config/netdb_check.c, F-094).  word, when not NULL, gets the column the
+ * loader could not read.
+ */
+#define AMI_NETDB_HOSTS         0
+#define AMI_NETDB_NETWORKS      1
+#define AMI_NETDB_PROTOCOLS     2
+#define AMI_NETDB_SERVICES      3
+
+#define AMI_NETDB_LINE_ENTRY    0   /* loaded */
+#define AMI_NETDB_LINE_SKIP     1   /* blank, comment, or a hosts resolver line */
+#define AMI_NETDB_LINE_SHORT    2   /* too few columns: dropped */
+#define AMI_NETDB_LINE_BAD      3   /* a column it cannot read: dropped */
+
+UWORD ami_netdb_line_verdict(UWORD kind, const char *line, char *word,
+                             ULONG wordlen);
+
 /* Iterator support for the get*ent() family. index starts at 0; NULL ends. */
 const AmiNetdbEntry *ami_netdb_net_entry(ULONG index);
 const AmiNetdbEntry *ami_netdb_proto_entry(ULONG index);

@@ -2382,6 +2382,110 @@ static void test_tcp_handler(void)
     CHECK(on == TRUE);
 }
 
+/*
+ * CheckNetConfig's verdict on a netdb line is the loader's (F-094).  Each line
+ * is judged, and then loaded alone, so a verdict that says "loaded" and a
+ * loader that drops it cannot both pass.  The comments name what the checker
+ * said before it used the loader's rules.
+ */
+static const struct NetdbCase
+{
+    UWORD       kind;
+    const char *line;
+    UWORD       verdict;
+    const char *word;
+}
+netdb_cases[] =
+{
+    { AMI_NETDB_HOSTS, "10.0.0.1 hn\n",          AMI_NETDB_LINE_ENTRY, "" },
+    { AMI_NETDB_HOSTS, "10.0.0.1 hn # c\n",      AMI_NETDB_LINE_ENTRY, "" },
+    { AMI_NETDB_HOSTS, "10.0.0.1\n",             AMI_NETDB_LINE_SHORT, "" },     /* was silent */
+    { AMI_NETDB_HOSTS, "HOST 10.0.0.1 hn\n",     AMI_NETDB_LINE_ENTRY, "" },
+    { AMI_NETDB_HOSTS, "HOST 10.0.0.1\n",        AMI_NETDB_LINE_SHORT, "" },     /* was silent */
+    { AMI_NETDB_HOSTS, "HOST nowhere hn\n",      AMI_NETDB_LINE_BAD, "nowhere" }, /* was silent */
+    { AMI_NETDB_HOSTS, "NAMESERVER 10.0.0.9\n",  AMI_NETDB_LINE_SKIP, "" },
+    { AMI_NETDB_HOSTS, "DOMAIN example.org\n",   AMI_NETDB_LINE_SKIP, "" },
+    { AMI_NETDB_HOSTS, "hn 10.0.0.1\n",          AMI_NETDB_LINE_BAD, "hn" },
+    { AMI_NETDB_NETWORKS, "hn 192.168.1\n",      AMI_NETDB_LINE_ENTRY, "" },     /* no networks check */
+    { AMI_NETDB_NETWORKS, "hn x.y\n",            AMI_NETDB_LINE_BAD, "x.y" },     /* no networks check */
+    { AMI_NETDB_NETWORKS, "hn\n",                AMI_NETDB_LINE_SHORT, "" },     /* no networks check */
+    { AMI_NETDB_PROTOCOLS, "hn 6 TCP\n",         AMI_NETDB_LINE_ENTRY, "" },
+    { AMI_NETDB_PROTOCOLS, "hn 0x06\n",          AMI_NETDB_LINE_ENTRY, "" },     /* was "not a number" */
+    { AMI_NETDB_PROTOCOLS, "hn 6#x\n",           AMI_NETDB_LINE_ENTRY, "" },     /* was "not a number" */
+    { AMI_NETDB_PROTOCOLS, "hn 256\n",           AMI_NETDB_LINE_BAD, "256" },     /* was silent */
+    { AMI_NETDB_PROTOCOLS, "hn six\n",           AMI_NETDB_LINE_BAD, "six" },
+    { AMI_NETDB_PROTOCOLS, "hn\n",               AMI_NETDB_LINE_SHORT, "" },
+    { AMI_NETDB_SERVICES, "hn 80/tcp www\n",     AMI_NETDB_LINE_ENTRY, "" },
+    { AMI_NETDB_SERVICES, "hn 0x50/tcp\n",       AMI_NETDB_LINE_ENTRY, "" },     /* was "not a port" */
+    { AMI_NETDB_SERVICES, "hn 70000/tcp\n",      AMI_NETDB_LINE_BAD, "70000/tcp" }, /* was silent */
+    { AMI_NETDB_SERVICES, "hn 80\n",             AMI_NETDB_LINE_BAD, "80" },
+    { AMI_NETDB_SERVICES, "hn 80/\n",            AMI_NETDB_LINE_BAD, "80/" },
+    { AMI_NETDB_SERVICES, "domain 53\n",         AMI_NETDB_LINE_BAD, "53" },      /* was skipped */
+    { AMI_NETDB_SERVICES, "hostname 101/tcp\n",  AMI_NETDB_LINE_ENTRY, "" },
+    { AMI_NETDB_SERVICES, "# c\n",               AMI_NETDB_LINE_SKIP, "" }
+};
+
+/* Did the loader keep the one line of this file? */
+static BOOL netdb_case_loaded(const struct NetdbCase *c)
+{
+    static const char *const path[4] =
+    {
+        AMI_CFG_FILE_HOSTS, AMI_CFG_FILE_NETWORKS,
+        AMI_CFG_FILE_PROTOCOLS, AMI_CFG_FILE_SERVICES
+    };
+    BOOL loaded;
+
+    ami_netdb_free();
+    clear_fixtures();
+    set_fixture(path[c->kind], c->line);
+    (VOID)ami_netdb_load();
+
+    switch (c->kind)
+    {
+    case AMI_NETDB_HOSTS:
+        loaded = (BOOL)(ami_netdb_host_by_name("hn") != NULL);
+        break;
+    case AMI_NETDB_NETWORKS:
+        loaded = (BOOL)(ami_netdb_net_entry(0) != NULL);
+        break;
+    case AMI_NETDB_PROTOCOLS:
+        loaded = (BOOL)(ami_netdb_proto_entry(0) != NULL);
+        break;
+    default:
+        loaded = (BOOL)(ami_netdb_serv_entry(0) != NULL);
+        break;
+    }
+
+    ami_netdb_free();
+    return loaded;
+}
+
+static void test_netdb_checker(void)
+{
+    unsigned i;
+
+    printf("netdb checker\n");
+
+    for (i = 0; i < sizeof(netdb_cases) / sizeof(netdb_cases[0]); i++)
+    {
+        const struct NetdbCase *c = &netdb_cases[i];
+        char  word[64];
+        UWORD verdict = ami_netdb_line_verdict(c->kind, c->line, word,
+                                               sizeof(word));
+        BOOL  loaded  = netdb_case_loaded(c);
+
+        checks++;
+        if (verdict != c->verdict || strcmp(word, c->word) != 0 ||
+            loaded != (verdict == AMI_NETDB_LINE_ENTRY))
+        {
+            failures++;
+            printf("  FAIL netdb line %u \"%.*s\": verdict %u word \"%s\" "
+                   "loaded %d\n", i, (int)strlen(c->line) - 1, c->line,
+                   (unsigned)verdict, word, (int)loaded);
+        }
+    }
+}
+
 static void test_netdb(void)
 {
     const AmiNetdbEntry *e;
@@ -3087,6 +3191,7 @@ int main(int argc, char **argv)
     test_gateway();
     test_tcp_handler();
     test_netdb();
+    test_netdb_checker();
     test_netdb_missing_files();
     test_netdb_garbage();
     test_service_discovery();

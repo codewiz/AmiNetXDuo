@@ -694,121 +694,29 @@ static VOID check_storage_drawer(VOID)
          "Move one there to use it.");
 }
 
-#define CNC_COL_ADDRESS     0       /* a dotted quad                          */
-#define CNC_COL_NUMBER      1       /* a plain decimal number                 */
-#define CNC_COL_PORT        2       /* <number>/<protocol>                    */
-
+/*
+ * The four netdb files, each line judged by the loader's own rules
+ * (ami_netdb_line_verdict, F-094): what this says is dropped is what
+ * bsdsocket.library drops.
+ */
 typedef struct NetdbFile
 {
     const char *path;
-    UWORD       column;             /* which column, 0-based                  */
-    UWORD       kind;               /* CNC_COL_*                              */
+    UWORD       kind;               /* AMI_NETDB_*                            */
     const char *shape;              /* what a line looks like                 */
 } NetdbFile;
 
 static const NetdbFile cnc_netdb[] =
 {
-    { "DEVS:Internet/hosts",     0, CNC_COL_ADDRESS,
+    { "DEVS:Internet/hosts",     AMI_NETDB_HOSTS,
       "<address> <name> [alias...]" },
-    { "DEVS:Internet/protocols", 1, CNC_COL_NUMBER,
-      "<name> <number> [alias...]" },
-    { "DEVS:Internet/services",  1, CNC_COL_PORT,
-      "<name> <port>/<protocol> [alias...]" }
+    { "DEVS:Internet/networks",  AMI_NETDB_NETWORKS,
+      "<name> <network> [alias...]" },
+    { "DEVS:Internet/protocols", AMI_NETDB_PROTOCOLS,
+      "<name> <number 0-255> [alias...]" },
+    { "DEVS:Internet/services",  AMI_NETDB_SERVICES,
+      "<name> <port 0-65535>/<protocol> [alias...]" }
 };
-
-/* The `index`th whitespace-separated word of `line`, copied out. */
-static BOOL word_at(const char *line, UWORD index, char *out, ULONG outlen)
-{
-    UWORD n = 0;
-
-    out[0] = '\0';
-
-    for (;;)
-    {
-        ULONG len = 0;
-
-        while (*line == ' ' || *line == '\t')
-            line++;
-        if (*line == '\0' || *line == '\n' || *line == '\r' || *line == '#')
-            return FALSE;
-
-        while (line[len] != '\0' && line[len] != ' ' && line[len] != '\t' &&
-               line[len] != '\n' && line[len] != '\r')
-        {
-            len++;
-        }
-
-        if (n == index)
-        {
-            ULONG i;
-
-            for (i = 0; i < len && i + 1 < outlen; i++)
-                out[i] = line[i];
-            out[i] = '\0';
-            return TRUE;
-        }
-
-        line += len;
-        n++;
-    }
-}
-
-static BOOL is_decimal(const char *text)
-{
-    ULONG i;
-
-    if (text[0] == '\0')
-        return FALSE;
-
-    for (i = 0; text[i] != '\0'; i++)
-    {
-        if (text[i] < '0' || text[i] > '9')
-            return FALSE;
-    }
-
-    return TRUE;
-}
-
-/* "80/tcp": a number, a slash, and a protocol name that is not empty. */
-static BOOL is_port_and_protocol(const char *text)
-{
-    ULONG i;
-
-    for (i = 0; text[i] != '\0' && text[i] != '/'; i++)
-    {
-        if (text[i] < '0' || text[i] > '9')
-            return FALSE;
-    }
-
-    return (BOOL)(i > 0 && text[i] == '/' && text[i + 1] != '\0');
-}
-
-static BOOL column_is_valid(UWORD kind, const char *text)
-{
-    ULONG parsed;
-
-    switch (kind)
-    {
-        case CNC_COL_ADDRESS:   return ami_config_parse_ip(text, &parsed);
-        case CNC_COL_NUMBER:    return is_decimal(text);
-        case CNC_COL_PORT:      return is_port_and_protocol(text);
-        default:                return TRUE;
-    }
-}
-
-/*
- * AmiTCP installations put resolver settings in the hosts file, and
- * ami_config_load() reads them from there. They are not netdb entries, so they
- * must not be reported as broken ones.
- */
-static BOOL is_resolver_line(const char *line)
-{
-    return (BOOL)(line_starts_with(line, "NAMESERVER") ||
-                  line_starts_with(line, "DOMAIN") ||
-                  line_starts_with(line, "SEARCH") ||
-                  line_starts_with(line, "HOSTNAME") ||
-                  line_starts_with(line, "HOST"));
-}
 
 static VOID check_netdb_file(const NetdbFile *spec)
 {
@@ -825,25 +733,28 @@ static VOID check_netdb_file(const NetdbFile *spec)
     while (FGets(file, (STRPTR)line, (LONG)sizeof(line)) != NULL)
     {
         const char *p = line;
+        UWORD       verdict;
 
         lineno++;
 
         while (*p == ' ' || *p == '\t')
             p++;
 
-        if (*p == '\0' || *p == '\n' || *p == '\r' || *p == '#' || *p == ';')
-            continue;
-        if (is_resolver_line(p))
+        /* ';' is not a comment to the loader: such a line is data, and only
+           loads if it is shaped like an entry.  Left unreported, as it was. */
+        if (*p == ';')
             continue;
 
-        if (!word_at(p, spec->column, word, sizeof(word)))
+        verdict = ami_netdb_line_verdict(spec->kind, p, word, sizeof(word));
+
+        if (verdict == AMI_NETDB_LINE_SHORT)
         {
             finding(spec->path, lineno, AMI_CFG_PROBLEM_WARN);
             say("      this line has too few columns, so it is ignored\n");
             note(spec->shape);
             said++;
         }
-        else if (!column_is_valid(spec->kind, word))
+        else if (verdict == AMI_NETDB_LINE_BAD)
         {
             finding(spec->path, lineno, AMI_CFG_PROBLEM_WARN);
             say("      \"%s\" is not what this column holds, so the line is\n",

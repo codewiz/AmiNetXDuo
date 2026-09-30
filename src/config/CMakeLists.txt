@@ -18,6 +18,7 @@ add_library(aminetxduo_config STATIC
     config_hostname.c
     config_list.c
     netdb.c
+    netdb_check.c
     config_file.c)
 
 target_include_directories(aminetxduo_config
@@ -73,7 +74,8 @@ if(NOT CMAKE_CROSSCOMPILING)
         config_parse.c
         config_hostname.c
         config_list.c
-        netdb.c)
+        netdb.c
+        netdb_check.c)
 
     target_include_directories(test_config PRIVATE
         "${CMAKE_SOURCE_DIR}/include"
