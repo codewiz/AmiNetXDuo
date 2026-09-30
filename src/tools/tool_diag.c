@@ -992,6 +992,15 @@ ULONG tool_stack_name_servers(char out[][AMI_CFG_IP6_STRLEN], ULONG max)
     if (base == NULL)
         return 0;
 
+    /* The DNS-list vectors are Roadshow extensions, absent from older
+       bsdsocket.library tables.  These tools query our running stack; a
+       foreign library is not safe to call at the hard-coded offsets. */
+    if (!tool_stack_is_ours(base))
+    {
+        CloseLibrary(base);
+        return 0;
+    }
+
     list = tool_call_obtain_dns(base);
     if (list != NULL)
     {

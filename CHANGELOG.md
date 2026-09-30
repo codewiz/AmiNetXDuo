@@ -30,6 +30,8 @@ version at the top when it merges.
   stack has stopped. Its `TCP SOCKETS` / `UDP SOCKETS` sections now say the
   stack is not readable when there is no live snapshot, instead of showing stale
   sockets or a misleading `(none)`.
+- The tools check the running `bsdsocket.library` identity before calling
+  DNS-list extension vectors that an older foreign stack may not provide.
 - `AMINETXDUO_MAX_INTERFACES` above 32 is now a compile error; the DHCP
   resolver's pending-interface set is one 32-bit word and cannot name an
   index past bit 31.
