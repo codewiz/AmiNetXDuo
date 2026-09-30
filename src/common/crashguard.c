@@ -122,6 +122,16 @@ VOID ami_crash_bailout(VOID)
 {
     int i;
 
+    /* Take this task out of the trap path BEFORE the reporting below.  The
+       report runs on the crashed task's stack -- whose overflow, or a
+       corrupted Exec list Open() walks, may be what crashed -- so a fault here
+       must not re-enter _ami_crash_trap and overwrite the first crash's
+       evidence with a second, unbounded one.  A re-fault then takes the
+       previous handler (normally Exec's), a Guru, which is the right outcome
+       for a faulting crash reporter.  ami_crash_remove() already restores in
+       this order (F-082). */
+    ami_crash_task->tc_TrapCode = ami_crash_old_trap;
+
     ami_crash.number = ami_crash_saved_number;
     ami_crash.pc     = ami_crash_saved_pc;
     ami_crash.sr     = ami_crash_saved_sr;
@@ -195,8 +205,11 @@ VOID ami_crash_bailout(VOID)
      * Under FS-UAE the resume was observed after the call site, not at it. The
      * report above is dependable and the resume is not, so callers must treat
      * a caught crash as fatal and must not continue.
+     *
+     * The tc_TrapCode restore was moved to the top of this function (F-082):
+     * it must happen before the reporting, not after, so a fault inside the
+     * report cannot re-enter the trap.
      */
-    ami_crash_task->tc_TrapCode = ami_crash_old_trap;
     longjmp(ami_crash_jmp, 1);
 }
 
