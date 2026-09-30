@@ -595,7 +595,6 @@ LONG ami_bpf_read(APTR owner, LONG channel, APTR buffer, LONG len)
 
     generation = ami_bpf_chan_generation[channel];
 
-
     /*
      * "len -- ... must be exactly the same number the packet filter uses for
      * buffering", and EINVAL when it does not (bsdsocket.doc, bpf_read).  A
