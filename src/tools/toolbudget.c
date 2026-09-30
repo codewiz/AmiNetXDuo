@@ -49,6 +49,15 @@ unsigned long tool_budget_secs(long days, long minutes, long ticks)
     return whole + (unsigned long)rest;
 }
 
+unsigned long tool_budget_elapsed(int have_timer, unsigned long timer_secs,
+                                  int have_dos, unsigned long dos_secs)
+{
+    if (have_timer)
+        return timer_secs;          /* a date set forward is not time spent */
+
+    return have_dos ? dos_secs : 0UL;
+}
+
 unsigned long tool_budget_left(const ToolBudget *b, unsigned long elapsed)
 {
     unsigned long spent = (elapsed < b->known) ? b->known : elapsed;

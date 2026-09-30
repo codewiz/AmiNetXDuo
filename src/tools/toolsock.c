@@ -1125,9 +1125,10 @@ LONG tool_sock_connect_timed(struct Library *base, LONG s,
  * The clocks the connect budget is timed by (F-249).  timer.device's is
  * monotonic but may not be there: ami_millis() then answers 0 throughout.
  * The DOS clock is always there for a Process but is all zero on a machine
- * whose date was never set, and moves when the date is set.  Elapsed is the
- * larger of the two that exist.  With neither, the caller charges every
- * failed attempt its whole allotment, so the budget holds without a clock.
+ * whose date was never set, and moves when the date is set, so it is only
+ * the fallback when timer.device never answered.  With neither, the caller
+ * charges every failed attempt its whole allotment, so the budget holds
+ * without a clock.
  */
 typedef struct ToolClock
 {
@@ -1161,8 +1162,7 @@ static ULONG tool_elapsed(const ToolClock *c)
 
     if (c->have_ms)
         ms = (ami_millis() - c->ms0) / 1000UL;
-
-    if (c->have_ds)
+    else if (c->have_ds)
     {
         struct DateStamp now;
 
@@ -1172,7 +1172,9 @@ static ULONG tool_elapsed(const ToolClock *c)
                                      (long)(now.ds_Tick - c->ds0.ds_Tick));
     }
 
-    return (ms > ds) ? ms : ds;
+    /* The monotonic clock alone when it is there: a date set forward during
+       a connect, by hand or by SNTP, must not use up the budget. */
+    return (ULONG)tool_budget_elapsed(c->have_ms, ms, c->have_ds, ds);
 }
 
 /* -p on nc: the wildcard of the family being connected to, plus a port. */

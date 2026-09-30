@@ -346,6 +346,26 @@ static void test_slow_refusal_is_charged(void)
     CHECK(tool_budget_secs(49710, 1439, 2999) == 0xFFFFFFFFUL);
     CHECK(tool_budget_secs(1, -1440, -1) == 0UL);       /* a tick back     */
 
+    /* The clock chosen: timer alone when there, a forward date jump of an
+       hour during a 3 s connect costs 3 s, not the budget. */
+    CHECK(tool_budget_elapsed(1, 3UL, 1, 3603UL) == 3UL);
+    CHECK(tool_budget_elapsed(1, 0UL, 1, 99UL) == 0UL);  /* timer's first 0 */
+    CHECK(tool_budget_elapsed(0, 0UL, 1, 7UL) == 7UL);   /* no timer: DOS   */
+    CHECK(tool_budget_elapsed(0, 0UL, 0, 0UL) == 0UL);   /* neither         */
+    {
+        ToolBudget    b;
+        unsigned long secs;
+        int           cut;
+
+        tool_budget_init(&b, 10UL, 2UL);
+        (void)tool_budget_first(&b, 0UL, tool_budget_elapsed(1, 0UL, 1, 0UL),
+                                &secs, &cut);
+        tool_budget_done(&b, 0UL, secs, 0, 0);          /* refused at 3 s */
+        CHECK(tool_budget_first(&b, 1UL,
+                                tool_budget_elapsed(1, 3UL, 1, 3603UL),
+                                &secs, &cut) == 1 && secs == 7UL);
+    }
+
     CHECK(walk_refusals(9UL, 0) == 27UL);    /* what a stopped clock allowed    */
     CHECK(walk_refusals(9UL, 1) <= 10UL);    /* what the DOS clock holds it to  */
     CHECK(walk_refusals(9UL, 2) <= 10UL);    /* and charging, with no clock     */

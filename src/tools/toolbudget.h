@@ -34,6 +34,11 @@ void tool_budget_init(ToolBudget *b, unsigned long total,
  */
 unsigned long tool_budget_secs(long days, long minutes, long ticks);
 
+/* The elapsed seconds the budget is fed: the monotonic timer's alone when it
+   is there, the DOS clock's only when it is not, 0 with neither. */
+unsigned long tool_budget_elapsed(int have_timer, unsigned long timer_secs,
+                                  int have_dos, unsigned long dos_secs);
+
 /*
  * Seconds of the caller's timeout not yet spent; `elapsed` is what the clock
  * says. ZERO IS BOTH ANSWERS: with no caller timeout there is nothing to
