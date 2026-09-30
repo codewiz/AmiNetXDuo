@@ -1175,12 +1175,58 @@ int bsd_getdtablesize(register struct AmiSocketBase *SocketBase __asm("a6"))
     return (int)bsd_table_size(SocketBase);
 }
 
+/*
+ * Give back the reference Dup2Socket() took on its source when the new
+ * descriptor was refused.  It may be the last one, if a descriptor callback
+ * closed the source meanwhile, so it goes through the bracket; the refusal's
+ * errno is the one the caller sees.  With no bracket a reference that is not
+ * the last needs no NetX and still goes; the last leaks, as CloseSocket()'s
+ * does (F-059).
+ */
+static VOID bsd_dup_unretain(struct AmiSocketBase *base, AmiSocket *sock)
+{
+    LONG error = base->sb_Errno;
+
+    if (bsd_nx_enter(base) == 0)
+    {
+        bsd_socket_release(base, sock);
+        bsd_nx_leave(base);
+    }
+    else
+    {
+        Forbid();
+        if (sock->as_RefCount > 1)
+            sock->as_RefCount--;
+        bsd_owner_drop(base, sock);
+        Permit();
+    }
+
+    base->sb_Errno = error;
+}
+
+/*
+ * The new descriptor is published and this base holds the socket again.  If
+ * the source was closed while the new slot was not yet filled, the owner went
+ * elsewhere or to nobody; it comes back, as it would have with no window.
+ */
+static VOID bsd_dup_keep_owner(struct AmiSocketBase *base, AmiSocket *sock,
+                               BOOL owned)
+{
+    if (!owned)
+        return;
+
+    Forbid();
+    sock->as_Owner = base;
+    Permit();
+}
+
 LONG bsd_Dup2Socket(register LONG old_socket __asm("d0"),
                     register LONG new_socket __asm("d1"),
                     register struct AmiSocketBase *SocketBase __asm("a6"))
 {
     AmiSocket *sock;
     AmiSocket *victim;
+    BOOL       owned;
 
     if (old_socket == -1)
     {
@@ -1220,29 +1266,44 @@ LONG bsd_Dup2Socket(register LONG old_socket __asm("d0"),
     if (sock == NULL)
         return bsd_fail(SocketBase, AMI_EBADF);
 
-    if (new_socket < 0)
-    {
-        LONG fd = bsd_fd_alloc(SocketBase, sock);
-
-        if (fd < 0)
-            return -1;
-
-        bsd_socket_retain(sock);
-
-        return fd;
-    }
-
-    if (new_socket >= SocketBase->sb_TableSize)
+    if (new_socket >= 0 && new_socket >= SocketBase->sb_TableSize)
         return bsd_fail(SocketBase, AMI_EBADF);
 
     if (new_socket == old_socket)
         return new_socket;
 
+    /*
+     * The new descriptor's reference is taken before anything can run: an
+     * FDCB_FREE or FDCB_ALLOC callback, or another task on a shared base,
+     * may close the source before the new slot is filled, and the source's
+     * reference was then the only one (F-054).
+     */
+    owned = (BOOL)(sock->as_Owner == SocketBase);
+    bsd_socket_retain(sock);
+
+    if (new_socket < 0)
+    {
+        LONG fd = bsd_fd_alloc(SocketBase, sock);
+
+        if (fd < 0)
+        {
+            bsd_dup_unretain(SocketBase, sock);
+            return -1;
+        }
+
+        bsd_dup_keep_owner(SocketBase, sock, owned);
+
+        return fd;
+    }
+
     victim = bsd_lookup(SocketBase, new_socket);
     if (victim != NULL)
     {
         if (bsd_fd_free(SocketBase, new_socket) != 0)
+        {
+            bsd_dup_unretain(SocketBase, sock);
             return -1;
+        }
 
         if (bsd_nx_enter(SocketBase) == 0)
         {
@@ -1253,14 +1314,20 @@ LONG bsd_Dup2Socket(register LONG old_socket __asm("d0"),
     else if (bsd_fd_reserved(SocketBase, new_socket))
     {
         if (bsd_fd_free(SocketBase, new_socket) != 0)
+        {
+            bsd_dup_unretain(SocketBase, sock);
             return -1;
+        }
     }
 
     if (bsd_fd_reserve(SocketBase, new_socket) < 0)
+    {
+        bsd_dup_unretain(SocketBase, sock);
         return -1;
+    }
 
     SocketBase->sb_Table[new_socket] = sock;
-    bsd_socket_retain(sock);
+    bsd_dup_keep_owner(SocketBase, sock, owned);
 
     return new_socket;
 }

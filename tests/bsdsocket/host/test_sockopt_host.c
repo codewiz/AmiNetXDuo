@@ -56,6 +56,12 @@ static struct
     ULONG  packet_length;
 } h;
 
+/* Dup2Socket's fixtures: a stand-in descriptor callback, and the socket the
+   last release freed. */
+static LONG     (*h_fd_hook)(LONG fd);
+static AmiSocket *h_freed;
+static ULONG      h_after_free;
+
 static void h_reset(void)
 {
     memset(&h_base, 0, sizeof(h_base));
@@ -65,6 +71,9 @@ static void h_reset(void)
 
     h_base.sb_Table     = h_table;
     h_base.sb_TableSize = H_FDS;
+    h_fd_hook    = NULL;
+    h_freed      = NULL;
+    h_after_free = 0;
 }
 
 static AmiSocket *h_tcp(LONG fd)
@@ -91,6 +100,7 @@ static AmiSocket *h_udp(LONG fd)
 
 VOID Forbid(VOID) { }
 VOID Permit(VOID) { }
+VOID Signal(struct Task *task, ULONG mask) { (VOID)task; (VOID)mask; }
 
 LONG bsd_fail(struct AmiSocketBase *base, LONG code)
 {
@@ -214,7 +224,9 @@ VOID bsd_addr_from_v4(NXD_ADDRESS *addr, ULONG v4)
     addr->nxd_ip_address.v4 = v4;
 }
 
-/* The descriptor table, which only Dup2Socket reaches from this file. */
+/* The descriptor table, which only Dup2Socket reaches from this file.  The
+   hook stands in for an FDCB_ALLOC callback: it runs where the real one
+   does, before the slot is published, and non-zero refuses the slot. */
 LONG bsd_fd_alloc(struct AmiSocketBase *base, AmiSocket *sock)
 {
     LONG fd;
@@ -223,19 +235,23 @@ LONG bsd_fd_alloc(struct AmiSocketBase *base, AmiSocket *sock)
     {
         if (h_table[fd] == NULL)
         {
+            if (h_fd_hook != NULL && h_fd_hook(fd) != 0)
+                return bsd_fail(base, AMI_EMFILE);
             h_table[fd] = sock;
             return fd;
         }
     }
 
-    (VOID)base;
     return -1;
 }
 
 LONG bsd_fd_reserve(struct AmiSocketBase *base, LONG fd)
 {
-    (VOID)base;
-    return (fd >= 0 && fd < H_FDS) ? fd : -1;
+    if (fd < 0 || fd >= H_FDS)
+        return -1;
+    if (h_fd_hook != NULL && h_fd_hook(fd) != 0)
+        return bsd_fail(base, AMI_EMFILE);
+    return fd;
 }
 
 BOOL bsd_fd_reserved(struct AmiSocketBase *base, LONG fd)
@@ -252,12 +268,37 @@ LONG bsd_fd_free(struct AmiSocketBase *base, LONG fd)
     return 0;
 }
 
-VOID bsd_socket_retain(AmiSocket *sock) { sock->as_RefCount++; }
+/* socket.c's, as far as a reference goes: the last release frees the socket,
+   and any other drops the owner once this base holds no descriptor for it
+   (bsd_owner_drop, with no other opener to elect). */
+VOID bsd_socket_retain(AmiSocket *sock)
+{
+    if (sock == h_freed)
+        h_after_free++;
+    sock->as_RefCount++;
+}
+
 VOID bsd_socket_release(struct AmiSocketBase *base, AmiSocket *sock)
 {
-    (VOID)base;
+    LONG fd;
+
+    if (sock == h_freed)
+        h_after_free++;
     if (sock->as_RefCount > 0)
         sock->as_RefCount--;
+    if (sock->as_RefCount == 0)
+    {
+        h_freed = sock;
+        return;
+    }
+    if (sock->as_Owner != base)
+        return;
+    for (fd = 0; fd < H_FDS; fd++)
+    {
+        if (h_table[fd] == sock)
+            return;
+    }
+    sock->as_Owner = NULL;
 }
 
 NX_IP *netstack_ip(VOID) { return NX_NULL; }
@@ -912,6 +953,115 @@ static void t_ioctls(void)
           "a descriptor with no socket is EBADF");
 }
 
+/*
+ * Dup2Socket() while the source is closed under it (F-054): by a descriptor
+ * callback, or by another task on a shared base.  The hook closes descriptor
+ * 0 the way CloseSocket() does, before the new slot is published.
+ */
+static LONG h_hook_result;
+
+static LONG h_close_source(LONG fd)
+{
+    AmiSocket *s = h_table[0];
+
+    (VOID)fd;
+    h_fd_hook = NULL;
+    if (s != NULL)
+    {
+        h_table[0] = NULL;
+        bsd_socket_release(&h_base, s);
+    }
+    return h_hook_result;
+}
+
+static LONG h_refuse(LONG fd)
+{
+    (VOID)fd;
+    return 1;
+}
+
+static void t_dup2_interleave(void)
+{
+    AmiSocket *s;
+    LONG       rc;
+
+    /* Dup2Socket(fd, -1): the lowest free descriptor. */
+    h_reset();
+    s = h_tcp(0);
+    s->as_RefCount = 1;
+    h_fd_hook = h_close_source;
+    h_hook_result = 0;
+    rc = bsd_Dup2Socket(0, -1, &h_base);
+    CHECK(rc == 1 && h_table[1] == s, "dup(-1) publishes the socket");
+    CHECK(h_freed == NULL && h_after_free == 0,
+          "dup(-1): a source closed in the callback is not freed under the new descriptor");
+    CHECK(s->as_RefCount == 1, "dup(-1): the new descriptor holds the one reference left");
+    CHECK(s->as_Owner == &h_base, "dup(-1): this base still owns the socket it holds");
+
+    /* Dup2Socket(fd, n). */
+    h_reset();
+    s = h_tcp(0);
+    s->as_RefCount = 1;
+    h_fd_hook = h_close_source;
+    h_hook_result = 0;
+    rc = bsd_Dup2Socket(0, 1, &h_base);
+    CHECK(rc == 1 && h_table[1] == s, "dup2(n) publishes the socket");
+    CHECK(h_freed == NULL && h_after_free == 0,
+          "dup2(n): a source closed in the callback is not freed under the new descriptor");
+    CHECK(s->as_RefCount == 1, "dup2(n): the new descriptor holds the one reference left");
+    CHECK(s->as_Owner == &h_base, "dup2(n): this base still owns the socket it holds");
+
+    /* No interleaving: two descriptors, two references. */
+    h_reset();
+    s = h_tcp(0);
+    s->as_RefCount = 1;
+    rc = bsd_Dup2Socket(0, 1, &h_base);
+    CHECK(rc == 1 && s->as_RefCount == 2 && s->as_Owner == &h_base,
+          "a plain dup2 takes one reference");
+    rc = bsd_Dup2Socket(0, 0, &h_base);
+    CHECK(rc == 0 && s->as_RefCount == 2, "dup2 onto itself takes none");
+
+    /* A refused slot gives the reference back, with the refusal's errno. */
+    h_reset();
+    s = h_tcp(0);
+    s->as_RefCount = 1;
+    h_fd_hook = h_refuse;
+    rc = bsd_Dup2Socket(0, -1, &h_base);
+    CHECK(rc == -1 && h_base.sb_Errno == AMI_EMFILE, "a refused dup(-1) is its errno");
+    CHECK(s->as_RefCount == 1 && h.nx_enters == h.nx_leaves,
+          "and gives its reference back inside a bracket");
+
+    h_reset();
+    s = h_tcp(0);
+    s->as_RefCount = 1;
+    h_fd_hook = h_refuse;
+    rc = bsd_Dup2Socket(0, 1, &h_base);
+    CHECK(rc == -1 && h_base.sb_Errno == AMI_EMFILE && s->as_RefCount == 1,
+          "a refused dup2(n) likewise");
+
+    /* No bracket: a reference that is not the last still goes. */
+    h_reset();
+    s = h_tcp(0);
+    s->as_RefCount = 1;
+    h_fd_hook = h_refuse;
+    h.nx_enter_result = -1;
+    rc = bsd_Dup2Socket(0, 1, &h_base);
+    CHECK(rc == -1 && h_base.sb_Errno == AMI_EMFILE && s->as_RefCount == 1 &&
+          s->as_Owner == &h_base,
+          "a refusal with the stack down gives its reference back too");
+
+    /* Refused after the callback closed the source: the release is the last. */
+    h_reset();
+    s = h_tcp(0);
+    s->as_RefCount = 1;
+    h_fd_hook = h_close_source;
+    h_hook_result = 1;
+    rc = bsd_Dup2Socket(0, -1, &h_base);
+    CHECK(rc == -1 && h_base.sb_Errno == AMI_EMFILE, "closed and refused is the refusal");
+    CHECK(h_freed == s && h_after_free == 0 && s->as_RefCount == 0,
+          "and the socket is freed once, by the unwind");
+}
+
 int main(void)
 {
     printf("options.c host tests\n");
@@ -925,6 +1075,7 @@ int main(void)
     t_user_timeout();
     t_nodelay();
     t_ioctls();
+    t_dup2_interleave();
 
     printf("%lu checks, %lu failures\n", h_checks, h_failures);
     return h_failures == 0 ? 0 : 1;
