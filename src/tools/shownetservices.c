@@ -108,9 +108,12 @@ static VOID put_safe(const char *text)
 
     while (text[i] != '\0' && i + 1 < (ULONG)sizeof(buf))
     {
-        char c = text[i];
+        /* Unsigned: m68k GCC's char is signed, so a UTF-8 byte (0x80 and
+           up) compared as negative, fell under ' ' and printed as '.'
+           (F-208).  C0 controls and DEL still do. */
+        UBYTE c = (UBYTE)text[i];
 
-        buf[i] = (c < ' ' || c == 0x7F) ? '.' : c;
+        buf[i] = (c < 0x20U || c == 0x7FU) ? '.' : (char)c;
         i++;
     }
     buf[i] = '\0';
