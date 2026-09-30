@@ -840,6 +840,26 @@ LONG bsd_WaitSelect(register LONG nfds                __asm("d0"),
     if (nfds < 0)
         return bsd_fail(SocketBase, AMI_EINVAL);
 
+    /*
+     * Only the opener waits on its base (F-065), and before anything below
+     * writes the base-wide scratch.  sb_SelIn and sb_SelReady are the
+     * opener's, so a second task's call would read and overwrite the sets a
+     * concurrent WaitSelect() of the opener is using; and the socket events
+     * signal the opener (bsd_event_post()), so a second task's untimed wait
+     * sleeps on a bit nobody sets for it.  The timed path refused a second
+     * task already (the timer, below); a poll and an untimed wait did not.
+     * A base whose opener is gone (sb_Task NULL) is refused by nothing here,
+     * as before.
+     */
+    if (SocketBase->sb_Task != NULL && FindTask(NULL) != SocketBase->sb_Task)
+    {
+        AMI_WARN("bsdsocket: WaitSelect from a task that did not open this "
+                 "base. Open bsdsocket.library in the task that waits: one "
+                 "base per task is what the sets, the signals and errno are "
+                 "all per");
+        return bsd_fail(SocketBase, AMI_EINVAL);
+    }
+
     if (nfds > bsd_table_size(SocketBase))
         nfds = bsd_table_size(SocketBase);
 
@@ -939,15 +959,8 @@ LONG bsd_WaitSelect(register LONG nfds                __asm("d0"),
                  * open the port wherever it was called from, and if that was
                  * not the opener it took the base down with it.
                  */
-                if (SocketBase->sb_Task != NULL && me != SocketBase->sb_Task)
-                {
-                    AMI_WARN("bsdsocket: WaitSelect timeout from a task "
-                             "that did not open this base. Open "
-                             "bsdsocket.library in the task that waits: one "
-                             "base per task is what the timer, the signals "
-                             "and errno are all per");
-                    return bsd_fail(SocketBase, AMI_EINVAL);
-                }
+                /* A task that did not open this base was refused at the
+                   top (F-065), before this timer was ever reached. */
 
                 if (SocketBase->sb_TimerOpen &&
                     SocketBase->sb_TimerPort.mp_SigTask != me)

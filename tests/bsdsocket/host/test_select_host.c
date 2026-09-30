@@ -39,6 +39,8 @@ static unsigned long h_failures;
 
 static struct AmiSocketBase h_base;
 static struct Task          h_task;
+static struct Task          h_other_task;
+static struct Task         *h_me;  /* who is calling; NULL = the opener */
 
 static AmiSocket   h_sock[H_FDS];
 static AmiSocket  *h_table[H_FDS];
@@ -114,6 +116,7 @@ static void h_reset(void)
     h_base.sb_SigUrgMask    = H_SIGURG_SIG;
 
     h.open_result = 0;              /* timer.device opens                    */
+    h_me = NULL;
 }
 
 static AmiSocket *h_udp(LONG fd, UINT peer)
@@ -175,7 +178,7 @@ ULONG SetSignal(ULONG newSignals, ULONG signalSet)
 struct Task *FindTask(const char *name)
 {
     (VOID)name;
-    return &h_task;
+    return (h_me != NULL) ? h_me : &h_task;
 }
 
 VOID Signal(struct Task *task, ULONG signalSet)
@@ -749,6 +752,63 @@ static void t_waitselect_refusals(void)
           "and that failure leaves the sets alone as well");
 }
 
+/*
+ * F-065: a task that did not open the base is refused before any base-wide
+ * scratch is touched -- a poll and an untimed wait as the timed one already
+ * was.  Data is ready, so the old code answered 1 at once.  A base whose
+ * opener is gone is not refused.
+ */
+static void t_waitselect_foreign_task(void)
+{
+    static const UINT one[] = { 7777 };        /* from the connected peer */
+    HSets s, before;
+    LONG  n;
+
+    printf("WaitSelect(): only the task that opened the base\n");
+
+    h_reset();
+    h_queue(h_udp(0, 7777), one, 1);
+    memset(&s, 0, sizeof(s));
+    h_set(s.read, 0);
+    before = s;
+    memset(&h_base.sb_SelIn, 0xA5, sizeof(h_base.sb_SelIn));
+    memset(&h_base.sb_SelReady, 0xA5, sizeof(h_base.sb_SelReady));
+    h_me = &h_other_task;
+
+    n = bsd_WaitSelect(1, s.read, NULL, NULL, &h_poll, NULL, &h_base);
+    CHECK(n == -1 && h_base.sb_Errno == AMI_EINVAL,
+          "a poll from another task is EINVAL");
+    CHECK(memcmp(&s, &before, sizeof(s)) == 0, "its sets come back as given");
+    {
+        UBYTE a5[sizeof(h_base.sb_SelIn)];
+
+        memset(a5, 0xA5, sizeof(a5));
+        CHECK(memcmp(&h_base.sb_SelIn, a5, sizeof(a5)) == 0 &&
+                  memcmp(&h_base.sb_SelReady, a5,
+                         sizeof(h_base.sb_SelReady)) == 0,
+              "and the opener's scratch sets are not touched");
+    }
+
+    n = bsd_WaitSelect(1, s.read, NULL, NULL, NULL, NULL, &h_base);
+    CHECK(n == -1 && h_base.sb_Errno == AMI_EINVAL,
+          "an untimed wait from another task is EINVAL");
+
+    /* The opener itself: as before. */
+    h_me = NULL;
+    n = bsd_WaitSelect(1, s.read, NULL, NULL, &h_poll, NULL, &h_base);
+    CHECK(n == 1, "the opener's poll finds the datagram");
+
+    /* A base whose opener is gone refuses nobody, as before. */
+    h_reset();
+    h_queue(h_udp(0, 7777), one, 1);
+    memset(&s, 0, sizeof(s));
+    h_set(s.read, 0);
+    h_base.sb_Task = NULL;
+    h_me = &h_other_task;
+    n = bsd_WaitSelect(1, s.read, NULL, NULL, &h_poll, NULL, &h_base);
+    CHECK(n == 1, "with no opener task, a poll is served");
+}
+
 static void t_waitselect_signals(void)
 {
     HSets      s, before;
@@ -1072,6 +1132,7 @@ int main(void)
     t_exception();
     t_waitselect_count();
     t_waitselect_refusals();
+    t_waitselect_foreign_task();
     t_waitselect_signals();
     t_waitselect_timeout();
     t_events();
