@@ -63,8 +63,9 @@ static const char *const ami_cfg_advice_text[] =
     "CONFIGURE is DHCP (let the network hand out an address), STATI"
     "C (use the ADDRESS below), AUTO (pick one without a server) or"
     " NONE (no IPv4 on this interface).  STATIC was assumed.",
-    "IPTYPE is either a packet type number (2048 for Ethernet) or o"
-    "ne of DHCP, STATIC and AUTO.",
+    "IPTYPE is DHCP, STATIC, AUTO or NONE. A numeric SANA-II packet"
+    " type is accepted but ignored; this stack selects the type for"
+    " each packet.",
     "MDNS is YES or NO.  NO was assumed.",
     "DOWNGOESOFFLINE is YES or NO.  NO was assumed.",
     "REQUIRESINITDELAY is YES or NO.  NO was assumed.",
@@ -131,6 +132,7 @@ static const char *const ami_cfg_advice_text[] =
     "device default; smaller values send more ACKs.",
     "TCPGROWRTT is milliseconds, 1 to 65535. Leave it out for 10.",
     "there was not enough memory to read the interface drawer",
+    "numeric IPTYPE is accepted for compatibility but ignored",
 };
 
 const char *ami_cfg_advice(UWORD code)

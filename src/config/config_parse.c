@@ -864,8 +864,13 @@ LONG ami_cfg_parse_interface(const char *name, char *buf, AmiIfConfig *out)
                 /* Numeric IPTYPE is the SANA-II packet type; alphabetic is
                    the AmiTCP-style address mode. */
                 if (ami_cfg_parse_ulong(value, &n))
+                {
                     AMI_DEBUG("config: %s: SANA-II IPTYPE %lu (sana2 layer)",
                               out->name, (unsigned long)n);
+                    ami_cfg_problem_code(lineno, AMI_CFG_PROBLEM_NOTE,
+                                         AMI_CFG_SAYS_NUMERIC_IPTYPE_IGNORED,
+                                         AMI_CFG_ADVICE_IPTYPE_IS_EITHER_A);
+                }
                 else if (lookup_iptype(value, &type))
                 {
                     out->iptype = type;

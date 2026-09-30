@@ -975,6 +975,30 @@ static void test_problem_reporter(void)
     CHECK(seen_count == 0);
 }
 
+static void test_numeric_iptype_is_reported_inert(void)
+{
+    AmiIfConfig iface;
+    char *buf;
+
+    printf("interface: numeric IPTYPE is accepted but inert\n");
+
+    seen_count = 0;
+    ami_config_set_reporter(collect, NULL);
+    buf = dup_text("DEVICE=a2065.device\nCONFIGURE=DHCP\nIPTYPE=2048\n");
+    CHECK(ami_cfg_parse_interface("eth0", buf, &iface) == AMI_CFG_OK);
+    free(buf);
+    ami_config_set_reporter(NULL, NULL);
+
+    CHECK(iface.iptype == AMI_IPTYPE_DHCP);
+    CHECK(seen_count == 1);
+    CHECK(seen[0].line == 3);
+    CHECK(seen[0].severity == AMI_CFG_PROBLEM_NOTE);
+    CHECK(strstr(seen[0].text, "numeric IPTYPE") != NULL);
+    CHECK(strstr(seen[0].text, "ignored") != NULL);
+    CHECK(strstr(ami_cfg_advice(AMI_CFG_ADVICE_IPTYPE_IS_EITHER_A),
+                 "ignored") != NULL);
+}
+
 static void test_inert_keywords_are_notes(void)
 {
     AmiIfConfig iface;
@@ -3036,6 +3060,7 @@ int main(int argc, char **argv)
     test_interface_amitcp_flavour();
     test_interface_errors();
     test_problem_reporter();
+    test_numeric_iptype_is_reported_inert();
     test_inert_keywords_are_notes();
     test_request_counts_have_ceilings();
     test_interface_tcp_ack_max();
