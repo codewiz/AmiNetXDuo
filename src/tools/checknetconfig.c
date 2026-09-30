@@ -690,19 +690,27 @@ static const NetdbFile cnc_netdb[] =
  * bare CRs reached the verdict as one line, a broken record hidden behind a
  * good one, while the loader read two (F-094).  The length, or -1 at the end
  * of the file; *cut when the line was longer than the buffer, the rest read
- * and dropped.
+ * and dropped; *nul when a NUL ended it, where the loader's text ends too.
  */
-static LONG cnc_netdb_line(BPTR file, char *buf, ULONG size, BOOL *cut)
+static LONG cnc_netdb_line(BPTR file, char *buf, ULONG size, BOOL *cut,
+                           BOOL *nul)
 {
     LONG  c;
     ULONG n    = 0;
     BOOL  seen = FALSE;
 
     *cut = FALSE;
+    *nul = FALSE;
 
     while ((c = FGetC(file)) != -1)
     {
         seen = TRUE;
+
+        if (c == 0)
+        {
+            *nul = TRUE;
+            break;
+        }
 
         if (c == '\n' || c == '\r')
         {
@@ -733,6 +741,7 @@ static VOID check_netdb_file(const NetdbFile *spec)
     ULONG lineno = 0;
     UWORD said   = 0;
     BOOL  cut;
+    BOOL  nul;
     LONG  size;
 
     file = Open((CONST_STRPTR)cnc_where(spec->path), MODE_OLDFILE);
@@ -764,7 +773,7 @@ static VOID check_netdb_file(const NetdbFile *spec)
         return;
     }
 
-    while (cnc_netdb_line(file, line, sizeof(line), &cut) >= 0)
+    while (cnc_netdb_line(file, line, sizeof(line), &cut, &nul) >= 0)
     {
         UWORD verdict;
 
@@ -811,6 +820,16 @@ static VOID check_netdb_file(const NetdbFile *spec)
                 (LONG)AMI_NETDB_WORDS);
             say("      \"%s\" and the words after it are ignored\n", (LONG)word);
             said++;
+        }
+
+        /* ami_cfg_read_file() hands the parser a C string, so the loader
+           reads up to here and no further. */
+        if (nul)
+        {
+            finding(spec->path, lineno, AMI_CFG_PROBLEM_WARN);
+            say("      this line holds a NUL character, where the file stops\n");
+            say("      being read: nothing after it is used\n");
+            break;
         }
 
         if (said >= 5)
