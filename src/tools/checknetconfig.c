@@ -1022,8 +1022,9 @@ int main(int argc, char **argv)
 
     for (i = 0; i < (ULONG)(sizeof(cnc_netdb) / sizeof(cnc_netdb[0])); i++)
     {
+        /* Said before the check, which can find the file is not used. */
         if (cnc_verbose && tool_exists(cnc_where(cnc_netdb[i].path)))
-            say("  checked %s\n", (LONG)cnc_netdb[i].path);
+            say("  checking %s\n", (LONG)cnc_netdb[i].path);
 
         check_netdb_file(&cnc_netdb[i]);
     }
