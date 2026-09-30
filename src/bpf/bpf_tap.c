@@ -79,6 +79,16 @@ static AmiBpfCaptureFn ami_bpf_capture_hook;
 
 VOID ami_bpf_set_capture_hook(AmiBpfCaptureFn fn)
 {
+    /*
+     * Under the table lock, as bpf.h promises the hook always runs and as the
+     * zero crossings in bpf_channel.c already call it (F-026).  Unlocked, the
+     * count read here could be overtaken by a bind or unbind on another task
+     * and delivered after that task's notification, leaving the stack's
+     * filter out while a channel is bound, or in with none.  It also means a
+     * NULL here returns only once no crossing is still inside the old hook.
+     */
+    ami_bpf_lock();
+
     ami_bpf_capture_hook = fn;
 
     /* Deliver the current state on registration. Otherwise the answer depends
@@ -86,6 +96,8 @@ VOID ami_bpf_set_capture_hook(AmiBpfCaptureFn fn)
        hook that is only ever told about CHANGES starts out wrong. */
     if (fn != NULL)
         fn(ami_bpf_bound_channels);
+
+    ami_bpf_unlock();
 }
 
 VOID ami_bpf_capture_notify(UWORD capturing)

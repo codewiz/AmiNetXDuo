@@ -80,8 +80,25 @@ VOID ami_log(int level, const char *fmt, ...)
 
 static void (*stub_on_lock)(void);
 
+/*
+ * The table lock's depth, and what "another task" wants to do.  Asked for
+ * while the lock is held, it waits for the outermost unlock, as a second task
+ * blocked in ObtainSemaphore() would; asked for with the lock free, it runs.
+ */
+static int    stub_lock_depth;
+static void (*stub_other_task)(void);
+
+static void stub_run_other_task(void (*fn)(void))
+{
+    if (stub_lock_depth > 0)
+        stub_other_task = fn;
+    else
+        fn();
+}
+
 VOID ami_bpf_lock(VOID)
 {
+    stub_lock_depth++;
     if (stub_on_lock != NULL)
     {
         void (*fn)(void) = stub_on_lock;
@@ -103,6 +120,14 @@ static int    stub_unlock_after;
 
 VOID ami_bpf_unlock(VOID)
 {
+    if (stub_lock_depth > 0 && --stub_lock_depth == 0 && stub_other_task != NULL)
+    {
+        void (*fn)(void) = stub_other_task;
+
+        stub_other_task = NULL;
+        fn();
+    }
+
     if (stub_on_unlock != NULL && --stub_unlock_after == 0)
     {
         void (*fn)(void) = stub_on_unlock;
@@ -1762,6 +1787,60 @@ static VOID test_capture_state(UWORD capturing)
 }
 
 /*
+ * F-026: registration delivers the current state under the table lock, like
+ * every crossing.  The hook below is the stack's: whatever it is told LAST is
+ * what the stack believes.  On the registration's delivery another task binds
+ * a channel.  Unlocked, that bind's crossing ran inside the delivery and the
+ * delivery's stale 0 landed after it: the filter came out while a channel was
+ * bound.  Locked, the bind waits for the unlock and its 1 lands last.
+ */
+static int race_calls;
+static int race_last;
+static int race_unlocked;
+
+static void race_bind(void)
+{
+    CHECK(ami_bpf_open(T_BPF_OWNER, 0) == 0);
+    CHECK(ami_bpf_ioctl(T_BPF_OWNER, 0, BIOCSETIF, "eth0") == 0);
+}
+
+static void race_hook(UWORD capturing)
+{
+    race_calls++;
+    if (stub_lock_depth == 0)
+        race_unlocked++;
+    if (race_calls == 1)
+        stub_run_other_task(race_bind);
+    race_last = (capturing != 0);
+}
+
+static void test_capture_hook_registration_race(void)
+{
+    printf("bpf: the registration's state cannot overtake a crossing\n");
+
+    CHECK(ami_bpf_init() == 0);
+    CHECK(ami_bpf_attach_interface("eth0", iface_cookie, DLT_EN10MB, 1500,
+                                   test_inject) == 0);
+
+    race_calls    = 0;
+    race_last     = -1;
+    race_unlocked = 0;
+
+    ami_bpf_set_capture_hook(race_hook);
+
+    CHECK(race_calls == 2);                     /* the 0, then the 0 -> 1 */
+    CHECK(race_last == 1);                      /* a channel is bound */
+    CHECK(race_unlocked == 0);                  /* bpf.h: under the lock */
+    CHECK(stub_lock_depth == 0 && stub_other_task == NULL);
+
+    ami_bpf_set_capture_hook(NULL);
+    CHECK(ami_bpf_close(T_BPF_OWNER, 0) == 0);
+    CHECK(race_calls == 2);                     /* unregistered: not told */
+    ami_bpf_detach_interface(iface_cookie);
+    ami_bpf_cleanup();
+}
+
+/*
  * The hook exists so the stack can keep nx_ip_packet_filter_extended OUT of
  * the per-packet path while nobody is capturing, so what has to be exact is
  * the ZERO CROSSING: fire on 0->1 and 1->0, and NOT on a second channel
@@ -1927,6 +2006,7 @@ int main(int argc, char **argv)
     test_getter_close_reopen();
     test_reopen_under_reader();
     test_capture_state_hook();
+    test_capture_hook_registration_race();
     test_interface_registry_capacity();
     test_timeout_budget();
 
