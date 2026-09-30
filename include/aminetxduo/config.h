@@ -825,6 +825,26 @@ ULONG ami_cfg_interface_gateway_line(char *buf, ULONG want);
    read. */
 ULONG ami_cfg_interface_gateway_line_file(const char *path, ULONG want);
 
+/* The 1-based line of `buf` whose ADDRESS the interface parser keeps as
+   `want`, counted as the parser counts lines, or 0.  Mirrors
+   ami_cfg_parse_interface()'s IF_KEY_ADDRESS case: the keyword ADDRESS or its
+   IPADDRESS alias, a value that is not a CONFIGURE/IPTYPE mode word, and a
+   value that parses as an IP; each parseable ADDRESS overwrites out->address,
+   so the LAST parseable value wins (F-158).  0 when the last parseable value
+   is not `want`, so an overwritten or mode-word earlier line is never named.
+   `buf` is a whole file's text, split in place. */
+ULONG ami_cfg_interface_address_line(char *buf, ULONG want);
+/* The same for a file, read through ami_cfg_read_file(); 0 when it cannot be
+   read. */
+ULONG ami_cfg_interface_address_line_file(const char *path, ULONG want);
+
+/* The same for NETMASK, mirroring IF_KEY_NETMASK (the keyword NETMASK or its
+   SUBNETMASK alias, not a mode word, parses as an IP, last parseable wins). */
+ULONG ami_cfg_interface_netmask_line(char *buf, ULONG want);
+/* The same for a file, read through ami_cfg_read_file(); 0 when it cannot be
+   read. */
+ULONG ami_cfg_interface_netmask_line_file(const char *path, ULONG want);
+
 /* The 1-based line of the `occur`-th (0-based) NAMESERVER whose value the
    resolver parser keeps as `want`, counted as the parser counts lines, or 0.
    Mirrors ami_cfg_parse_resolver()'s NAMESERVER case (first key=value pair

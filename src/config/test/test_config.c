@@ -3018,6 +3018,138 @@ static void test_interface_gateway_line(void)
     CHECK(ami_cfg_ifname_may_be_truncated("123456789012345"));
 }
 
+static void test_interface_address_line(void)
+{
+    char  buf[512];
+    ULONG a;
+    ULONG b;
+
+    printf("interface address line\n");
+
+    CHECK(ami_config_parse_ip("192.168.1.10", &a));
+    CHECK(ami_config_parse_ip("192.168.1.99", &b));
+
+    /* The LAST parseable ADDRESS is the one the parser kept (IF_KEY_ADDRESS). */
+    strcpy(buf, "address=192.168.1.10\n"
+                "address=192.168.1.99\n");
+    CHECK(ami_cfg_interface_address_line(buf, b) == 2);
+    CHECK(ami_cfg_interface_address_line(buf, a) == 0);   /* overwritten */
+
+    /* An earlier invalid ADDRESS is skipped, so the valid one's line is named. */
+    strcpy(buf, "address=not-an-ip\n"
+                "address=192.168.1.10\n");
+    CHECK(ami_cfg_interface_address_line(buf, a) == 2);
+
+    /* A mode word ("dhcp"/"static"/...) is a mode, not an address. */
+    strcpy(buf, "address=dhcp\n"
+                "address=192.168.1.10\n");
+    CHECK(ami_cfg_interface_address_line(buf, a) == 2);
+    strcpy(buf, "address=static\n");
+    CHECK(ami_cfg_interface_address_line(buf, a) == 0);
+
+    /* IPADDRESS is the AmiTCP spelling of the same keyword. */
+    strcpy(buf, "ipaddress=192.168.1.10\n");
+    CHECK(ami_cfg_interface_address_line(buf, a) == 1);
+
+    /* ADDRESS6 is another keyword and never matches. */
+    strcpy(buf, "address6=2001:db8::1\n"
+                "address=192.168.1.10\n");
+    CHECK(ami_cfg_interface_address_line(buf, a) == 2);
+
+    /* No ADDRESS with the kept value: 0. */
+    strcpy(buf, "address=192.168.1.99\n");
+    CHECK(ami_cfg_interface_address_line(buf, a) == 0);
+}
+
+static void test_interface_netmask_line(void)
+{
+    char  buf[512];
+    ULONG m;
+    ULONG n;
+
+    printf("interface netmask line\n");
+
+    CHECK(ami_config_parse_ip("255.255.255.0", &m));
+    CHECK(ami_config_parse_ip("255.255.0.0", &n));
+
+    /* The LAST parseable NETMASK is the one the parser kept (IF_KEY_NETMASK). */
+    strcpy(buf, "netmask=255.255.0.0\n"
+                "netmask=255.255.255.0\n");
+    CHECK(ami_cfg_interface_netmask_line(buf, m) == 2);
+    CHECK(ami_cfg_interface_netmask_line(buf, n) == 0);   /* overwritten */
+
+    /* An earlier invalid NETMASK is skipped, so the valid one's line is named. */
+    strcpy(buf, "netmask=not-an-ip\n"
+                "netmask=255.255.255.0\n");
+    CHECK(ami_cfg_interface_netmask_line(buf, m) == 2);
+
+    /* A mode word is a mode, not a netmask. */
+    strcpy(buf, "netmask=dhcp\n"
+                "netmask=255.255.255.0\n");
+    CHECK(ami_cfg_interface_netmask_line(buf, m) == 2);
+
+    /* SUBNETMASK is the AmiTCP spelling of the same keyword. */
+    strcpy(buf, "subnetmask=255.255.255.0\n");
+    CHECK(ami_cfg_interface_netmask_line(buf, m) == 1);
+}
+
+/*
+ * Replay of the loader's ADDRESS/NETMASK acceptance, not the CheckNetConfig
+ * print path (check_addressing() is a static tool function, not linked here):
+ * the interface parser keeps the LAST parseable ADDRESS/NETMASK, and a mode
+ * word or a bad value does not count, so check_addressing()'s old keyword_line()
+ * named the first ADDRESS/NETMASK line -- which may be one the parser never
+ * kept -- while the new helpers name the kept value (F-158).
+ */
+static void test_addressing_provenance(void)
+{
+    static const char *const text =
+        "device=a2065.device\n"       /* line 1 */
+        "address=dhcp\n"              /* line 2: a mode, not an address */
+        "address=192.168.1.10\n"      /* line 3: the kept address */
+        "netmask=not-an-ip\n"         /* line 4: rejected */
+        "netmask=255.255.255.0\n";    /* line 5: the kept netmask */
+
+    AmiIfConfig ifc;
+    char        buf[512];
+    const char *path = "DEVS:NetInterfaces/eth0";
+
+    printf("addressing provenance (loader replay)\n");
+
+    strcpy(buf, text);
+    CHECK(ami_cfg_parse_interface("eth0", buf, &ifc) == AMI_CFG_OK);
+    CHECK_IP(ifc.address, 192, 168, 1, 10);
+    CHECK_IP(ifc.netmask, 255, 255, 255, 0);
+
+    set_fixture(path, text);
+
+    /* The old keyword search names the FIRST line spelling the keyword. */
+    CHECK(ami_cfg_keyword_line_file(path, "ADDRESS") == 2);   /* the dhcp line */
+    CHECK(ami_cfg_keyword_line_file(path, "NETMASK") == 4);   /* the bad line */
+
+    /* The new helpers name the line whose value the parser actually kept. */
+    CHECK(ami_cfg_interface_address_line_file(path, ifc.address) == 3);
+    CHECK(ami_cfg_interface_netmask_line_file(path, ifc.netmask) == 5);
+
+    /* The loader truncates an interface name to 15 characters, so a name at
+       that ceiling may not be the file's real name and the reconstructed path
+       names a different or nonexistent file.  check_addressing() then names the
+       drawer (CNC_DIR_INTERFACES) at line 0 rather than the path (F-158, as
+       check_gateway() does).  The gate it consults is the predicate below. */
+    {
+        AmiIfConfig t;
+        char        short_buf[256];
+
+        strcpy(short_buf, "device=a2065.device\n"
+                          "address=192.168.1.10\n"
+                          "netmask=255.255.255.0\n");
+        CHECK(ami_cfg_parse_interface("1234567890123456", short_buf, &t)
+              == AMI_CFG_OK);
+        CHECK(ami_cfg_strlen(t.name) == AMI_CFG_IFNAME_MAX);
+        CHECK(ami_cfg_ifname_may_be_truncated(t.name));
+    }
+}
+
 static void test_nameserver_line(void)
 {
     char  buf[512];
@@ -4102,6 +4234,9 @@ int main(int argc, char **argv)
     test_keyword_line();
     test_default_gateway_line();
     test_interface_gateway_line();
+    test_interface_address_line();
+    test_interface_netmask_line();
+    test_addressing_provenance();
     test_nameserver_line();
     test_nameserver_provenance();
     test_netdb_checker();

@@ -339,10 +339,27 @@ static VOID check_device(const char *path, const AmiIfConfig *ifc)
         tool_explain_device(ifc->device, ifc->unit, ifc->card);
 }
 
+/* The line an ADDRESS/NETMASK finding should name, or 0 when the file cannot
+   be named: the loader truncates an interface name at AMI_CFG_IFNAME_MAX, so a
+   name at that ceiling may not be the file's real name and the reconstructed
+   path names a different or nonexistent file (F-158).  `netmask` selects the
+   NETMASK helper; the ADDRESS helper otherwise. */
+static ULONG addressing_line(const char *path, const AmiIfConfig *ifc,
+                             ULONG want, BOOL netmask)
+{
+    if (ami_cfg_ifname_may_be_truncated(ifc->name))
+        return 0;
+
+    return netmask
+        ? ami_cfg_interface_netmask_line_file(path, want)
+        : ami_cfg_interface_address_line_file(path, want);
+}
+
 static VOID check_addressing(const char *path, const AmiIfConfig *ifc)
 {
-    ULONG host_bits;
-    UWORD prefix;
+    const char *where;
+    ULONG       host_bits;
+    UWORD       prefix;
 
     /*
      * An interface addressed at run time has nothing to check: the file says
@@ -352,9 +369,16 @@ static VOID check_addressing(const char *path, const AmiIfConfig *ifc)
     if (ifc->address == 0)
         return;
 
+    /* The loader truncates an interface name at AMI_CFG_IFNAME_MAX, so a name
+       at that ceiling may not be the file's real name; the reconstructed path
+       then names a different or nonexistent file.  The drawer is the truthful
+       source then, at line 0 (F-158, as check_gateway() does). */
+    where = ami_cfg_ifname_may_be_truncated(ifc->name)
+              ? CNC_DIR_INTERFACES : path;
+
     if ((ifc->address >> 24) == 127UL)
     {
-        finding(path, keyword_line(path, "ADDRESS"), AMI_CFG_PROBLEM_ERROR);
+        finding(where, addressing_line(path, ifc, ifc->address, FALSE), AMI_CFG_PROBLEM_ERROR);
         note("this is a loopback address. It always means \"this machine\", "
              "so no other machine can reach an interface that has one.");
         note("Use an address on the local network, usually 192.168.x.y, or "
@@ -364,7 +388,7 @@ static VOID check_addressing(const char *path, const AmiIfConfig *ifc)
 
     if ((ifc->address >> 24) >= 224UL)
     {
-        finding(path, keyword_line(path, "ADDRESS"), AMI_CFG_PROBLEM_ERROR);
+        finding(where, addressing_line(path, ifc, ifc->address, FALSE), AMI_CFG_PROBLEM_ERROR);
         note("addresses from 224.0.0.0 upwards are reserved for multicast "
              "and for future use. A machine cannot have one.");
         return;
@@ -372,7 +396,7 @@ static VOID check_addressing(const char *path, const AmiIfConfig *ifc)
 
     if (ifc->netmask == 0)
     {
-        finding(path, 0, AMI_CFG_PROBLEM_ERROR);
+        finding(where, 0, AMI_CFG_PROBLEM_ERROR);
         note("the interface has an address and no NETMASK. Without a netmask "
              "the stack cannot tell which machines are on this network.");
         note("Add  NETMASK = 255.255.255.0, which is correct on almost "
@@ -386,7 +410,7 @@ static VOID check_addressing(const char *path, const AmiIfConfig *ifc)
 
         ami_config_format_ip(ifc->netmask, text, sizeof(text));
 
-        finding(path, keyword_line(path, "NETMASK"), AMI_CFG_PROBLEM_ERROR);
+        finding(where, addressing_line(path, ifc, ifc->netmask, TRUE), AMI_CFG_PROBLEM_ERROR);
         say("      %s is not a netmask: a netmask is all ones and then\n",
             (LONG)text);
         say("      all zeroes, with nothing mixed in between\n");
@@ -399,7 +423,7 @@ static VOID check_addressing(const char *path, const AmiIfConfig *ifc)
 
     if (prefix >= 31)
     {
-        finding(path, keyword_line(path, "NETMASK"), AMI_CFG_PROBLEM_WARN);
+        finding(where, addressing_line(path, ifc, ifc->netmask, TRUE), AMI_CFG_PROBLEM_WARN);
         say("      a /%ld netmask leaves no room for anything else on this\n",
             (LONG)prefix);
         say("      network, so nothing here can be reached directly\n");
@@ -409,7 +433,7 @@ static VOID check_addressing(const char *path, const AmiIfConfig *ifc)
 
     if (host_bits == 0)
     {
-        finding(path, keyword_line(path, "ADDRESS"), AMI_CFG_PROBLEM_ERROR);
+        finding(where, addressing_line(path, ifc, ifc->address, FALSE), AMI_CFG_PROBLEM_ERROR);
         note("this is the network's own address rather than a machine's, "
              "because every bit the netmask leaves free is zero. Nothing can "
              "reach it.");
@@ -420,7 +444,7 @@ static VOID check_addressing(const char *path, const AmiIfConfig *ifc)
 
     if (host_bits == (~ifc->netmask & 0xffffffffUL))
     {
-        finding(path, keyword_line(path, "ADDRESS"), AMI_CFG_PROBLEM_ERROR);
+        finding(where, addressing_line(path, ifc, ifc->address, FALSE), AMI_CFG_PROBLEM_ERROR);
         note("this is the broadcast address of its own network. That address "
              "reaches every machine at once, so it cannot belong to one. "
              "Nothing answers it.");
@@ -431,7 +455,7 @@ static VOID check_addressing(const char *path, const AmiIfConfig *ifc)
     if ((ifc->address >> 16) == 0xa9feUL &&
         ifc->iptype == AMI_IPTYPE_STATIC)
     {
-        finding(path, keyword_line(path, "ADDRESS"), AMI_CFG_PROBLEM_WARN);
+        finding(where, addressing_line(path, ifc, ifc->address, FALSE), AMI_CFG_PROBLEM_WARN);
         note("169.254.x.y is the range a machine picks for itself when "
              "nothing hands out addresses. An address set by hand can "
              "collide with a machine that picked the same one.");

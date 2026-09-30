@@ -322,6 +322,172 @@ ULONG ami_cfg_interface_gateway_line_file(const char *path, ULONG want)
 }
 
 /*
+ * TRUE when `value` is a CONFIGURE/IPTYPE mode word ("dhcp", "static", ...).
+ * IF_KEY_ADDRESS and IF_KEY_NETMASK accept one of these as a mode and do NOT
+ * read it as an address, so a helper replaying those cases must skip it too,
+ * or it would name the line of a value the parser never kept (F-158).
+ * Mirrors lookup_iptype()/ami_iptype_names[] in config_parse.c; keep the two
+ * lists in step.
+ */
+static BOOL is_iptype_name(const char *value)
+{
+    static const char *const names[] =
+    {
+        "dhcp", "bootp", "auto", "fastauto", "zeroconf", "linklocal",
+        "static", "manual", "none", "off", "no", "disabled", NULL
+    };
+    const char *const *n;
+
+    for (n = names; *n != NULL; n++)
+        if (ami_cfg_stricmp(value, *n) == 0)
+            return TRUE;
+
+    return FALSE;
+}
+
+/*
+ * The line of `buf` whose ADDRESS the interface parser keeps as `want`, or 0.
+ * Must mirror ami_cfg_parse_interface()'s IF_KEY_ADDRESS case -- the keyword
+ * ADDRESS or its IPADDRESS alias, a value that is not a mode word, and a value
+ * that parses as an IP -- where each parseable ADDRESS overwrites out->address,
+ * so the LAST parseable value wins.  A keyword search would name the first
+ * ADDRESS line, which may be a mode word or an invalid value the parser did
+ * not keep (F-158).  The kept value is the last parseable one, so when that is
+ * not `want` the answer is 0, not the line of an overwritten earlier value.
+ * `buf` is split in place, like every caller of ami_cfg_next_line().
+ */
+ULONG ami_cfg_interface_address_line(char *buf, ULONG want)
+{
+    char  *cursor = buf;
+    char  *line;
+    ULONG  lineno = 0;
+    ULONG  accepted_line = 0;
+    ULONG  accepted_val  = 0;
+    BOOL   have_accepted = FALSE;
+
+    if (buf == NULL)
+        return 0;
+
+    while ((line = ami_cfg_next_line(&cursor)) != NULL)
+    {
+        char *pos;
+        char *key;
+        char *value;
+
+        lineno++;
+
+        ami_cfg_strip_comment(line, "#;");
+        line = ami_cfg_trim(line);
+        if (*line == '\0')
+            continue;
+
+        pos = line;
+        while (ami_cfg_next_pair(&pos, &key, &value))
+        {
+            ULONG ip;
+
+            if (ami_cfg_stricmp(key, "address") != 0 &&
+                ami_cfg_stricmp(key, "ipaddress") != 0)
+                continue;
+
+            if (is_iptype_name(value))
+                continue;               /* a mode word, not an address */
+            if (!ami_config_parse_ip(value, &ip))
+                continue;               /* rejected: the previous value stands */
+
+            accepted_line = lineno;     /* last accepted wins, as IF_KEY_ADDRESS */
+            accepted_val  = ip;
+            have_accepted = TRUE;
+        }
+    }
+
+    return (have_accepted && accepted_val == want) ? accepted_line : 0;
+}
+
+ULONG ami_cfg_interface_address_line_file(const char *path, ULONG want)
+{
+    char  *buf = (char *)ami_cfg_read_file(path, NULL);
+    ULONG  found;
+
+    if (buf == NULL)
+        return 0;
+
+    found = ami_cfg_interface_address_line(buf, want);
+    ami_free(buf);
+
+    return found;
+}
+
+/*
+ * The line of `buf` whose NETMASK the interface parser keeps as `want`, or 0.
+ * Mirrors ami_cfg_parse_interface()'s IF_KEY_NETMASK case -- the keyword
+ * NETMASK or its SUBNETMASK alias, a value that is not a mode word, and a
+ * value that parses as an IP -- the same last-parseable-wins rule as ADDRESS
+ * (F-158).  `buf` is split in place, like every caller of ami_cfg_next_line().
+ */
+ULONG ami_cfg_interface_netmask_line(char *buf, ULONG want)
+{
+    char  *cursor = buf;
+    char  *line;
+    ULONG  lineno = 0;
+    ULONG  accepted_line = 0;
+    ULONG  accepted_val  = 0;
+    BOOL   have_accepted = FALSE;
+
+    if (buf == NULL)
+        return 0;
+
+    while ((line = ami_cfg_next_line(&cursor)) != NULL)
+    {
+        char *pos;
+        char *key;
+        char *value;
+
+        lineno++;
+
+        ami_cfg_strip_comment(line, "#;");
+        line = ami_cfg_trim(line);
+        if (*line == '\0')
+            continue;
+
+        pos = line;
+        while (ami_cfg_next_pair(&pos, &key, &value))
+        {
+            ULONG ip;
+
+            if (ami_cfg_stricmp(key, "netmask") != 0 &&
+                ami_cfg_stricmp(key, "subnetmask") != 0)
+                continue;
+
+            if (is_iptype_name(value))
+                continue;               /* a mode word, not a netmask */
+            if (!ami_config_parse_ip(value, &ip))
+                continue;               /* rejected: the previous value stands */
+
+            accepted_line = lineno;     /* last accepted wins, as IF_KEY_NETMASK */
+            accepted_val  = ip;
+            have_accepted = TRUE;
+        }
+    }
+
+    return (have_accepted && accepted_val == want) ? accepted_line : 0;
+}
+
+ULONG ami_cfg_interface_netmask_line_file(const char *path, ULONG want)
+{
+    char  *buf = (char *)ami_cfg_read_file(path, NULL);
+    ULONG  found;
+
+    if (buf == NULL)
+        return 0;
+
+    found = ami_cfg_interface_netmask_line(buf, want);
+    ami_free(buf);
+
+    return found;
+}
+
+/*
  * TRUE when `name` sits at the parser's interface-name ceiling, so it may be a
  * longer filename truncated to AMI_CFG_IFNAME_MAX characters.  A reconstructed
  * DEVS:NetInterfaces/<name> path then cannot be trusted to be the file the
