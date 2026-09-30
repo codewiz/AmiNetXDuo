@@ -92,7 +92,11 @@ static VOID finding(const char *file, ULONG line, UWORD severity)
 }
 
 #define CNC_MAX_NOTES   24      /* more than any real drawer produces */
-#define CNC_NOTE_FILE   48
+/* The longest file a note can name: the loader joins every interface path
+   into char path[AMI_CFG_PATH_LEN + AMI_CFG_NAME_LEN + 8] (config_list.c)
+   and hands the reporter that, so the same bound holds here whatever the
+   filesystem allows a name to be (F-161). */
+#define CNC_NOTE_FILE   (AMI_CFG_PATH_LEN + AMI_CFG_NAME_LEN + 8)
 #define CNC_NOTE_TEXT   144
 #define CNC_NOTE_HINT   144
 
@@ -302,16 +306,16 @@ static LONG network_holding(const AmiConfig *cfg, ULONG addr)
     return -1;
 }
 
-static BOOL any_dynamic_v4(const AmiConfig *cfg)
+/* TRUE when an interface takes its IPv4 address by DHCP, whose lease brings
+   the router and the name servers.  A LINKLOCAL (AutoIP) address brings
+   neither, so it does not count (F-160). */
+static BOOL any_dhcp_v4(const AmiConfig *cfg)
 {
     UWORD i;
 
     for (i = 0; i < cfg->interface_count; i++)
     {
-        const AmiIfConfig *ifc = &cfg->interfaces[i];
-
-        if (ifc->iptype != AMI_IPTYPE_STATIC &&
-            ifc->iptype != AMI_IPTYPE_NONE)
+        if (cfg->interfaces[i].iptype == AMI_IPTYPE_DHCP)
             return TRUE;
     }
 
@@ -487,7 +491,7 @@ static VOID check_gateway(const AmiConfig *cfg)
          * DHCP lease carries the router with it. A machine with no static IPv4
          * address has no IPv4 to route, which is the IPv6-only case.
          */
-        if (any_dynamic_v4(cfg) || cfg->interface_count == 0 ||
+        if (any_dhcp_v4(cfg) || cfg->interface_count == 0 ||
             !any_static_address(cfg))
             return;
 
@@ -529,7 +533,7 @@ static VOID check_gateway(const AmiConfig *cfg)
      * to it never leave. Only checkable with a static address: with DHCP the
      * lease decides, and the router it hands out is correct by construction.
      */
-    if (!any_static_address(cfg) || any_dynamic_v4(cfg))
+    if (!any_static_address(cfg) || any_dhcp_v4(cfg))
         return;
 
     if (network_holding(cfg, cfg->default_gateway) >= 0)
@@ -554,7 +558,7 @@ static VOID check_resolver(const AmiConfig *cfg)
     if (cfg->resolver.nameserver_count == 0)
     {
         /* DHCP supplies name servers with the lease, as check_gateway() says. */
-        if (any_dynamic_v4(cfg) || cfg->interface_count == 0 ||
+        if (any_dhcp_v4(cfg) || cfg->interface_count == 0 ||
             !any_static_address(cfg))
             return;
 
@@ -566,7 +570,7 @@ static VOID check_resolver(const AmiConfig *cfg)
         return;
     }
 
-    if (any_dynamic_v4(cfg) || !any_static_address(cfg))
+    if (any_dhcp_v4(cfg) || !any_static_address(cfg))
         return;
 
     for (i = 0; i < cfg->resolver.nameserver_count; i++)
@@ -905,6 +909,7 @@ int main(int argc, char **argv)
     struct RDArgs *rda;
     ULONG          i;
     LONG           rc;
+    LONG           load;
 
     (VOID)argv;
 
@@ -944,8 +949,19 @@ int main(int argc, char **argv)
     }
 
     ami_config_set_reporter(cnc_report, NULL);
-    (VOID)ami_config_load(&cnc_config);
+    load = ami_config_load(&cnc_config);
     ami_config_set_reporter(NULL, NULL);
+
+    /* A configuration only partly read, for want of memory, is not a clean
+       one: nothing below could say what the unread part holds (F-157). */
+    if (load == AMI_CFG_ERR_NOMEM)
+    {
+        tool_error("there was not enough memory to read the configuration, "
+                   "so it was not checked");
+        ami_config_free(&cnc_config);
+        FreeArgs(rda);
+        return RETURN_FAIL;
+    }
 
     if (cnc_verbose)
     {
