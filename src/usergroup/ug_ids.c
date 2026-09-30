@@ -145,6 +145,15 @@ LONG ugl_getgroups(UG_A6, UG_REG(LONG gidsetlen, "d0"),
     LONG count = base->ug_Cred.cr_ngroups;
     LONG i;
 
+    /*
+     * cr_ngroups is ABI-visible: getcredentials(NULL/self) hands the caller a
+     * pointer straight at the live credential block, so a count past the
+     * cr_groups[UG_NGROUPS] array is corruptable out from under this loop.
+     * Clamp before both the "how many?" answer and the copy.
+     */
+    if (count > UG_NGROUPS)
+        count = UG_NGROUPS;
+
     /* A zero length is the documented "how many are there?" query. */
     if (gidsetlen == 0)
         return count;

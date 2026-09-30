@@ -226,6 +226,81 @@ static void test_getgroups_exact(void)
     world_free();
 }
 
+/* cr_ngroups is a WORD the caller can corrupt through the LIVE credential
+   pointer getcredentials(NULL/self) returns, so getgroups must clamp its copy
+   bound to the array it reads -- a count past UG_NGROUPS would read cr_groups[]
+   out the far end.  Both the "how many?" answer and the copy must clamp.
+
+   Run the same battery at the two corruption extremes: one past the array
+   (UG_NGROUPS + 1) and the largest a WORD can hold (0x7fff).  buf[UG_NGROUPS]
+   is the destination canary; cr_session, the word stored at
+   cr_groups[UG_NGROUPS], is CANARY, so asserting no CANARY reaches buf is the
+   source-boundary form of the same proof -- the loop never read past the
+   array. */
+static void check_getgroups_clamp(LONG corrupted)
+{
+    LONG *buf;
+    LONG  i;
+
+    world_reset();
+
+    /* Simulate the getcredentials() live-pointer corruption. */
+    base.ug_Cred.cr_ngroups = corrupted;
+    for (i = 0; i < UG_NGROUPS; i++)
+        base.ug_Cred.cr_groups[i] = 2000 + i;
+
+    /* The query must not report the corrupted count. */
+    CHECK(ugl_getgroups(&base, 0, NULL) == UG_NGROUPS);
+
+    /* One short of the clamped answer is EINVAL and writes nothing. */
+    buf = malloc((UG_NGROUPS - 1) * sizeof(LONG));
+    CHECK(buf != NULL);
+    for (i = 0; i < UG_NGROUPS - 1; i++)
+        buf[i] = 0x0BADF00DL;
+    CHECK(ugl_getgroups(&base, UG_NGROUPS - 1, buf) == -1);
+    CHECK(base.ug_Err == UG_EINVAL);
+    for (i = 0; i < UG_NGROUPS - 1; i++)
+        CHECK(buf[i] == 0x0BADF00DL);
+    free(buf);
+
+    /* The clamped answer is served exactly, and one past the array is not
+       written: buf[UG_NGROUPS] is the destination canary.  Poison first so a
+       failed copy shows up as "not filled", not as uninitialised bytes. */
+    buf = malloc((UG_NGROUPS + 1) * sizeof(LONG));
+    CHECK(buf != NULL);
+    for (i = 0; i <= UG_NGROUPS; i++)
+        buf[i] = 0x0BADF00DL;               /* only the copy may fill these */
+    buf[UG_NGROUPS] = 0x12345678L;
+
+    CHECK(ugl_getgroups(&base, UG_NGROUPS, buf) == UG_NGROUPS);
+    CHECK(base.ug_Err == 0);
+    for (i = 0; i < UG_NGROUPS; i++)
+        CHECK(buf[i] == 2000 + i);
+    CHECK(buf[UG_NGROUPS] == 0x12345678L);  /* destination canary intact */
+
+    /* One PAST the array must still clamp: old code copies cr_groups[32]
+       (cr_session = CANARY) into buf[32].  The destination canary catches the
+       write; the CANARY assert names the source word it would carry. */
+    for (i = 0; i <= UG_NGROUPS; i++)
+        buf[i] = 0x0BADF00DL;               /* re-poison before the second copy */
+    buf[UG_NGROUPS] = 0x12345678L;
+    CHECK(ugl_getgroups(&base, UG_NGROUPS + 1, buf) == UG_NGROUPS);
+    CHECK(base.ug_Err == 0);
+    for (i = 0; i < UG_NGROUPS; i++)
+        CHECK(buf[i] == 2000 + i);
+    CHECK(buf[UG_NGROUPS] == 0x12345678L);
+    CHECK(buf[UG_NGROUPS] != CANARY);       /* source word never read */
+
+    free(buf);
+    world_free();
+}
+
+static void test_getgroups_clamps_ngroups(void)
+{
+    check_getgroups_clamp(UG_NGROUPS + 1);  /* one past the array */
+    check_getgroups_clamp(0x7fff);          /* max positive WORD */
+}
+
 /* setgroups bounds its input at UG_NGROUPS.  One more is EINVAL, and the
    canary proves nothing was written on the way to finding out. */
 static void test_setgroups_bounds(void)
@@ -437,6 +512,7 @@ int main(void)
     test_getgroups_query();
     test_getgroups_short_buffer();
     test_getgroups_exact();
+    test_getgroups_clamps_ngroups();
     test_setgroups_bounds();
     test_setgroups_null();
     test_privilege();
