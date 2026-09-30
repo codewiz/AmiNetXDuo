@@ -598,12 +598,15 @@ if(NOT CMAKE_CROSSCOMPILING AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
     # directory of its own because tests/tick reaches host/shim as well and
     # wants the REAL tx_amiga.h; the shim's header says so.
     add_executable(test_neighbour host/test_neighbour_host.c
-                                  "${CMAKE_SOURCE_DIR}/src/bsdsocket/netstatus.c")
+                                  "${CMAKE_SOURCE_DIR}/src/bsdsocket/netstatus.c"
+                                  "${CMAKE_SOURCE_DIR}/src/config/config_hostname.c"
+                                  "${CMAKE_SOURCE_DIR}/src/config/config_text.c")
 
     target_include_directories(test_neighbour PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/host/shim-netstatus"
         "${CMAKE_CURRENT_SOURCE_DIR}/host/shim"
         "${CMAKE_SOURCE_DIR}/src/bsdsocket"
+        "${CMAKE_SOURCE_DIR}/src/config"
         "${CMAKE_SOURCE_DIR}/include"
         "${AMINETXDUO_THREADX}/common/inc"
         "${AMINETXDUO_THREADX}/ports/linux/gnu/inc"
@@ -631,12 +634,15 @@ if(NOT CMAKE_CROSSCOMPILING AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
     # NETSTATUS_HEALTH is here too, for the tick counters it copies: the
     # stubs that stage them are already in this target.
     add_executable(test_dhcp6 host/test_dhcp6_host.c
-                              "${CMAKE_SOURCE_DIR}/src/bsdsocket/netstatus.c")
+                              "${CMAKE_SOURCE_DIR}/src/bsdsocket/netstatus.c"
+                              "${CMAKE_SOURCE_DIR}/src/config/config_hostname.c"
+                              "${CMAKE_SOURCE_DIR}/src/config/config_text.c")
 
     target_include_directories(test_dhcp6 PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/host/shim-netstatus"
         "${CMAKE_CURRENT_SOURCE_DIR}/host/shim"
         "${CMAKE_SOURCE_DIR}/src/bsdsocket"
+        "${CMAKE_SOURCE_DIR}/src/config"
         "${CMAKE_SOURCE_DIR}/include"
         "${AMINETXDUO_THREADX}/common/inc"
         "${AMINETXDUO_THREADX}/ports/linux/gnu/inc"
@@ -655,12 +661,15 @@ if(NOT CMAKE_CROSSCOMPILING AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
     # netstatus.c once more, for NETSTATUS_IFDEVICES: the device path whole,
     # beside a NetStatusInterface that keeps its 192 bytes.
     add_executable(test_ifdevices host/test_ifdevices_host.c
-                                  "${CMAKE_SOURCE_DIR}/src/bsdsocket/netstatus.c")
+                                  "${CMAKE_SOURCE_DIR}/src/bsdsocket/netstatus.c"
+                                  "${CMAKE_SOURCE_DIR}/src/config/config_hostname.c"
+                                  "${CMAKE_SOURCE_DIR}/src/config/config_text.c")
 
     target_include_directories(test_ifdevices PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/host/shim-netstatus"
         "${CMAKE_CURRENT_SOURCE_DIR}/host/shim"
         "${CMAKE_SOURCE_DIR}/src/bsdsocket"
+        "${CMAKE_SOURCE_DIR}/src/config"
         "${CMAKE_SOURCE_DIR}/include"
         "${AMINETXDUO_THREADX}/common/inc"
         "${AMINETXDUO_THREADX}/ports/linux/gnu/inc"
