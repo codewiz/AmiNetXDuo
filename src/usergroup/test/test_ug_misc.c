@@ -35,6 +35,7 @@
 struct Task *shim_current_task;
 int          shim_forbid_depth;
 int          shim_semaphore_depth;
+ULONG        shim_signals;
 
 SHIM_DOS_DEFINE_STATE;
 
@@ -107,6 +108,7 @@ static void world_reset(void)
     memset(base.ug_SaltBuf, 0x5A, sizeof(base.ug_SaltBuf));
 
     shim_dos_reset();
+    shim_signals = 0;
 }
 
 static int salt_canary_intact(void)
@@ -282,6 +284,50 @@ static void test_getpass_setmode_refused(void)
     CHECK(op_first('1') == -1);                 /* never went raw */
     CHECK(op_first('0') == -1);                 /* and did not restore */
     CHECK(op_last('c') == shim_dos_oplen - 1);
+}
+
+/*
+ * F-306: Ctrl-C ends the prompt.  As the byte a raw console delivers, or as
+ * the break signal (or a UGT_INTRMASK one) seen after a character: the answer
+ * is empty, the reason is EINTR, the console is put back and closed, and the
+ * signal is left for the caller.  A signal outside the mask changes nothing.
+ */
+static void test_getpass_break(void)
+{
+    STRPTR pw;
+
+    world_reset();
+    console("abc\003def\n");
+    pw = ugl_getpass(&base, NULL);
+    CHECK_STR((char *)pw, "");
+    CHECK(base.ug_Err == UG_EINTR);
+    CHECK(op_last('0') > op_last('r'));         /* echo back on */
+    CHECK(op_last('c') == shim_dos_oplen - 1);  /* and closed */
+    CHECK(salt_canary_intact());
+
+    world_reset();
+    console("abc\n");
+    shim_signals = SIGBREAKF_CTRL_C;
+    pw = ugl_getpass(&base, NULL);
+    CHECK_STR((char *)pw, "");
+    CHECK(base.ug_Err == UG_EINTR);
+    CHECK((shim_signals & SIGBREAKF_CTRL_C) != 0);  /* still the caller's */
+
+    world_reset();
+    console("abc\n");
+    base.ug_IntrMask = 1UL << 20;
+    shim_signals = 1UL << 20;
+    pw = ugl_getpass(&base, NULL);
+    CHECK_STR((char *)pw, "");
+    CHECK(base.ug_Err == UG_EINTR);
+
+    world_reset();
+    console("abc\n");
+    base.ug_IntrMask = 1UL << 20;
+    shim_signals = 1UL << 21;
+    pw = ugl_getpass(&base, NULL);
+    CHECK_STR((char *)pw, "abc");
+    CHECK(base.ug_Err == 0);
 }
 
 /* No console, no dos.library, and a bare Task are each an empty answer with a
@@ -506,6 +552,7 @@ int main(void)
     test_getpass_eof();
     test_getpass_setmode_refused();
     test_getpass_no_console();
+    test_getpass_break();
     test_getsalt_bounds();
     test_getsalt_defaults();
     test_crypt_is_enosys();

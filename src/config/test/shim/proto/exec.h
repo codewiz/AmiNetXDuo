@@ -29,6 +29,18 @@ static inline struct Task *FindTask(STRPTR name)
     return shim_current_task;
 }
 
+/* The calling task's received signals, as SetSignal() reads and changes
+   them.  Defined by a test that calls it. */
+extern ULONG shim_signals;
+
+static inline ULONG SetSignal(ULONG new_signals, ULONG signal_set)
+{
+    ULONG old = shim_signals;
+
+    shim_signals = (old & ~signal_set) | (new_signals & signal_set);
+    return old;
+}
+
 static inline void Forbid(void) { ++shim_forbid_depth; }
 static inline void Permit(void) { --shim_forbid_depth; }
 

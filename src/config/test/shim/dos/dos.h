@@ -26,4 +26,9 @@ struct DosLibrary;
 #define OFFSET_CURRENT      0
 #define OFFSET_END          1
 
+#ifndef SIGBREAKF_CTRL_C
+#define SIGBREAKB_CTRL_C 12
+#define SIGBREAKF_CTRL_C (1L << SIGBREAKB_CTRL_C)
+#endif
+
 #endif

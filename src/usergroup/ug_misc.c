@@ -97,6 +97,10 @@ UBYTE *ugl_GetSalt(UG_A6, UG_REG(struct ug_passwd *user, "a0"),
  * Read a line from the console with echo suppressed. Never returns NULL. With
  * no console (a non-Process caller, or no dos.library) the answer is the empty
  * string, and ug_GetErr() gives the reason.
+ *
+ * Ctrl-C, as the 0x03 a raw console delivers or as SIGBREAKF_CTRL_C or a
+ * UGT_INTRMASK signal seen after a character, ends it with the empty string
+ * and EINTR.  The signal is left set for the caller's own break check (F-306).
  */
 STRPTR ugl_getpass(UG_A6, UG_REG(STRPTR prompt, "a1"))
 {
@@ -106,6 +110,8 @@ STRPTR ugl_getpass(UG_A6, UG_REG(STRPTR prompt, "a1"))
     BPTR  fh;
     LONG  length = 0;
     BOOL  raw = FALSE;
+    BOOL  intr = FALSE;
+    ULONG brk = (ULONG)SIGBREAKF_CTRL_C | base->ug_IntrMask;
 
     base->ug_PassBuf[0] = '\0';
 
@@ -141,6 +147,11 @@ STRPTR ugl_getpass(UG_A6, UG_REG(STRPTR prompt, "a1"))
 
         if (Read(fh, &c, 1) != 1)
             break;
+        if (c == 0x03 || (SetSignal(0, 0) & brk) != 0)
+        {
+            intr = TRUE;
+            break;
+        }
         if (c == '\n' || c == '\r')
             break;
 
@@ -155,6 +166,11 @@ STRPTR ugl_getpass(UG_A6, UG_REG(STRPTR prompt, "a1"))
             base->ug_PassBuf[length++] = c;
     }
 
+    if (intr)
+    {
+        while (length > 0)
+            base->ug_PassBuf[--length] = '\0';
+    }
     base->ug_PassBuf[length] = '\0';
 
     if (raw)
@@ -163,7 +179,7 @@ STRPTR ugl_getpass(UG_A6, UG_REG(STRPTR prompt, "a1"))
     Write(fh, (APTR)"\n", 1);
     Close(fh);
 
-    ug_set_err(base, 0);
+    ug_set_err(base, intr ? UG_EINTR : 0);
 
     return (STRPTR)base->ug_PassBuf;
 }
