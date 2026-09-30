@@ -21,6 +21,20 @@ void tool_budget_init(ToolBudget *b, unsigned long total, unsigned long count)
     b->deferred = 0UL;
 }
 
+unsigned long tool_budget_secs(long days, long minutes, long ticks)
+{
+    long total;
+
+    /* A connect is seconds to minutes; over a week is a clock that was set,
+       not time spent, and would overflow below. */
+    if (days < 0L || days > 7L)
+        return 0UL;
+
+    total = days * 4320000L + minutes * 3000L + ticks;   /* 50 ticks a second */
+
+    return (total > 0L) ? (unsigned long)(total / 50L) : 0UL;
+}
+
 unsigned long tool_budget_left(const ToolBudget *b, unsigned long elapsed)
 {
     unsigned long spent = (elapsed < b->known) ? b->known : elapsed;

@@ -299,6 +299,51 @@ static void test_without_a_clock(void)
     CHECK(tool_budget_again(&b, 0UL, 0UL) == 20UL);
 }
 
+/*
+ * F-249: the clock the budget is fed.  A connect that failed slowly but not
+ * by timing out is charged nothing by tool_budget_done(), so the budget
+ * holds only if `elapsed` moves.  With ami_millis() and no timer.device it
+ * never did: three addresses that each refuse after 9 s against TIMEOUT 10
+ * all got a try, 27 s in all.  tool_budget_secs() turns DateStamp deltas
+ * into the elapsed seconds that stop it after the second.
+ */
+static unsigned long walk_refusals(unsigned long fail_after, int clock_moves)
+{
+    ToolBudget    b;
+    unsigned long spent = 0, i, secs;
+    int           cut;
+
+    tool_budget_init(&b, 10UL, 3UL);
+    for (i = 0; i < 3UL; i++)
+    {
+        unsigned long elapsed = clock_moves
+            ? tool_budget_secs((long)(spent / 86400UL),
+                               (long)((spent % 86400UL) / 60UL),
+                               (long)((spent % 60UL) * 50UL))
+            : 0UL;
+
+        if (!tool_budget_first(&b, i, elapsed, &secs, &cut))
+            break;
+        spent += (fail_after < secs) ? fail_after : secs;   /* a refusal */
+        tool_budget_done(&b, i, secs, 0, cut);
+    }
+    return spent;
+}
+
+static void test_slow_refusal_is_charged(void)
+{
+    CHECK(tool_budget_secs(0, 0, 0) == 0UL);
+    CHECK(tool_budget_secs(0, 0, 449) == 8UL);
+    CHECK(tool_budget_secs(0, 1, 0) == 60UL);
+    CHECK(tool_budget_secs(1, -1439, 0) == 60UL);       /* across midnight */
+    CHECK(tool_budget_secs(0, -1, 0) == 0UL);           /* clock set back  */
+    CHECK(tool_budget_secs(-1, 0, 0) == 0UL);
+    CHECK(tool_budget_secs(30, 0, 0) == 0UL);           /* not time spent  */
+
+    CHECK(walk_refusals(9UL, 0) == 27UL);    /* what a stopped clock allowed    */
+    CHECK(walk_refusals(9UL, 1) <= 10UL);    /* what the DOS clock holds it to  */
+}
+
 int main(void)
 {
     test_telnet_no_timeout();
@@ -308,6 +353,7 @@ int main(void)
     test_last_address_gets_the_rest();
     test_exhausted();
     test_without_a_clock();
+    test_slow_refusal_is_charged();
 
     printf("%d checks, %d failures\n", checks, failures);
 

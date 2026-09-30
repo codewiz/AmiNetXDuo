@@ -25,6 +25,15 @@ void tool_budget_init(ToolBudget *b, unsigned long total,
                       unsigned long count);
 
 /*
+ * Whole seconds between two DOS DateStamps, given as the differences of their
+ * days, minutes and ticks (50 a second).  The connect budget measures with
+ * this rather than timer.device: a command is a Process, so DateStamp() is
+ * always there, and without a clock a failure that was slow but not a timeout
+ * was charged nothing (F-249).  A clock set backwards reads as 0.
+ */
+unsigned long tool_budget_secs(long days, long minutes, long ticks);
+
+/*
  * Seconds of the caller's timeout not yet spent; `elapsed` is what the clock
  * says. ZERO IS BOTH ANSWERS: with no caller timeout there is nothing to
  * divide, and zero is what tool_sock_connect_timed() reads as the stack's own.

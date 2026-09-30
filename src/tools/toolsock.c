@@ -1124,10 +1124,21 @@ LONG tool_sock_connect_timed(struct Library *base, LONG s,
 }
 
 /*
- * ami_millis() is monotonic and wraps at 2^32, so the unsigned difference is
- * right across the wrap.  It answers 0 throughout on a machine where
+ * Seconds since `t0` by the DOS clock (tool_budget_secs).  Not ami_millis():
+ * it answers 0 throughout on a machine where timer.device does not open, and
+ * then a connect that failed slowly, without timing out, charged the budget
+ * nothing and the next address got the whole of it again (F-249).
  */
-#define TOOL_ELAPSED(t0)    ((ULONG)((ami_millis() - (t0)) / 1000UL))
+static ULONG tool_elapsed(const struct DateStamp *t0)
+{
+    struct DateStamp now;
+
+    DateStamp(&now);
+
+    return (ULONG)tool_budget_secs((long)(now.ds_Days - t0->ds_Days),
+                                   (long)(now.ds_Minute - t0->ds_Minute),
+                                   (long)(now.ds_Tick - t0->ds_Tick));
+}
 
 /* -p on nc: the wildcard of the family being connected to, plus a port. */
 static BOOL tool_bind_local(struct Library *base, LONG sock,
@@ -1211,8 +1222,8 @@ LONG tool_sock_connect_host(struct Library *base, const char *host,
                             LONG *why)
 {
     ToolAddrList list;
-    ToolBudget   budget;
-    ULONG        started;
+    ToolBudget       budget;
+    struct DateStamp started;
     ULONG        i;
     LONG         rc = TOOL_CONNECT_FAILED;
 
@@ -1222,8 +1233,7 @@ LONG tool_sock_connect_host(struct Library *base, const char *host,
     if (!tool_sock_resolve_list(base, host, how->family, &list))
         return TOOL_CONNECT_NORESOLVE;
 
-    /* Opens timer.device before anything is timed, as ping.c does. */
-    started = ami_millis();
+    DateStamp(&started);
 
     tool_budget_init(&budget, how->timeout, list.count);
 
@@ -1235,7 +1245,7 @@ LONG tool_sock_connect_host(struct Library *base, const char *host,
         LONG  result;
         int   cut;
 
-        if (!tool_budget_first(&budget, i, TOOL_ELAPSED(started), &secs, &cut))
+        if (!tool_budget_first(&budget, i, tool_elapsed(&started), &secs, &cut))
             break;
 
         result = tool_connect_one(base, how, &list.addr[i], secs, FALSE,
@@ -1255,7 +1265,7 @@ LONG tool_sock_connect_host(struct Library *base, const char *host,
        rest of the list left behind. */
     for (i = 0; i < list.count; i++)
     {
-        ULONG secs = tool_budget_again(&budget, i, TOOL_ELAPSED(started));
+        ULONG secs = tool_budget_again(&budget, i, tool_elapsed(&started));
         LONG  result;
 
         if (secs == 0UL)
