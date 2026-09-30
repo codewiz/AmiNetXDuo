@@ -335,7 +335,9 @@ static VOID term_kick(VOID);
 
 static ULONG term_num(UBYTE *dst, ULONG v)
 {
-    UBYTE tmp[8];
+    /* A 32-bit counter needs ten digits.  The other caller formats UWORD
+       rows/cols, so its 24-byte bounds report still needs at most 18. */
+    UBYTE tmp[10];
     ULONG n = 0;
     ULONG i;
 
