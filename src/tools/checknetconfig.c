@@ -733,29 +733,35 @@ static VOID check_netdb_file(const NetdbFile *spec)
     ULONG lineno = 0;
     UWORD said   = 0;
     BOOL  cut;
+    LONG  size;
 
     file = Open((CONST_STRPTR)cnc_where(spec->path), MODE_OLDFILE);
     if (file == (BPTR)0)
         return;                     /* missing is normal: there are built-ins */
 
     /*
-     * The loader measures the file the same way and does not read one past
-     * AMI_CFG_FILE_MAX at all: its lines are not the ones in use, so they are
-     * not judged as if they were.
+     * The loader measures the file the same way (ami_cfg_read_file()) and does
+     * not read one it cannot measure, or one past AMI_CFG_FILE_MAX: its lines
+     * are not the ones in use, so they are not judged as if they were.
      */
-    if (Seek(file, 0, OFFSET_END) >= 0)
+    size = (Seek(file, 0, OFFSET_END) >= 0) ? Seek(file, 0, OFFSET_BEGINNING)
+                                             : -1L;
+    if (size < 0)
     {
-        LONG size = Seek(file, 0, OFFSET_BEGINNING);
-
-        if (size > (LONG)AMI_CFG_FILE_MAX)
-        {
-            finding(spec->path, 0, AMI_CFG_PROBLEM_WARN);
-            say("      this file is %ld bytes, more than the %ld that are read,\n",
-                size, (LONG)AMI_CFG_FILE_MAX);
-            say("      so none of it is used and the built-in list is used instead\n");
-            Close(file);
-            return;
-        }
+        finding(spec->path, 0, AMI_CFG_PROBLEM_WARN);
+        say("      the size of this file cannot be read, so none of it is used\n");
+        say("      and the built-in list is used instead\n");
+        Close(file);
+        return;
+    }
+    if (size > (LONG)AMI_CFG_FILE_MAX)
+    {
+        finding(spec->path, 0, AMI_CFG_PROBLEM_WARN);
+        say("      this file is %ld bytes, more than the %ld that are read,\n",
+            size, (LONG)AMI_CFG_FILE_MAX);
+        say("      so none of it is used and the built-in list is used instead\n");
+        Close(file);
+        return;
     }
 
     while (cnc_netdb_line(file, line, sizeof(line), &cut) >= 0)
