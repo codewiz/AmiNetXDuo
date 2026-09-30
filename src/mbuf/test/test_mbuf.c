@@ -919,6 +919,58 @@ static void test_pullup(void)
 
 /* -------------------------------------------------------------------- main */
 
+/*
+ * F-291: a packet-header head with no data.  copym(m, 0, ...) still makes a
+ * header copy, and its rcvif and M_BCAST/M_MCAST/M_EOR must come from that
+ * head, not from the next mbuf, whose m_pkthdr is only packet bytes.
+ */
+static void test_copym_empty_head(void)
+{
+    struct mbuf *m;
+    struct mbuf *d;
+    struct mbuf *c;
+    UBYTE        fill[AMI_MLEN];
+    APTR         ifp = (APTR)0x12345678UL;
+    LONG         i;
+
+    printf("mbuf: copym of a chain whose pkthdr head is empty\n");
+
+    m = ami_mbuf_gethdr();
+    d = ami_mbuf_get();
+    CHECK(m != NULL && d != NULL);
+    if (m == NULL || d == NULL)
+        return;
+
+    m->m_len            = 0;
+    m->m_pkthdr.rcvif   = ifp;
+    m->m_flags          = (WORD)(m->m_flags | M_BCAST);
+    m->m_next           = d;
+
+    /* Bytes that would read as an rcvif and as flags if taken for a pkthdr. */
+    for (i = 0; i < (LONG)sizeof(fill); i++)
+        fill[i] = 0xA5;
+    ami_mbuf_copy_bytes(d->m_data, fill, 16UL);
+    d->m_len   = 16;
+    d->m_flags = (WORD)(d->m_flags | M_MCAST);
+    m->m_pkthdr.len = 16;
+
+    c = ami_mbuf_copym(m, 0, M_COPYALL);
+    CHECK(c != NULL);
+    if (c != NULL)
+    {
+        CHECK((c->m_flags & M_PKTHDR) != 0);
+        CHECK(c->m_pkthdr.rcvif == ifp);
+        CHECK((c->m_flags & M_BCAST) != 0);
+        CHECK((c->m_flags & M_MCAST) == 0);
+        CHECK(c->m_pkthdr.len == 16);
+        CHECK(ami_mbuf_length(c) == 16);
+        ami_mbuf_freem(c);
+    }
+
+    ami_mbuf_freem(m);
+    expect_empty("test_copym_empty_head");
+}
+
 int main(int argc, char **argv)
 {
     if (argc > 1 && strcmp(argv[1], "-v") == 0)
@@ -937,6 +989,7 @@ int main(int argc, char **argv)
     test_copydata();
     test_copyback();
     test_copym();
+    test_copym_empty_head();
     test_clusters();
     test_cluster_ceiling_race();
     test_foreign_ext();

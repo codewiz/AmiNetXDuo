@@ -375,12 +375,18 @@ struct mbuf *ami_mbuf_copym(struct mbuf *m, LONG off, LONG len)
     BOOL          copy_all;
     BOOL          want_hdr;
     LONG          copied = 0;
+    struct mbuf  *hdr;
 
     if (m == NULL || off < 0 || len < 0)
         return NULL;
 
     copy_all = (len == M_COPYALL) ? TRUE : FALSE;
     want_hdr = (off == 0 && (m->m_flags & M_PKTHDR) != 0) ? TRUE : FALSE;
+
+    /* The header the copy's metadata comes from.  The walk below moves `m`
+       past a head with no data, and the mbuf after it has no pkthdr: its
+       m_pkthdr is packet bytes (F-291). */
+    hdr = m;
 
     /* Skip whole mbufs until off lands inside one. */
     while (m != NULL && off >= m->m_len)
@@ -418,9 +424,9 @@ struct mbuf *ami_mbuf_copym(struct mbuf *m, LONG off, LONG len)
 
         if (head == NULL && want_hdr)
         {
-            n->m_pkthdr.rcvif = m->m_pkthdr.rcvif;
+            n->m_pkthdr.rcvif = hdr->m_pkthdr.rcvif;
             n->m_flags        = (WORD)(n->m_flags |
-                                       (m->m_flags & (M_EOR | M_BCAST | M_MCAST)));
+                                       (hdr->m_flags & (M_EOR | M_BCAST | M_MCAST)));
         }
 
         *np = n;
