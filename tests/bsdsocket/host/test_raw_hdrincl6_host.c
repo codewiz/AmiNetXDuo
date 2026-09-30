@@ -125,6 +125,20 @@ BOOL netstack_ipv6_source_find(const ULONG dest[4], LONG interface_index,
     return FALSE;
 }
 
+/* in6.c's, as it is there. */
+BOOL bsd_addr_is_v4mapped(const NXD_ADDRESS *addr, ULONG *v4)
+{
+    if (addr->nxd_ip_version != NX_IP_VERSION_V6)
+        return FALSE;
+    if (addr->nxd_ip_address.v6[0] != 0UL ||
+        addr->nxd_ip_address.v6[1] != 0UL ||
+        addr->nxd_ip_address.v6[2] != 0x0000FFFFUL)
+        return FALSE;
+    if (v4 != NULL)
+        *v4 = addr->nxd_ip_address.v6[3];
+    return TRUE;
+}
+
 LONG bsd_errno_from_nx(UINT status)
 {
     return (LONG)status;
@@ -234,6 +248,19 @@ int main(void)
     h_data[0] = 0x45;
     check(send_len(&sock, &to, 48) == -1 && h_err == AMI_EINVAL && h_sent == 0,
           "an IPv4 header to an IPv6 destination is EINVAL");
+
+    /* The header's destination is not normalised as sendto()'s is: a mapped
+       or unspecified one is refused. */
+    h_header6();
+    memset(h_data + 24, 0, 16);
+    h_data[34] = 0xff; h_data[35] = 0xff;
+    h_data[36] = 192; h_data[37] = 0; h_data[38] = 2; h_data[39] = 1;
+    check(send_len(&sock, &to, 48) == -1 && h_err == AMI_EINVAL && h_sent == 0,
+          "a header destination ::ffff:192.0.2.1 is EINVAL");
+    h_header6();
+    memset(h_data + 24, 0, 16);
+    check(send_len(&sock, &to, 48) == -1 && h_err == AMI_EINVAL && h_sent == 0,
+          "a header destination :: is EINVAL");
 
     /* An IPv4 destination (as an IPv4-mapped one arrives here, normalised)
        still takes the IPv4 header. */

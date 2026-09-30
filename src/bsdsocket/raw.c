@@ -574,7 +574,12 @@ static LONG bsd_raw_send_v6(struct AmiSocketBase *base, AmiSocket *sock,
  * (F-061).  Traffic class, hop limit, next header and destination come from
  * it; the source is chosen as for any send, and the flow label and payload
  * length are NetX's.  An extension header is sent as the payload's first
- * bytes with its type as the next header, which is what it is.
+ * bytes with its type as the next header, which is what it is.  An ICMPv6
+ * next header is summed below over the CHOSEN source, which the caller could
+ * not have known; behind an extension header nothing is summed.  A mapped or
+ * unspecified destination is refused: sendto()'s own address is normalised
+ * (bsd_addr_normalise), this one would not be, and no other send puts
+ * either on the wire.
  */
 static LONG bsd_raw_hdrincl_v6(NX_PACKET *packet, NXD_ADDRESS *dest,
                                ULONG *protocol, UINT *hops, ULONG *tclass)
@@ -582,6 +587,7 @@ static LONG bsd_raw_hdrincl_v6(NX_PACKET *packet, NXD_ADDRESS *dest,
     const UBYTE *hdr  = (const UBYTE *)packet->nx_packet_prepend_ptr;
     ULONG        have = (ULONG)(packet->nx_packet_append_ptr -
                                 packet->nx_packet_prepend_ptr);
+    ULONG        v4;
     UINT         i;
 
     if (have < 40UL || (hdr[0] >> 4) != 6)
@@ -599,6 +605,11 @@ static LONG bsd_raw_hdrincl_v6(NX_PACKET *packet, NXD_ADDRESS *dest,
         dest->nxd_ip_address.v6[i] = ((ULONG)w[0] << 24) | ((ULONG)w[1] << 16) |
                                      ((ULONG)w[2] <<  8) |  (ULONG)w[3];
     }
+
+    if (bsd_addr_is_v4mapped(dest, &v4) ||
+        (dest->nxd_ip_address.v6[0] | dest->nxd_ip_address.v6[1] |
+         dest->nxd_ip_address.v6[2] | dest->nxd_ip_address.v6[3]) == 0UL)
+        return -1;
 
     packet->nx_packet_prepend_ptr += 40;
     packet->nx_packet_length      -= 40;
