@@ -9,6 +9,10 @@ version at the top when it merges.
 
 ## Unreleased
 
+- The remote-framebuffer encoder refuses a screen whose tile grid does not fit
+  the 16-bit index the frames carry on the wire; a grid that large had its
+  indices truncated, and the browser drew a corrupted picture with no error on
+  either end.
 - `CheckNetDevice` reports the mapped packet-buffer read-back failure when a
   Hydra or LAN Rover fails that probe, instead of "the chip core
   refused it and did not say why".

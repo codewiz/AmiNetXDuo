@@ -284,6 +284,20 @@ static int rfb_geom_ok(const rfb_geom *g)
     if (g->tile_h < 1 || g->tile_h > RFB_MAX_TILE_H)
         return 0;
 
+    /* The wire carries a tile's index in 16 bits (rfb_put16), so a grid of
+       more than 65536 tiles has indices the receiver cannot be told: an index
+       past 0xFFFF is truncated on the wire and lands on a different, in-range
+       tile, which the decoder draws silently.  Refuse such a geometry rather
+       than send it.  bytes_per_row and height are rfb_u16, so the two factors
+       and their product all fit rfb_u32. */
+    {
+        rfb_u32 tx = ((rfb_u32)g->bytes_per_row + g->tile_w - 1u) / g->tile_w;
+        rfb_u32 ty = ((rfb_u32)g->height + g->tile_h - 1u) / g->tile_h;
+
+        if (tx * ty > 65536u)
+            return 0;
+    }
+
     /* Depth means a different thing per format, so each is checked
      * separately and a wrong one is refused at init. */
     switch (g->format) {

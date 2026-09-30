@@ -325,10 +325,48 @@ static void pal_colours(void)
     yes(rfb_shadow_size(&g) == 0u, "a format nothing knows is refused");
 }
 
+/*
+ * The tile index on the wire is 16 bits (rfb_put16 in rfb_encode.c), so a grid
+ * of more than 65536 tiles has indices the receiver cannot be told: an index
+ * past 0xFFFF wraps and the tile lands somewhere else, drawn silently.
+ * rfb_geom_ok() refuses such a geometry, and rfb_shadow_size() carries that
+ * back as 0 -- the number the server checks before it allocates.
+ */
+static void geom_tile_index(void)
+{
+    rfb_geom g;
+
+    memset(&g, 0, sizeof(g));
+    g.width = 4096;
+    g.height = 4096;
+    g.depth = 8;
+    g.bytes_per_row = 4096;
+    g.tile_w = 16;
+    g.tile_h = 16;
+    g.format = RFB_FMT_CLUT8;
+
+    /* 256 across * 256 down = 65536 tiles, indices 0..65535: the whole grid
+       still fits the 16-bit index. */
+    yes(rfb_shadow_size(&g) == 4096u * 4096u,
+        "a 65536-tile grid fits the 16-bit index");
+
+    /* One more row of tiles adds index 65536, which the wire cannot carry. */
+    g.height = 4097;
+    yes(rfb_shadow_size(&g) == 0u,
+        "a 65792-tile grid is refused, not truncated");
+
+    /* A large but ordinary screen stays accepted. */
+    g.height = 1080;
+    g.bytes_per_row = 1920;
+    yes(rfb_shadow_size(&g) == 1920u * 1080u,
+        "a 1920x1080 chunky screen is still accepted");
+}
+
 int main(void)
 {
     word_geom();
     pal_colours();
+    geom_tile_index();
     word_pal();
     words_in();
     words_pointer();
