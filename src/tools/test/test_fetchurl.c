@@ -491,9 +491,52 @@ static void test_head_truncation(void)
 }
 
 
+static unsigned long fu_test_len(const char *s)
+{
+    unsigned long n = 0;
+
+    while (s[n] != '\0')
+        n++;
+    return n;
+}
+
+/* F-178: the announced body length, when there is one fetch can hold to. */
+static unsigned long cl_len;
+
+static int cl_of(const char *wire)
+{
+    static char buf[FETCH_HEAD_MAX];
+    FetchHead   head;
+
+    fetch_head_start(&head, buf, sizeof(buf));
+    (void)fetch_head_feed(&head, (const unsigned char *)wire, fu_test_len(wire));
+    cl_len = 0;
+    return fetch_head_content_length(&head, &cl_len);
+}
+
+static void test_content_length(void)
+{
+    CHECK(cl_of("HTTP/1.0 200 OK\r\nContent-Length: 1234\r\n\r\n") == 1 &&
+          cl_len == 1234);
+    CHECK(cl_of("HTTP/1.0 200 OK\r\ncontent-length:0\r\n\r\n") == 1 &&
+          cl_len == 0);
+    CHECK(cl_of("HTTP/1.0 200 OK\r\nContent-Length: 42  \r\n\r\n") == 1 &&
+          cl_len == 42);
+    CHECK(cl_of("HTTP/1.0 200 OK\r\nContent-Length: 4294967295\r\n\r\n") == 1 &&
+          cl_len == 4294967295UL);
+
+    CHECK(cl_of("HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\n") == 0);
+    CHECK(cl_of("HTTP/1.0 200 OK\r\nContent-Length: 4294967296\r\n\r\n") == 0);
+    CHECK(cl_of("HTTP/1.0 200 OK\r\nContent-Length: 10, 10\r\n\r\n") == 0);
+    CHECK(cl_of("HTTP/1.0 200 OK\r\nContent-Length: -1\r\n\r\n") == 0);
+    CHECK(cl_of("HTTP/1.0 200 OK\r\nContent-Length: \r\n\r\n") == 0);
+    CHECK(cl_of("HTTP/1.0 200 OK\r\nContent-Length-X: 5\r\n\r\n") == 0);
+}
+
 int main(void)
 {
     test_rfc3986_examples();
+    test_content_length();
     test_relative_redirects();
     test_fragment_is_dropped();
     test_host_field();

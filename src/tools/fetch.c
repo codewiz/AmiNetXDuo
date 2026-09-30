@@ -363,6 +363,7 @@ static LONG fetch_run(VOID)
     ULONG                 hop;
     LONG                  rc = RETURN_OK;
     LONG                  status = 0;
+    unsigned long         announced = 0;
     FetchHead             head;
     char                  line[128];
 
@@ -801,6 +802,16 @@ static LONG fetch_run(VOID)
                            (LONG)u.host);
             }
 
+            rc = RETURN_ERROR;
+        }
+        else if (status != 204 && status != 304 &&
+                 fetch_head_content_length(&head, &announced) &&
+                 st.total < announced)
+        {
+            /* A clean close before the length the server announced is a
+               truncated body, not a finished one (F-178). */
+            tool_error("%s closed the connection after %lu of the %lu bytes "
+                       "it announced", (LONG)u.host, st.total, announced);
             rc = RETURN_ERROR;
         }
 

@@ -832,6 +832,38 @@ int fetch_head_value(const char *value, char *dst, unsigned long dstlen)
     return i > 0;
 }
 
+int fetch_head_content_length(const FetchHead *h, unsigned long *len)
+{
+    const char   *v = fetch_head_field(h, "content-length:");
+    unsigned long n = 0;
+    unsigned long digits = 0;
+
+    if (v == 0)
+        return 0;
+
+    while (*v >= '0' && *v <= '9')
+    {
+        unsigned long d = (unsigned long)(*v - '0');
+
+        if (n > (0xffffffffUL - d) / 10UL)
+            return 0;                       /* past 4 GB: not checked */
+        n = n * 10UL + d;
+        digits++;
+        v++;
+    }
+
+    while (*v == ' ' || *v == '\t')
+        v++;
+
+    /* One plain count and the end of the line, nothing else: a list, a sign
+       or a unit is not a length this can hold a body to. */
+    if (digits == 0 || (*v != '\0' && *v != '\r' && *v != '\n'))
+        return 0;
+
+    *len = n;
+    return 1;
+}
+
 void fetch_head_first_line(const FetchHead *h, char *dst, unsigned long dstlen)
 {
     const char   *head = h->buf;

@@ -136,6 +136,12 @@ const char *fetch_head_field(const FetchHead *h, const char *name);
    not fit, or when the value is empty. */
 int fetch_head_value(const char *value, char *dst, unsigned long dstlen);
 
+/*
+ * Content-Length, when it is one plain decimal count that fits in 32 bits: 1
+ * and *len.  Otherwise 0, and the body runs to the close unchecked (F-178).
+ */
+int fetch_head_content_length(const FetchHead *h, unsigned long *len);
+
 /* The status line on its own, for the summary. */
 void fetch_head_first_line(const FetchHead *h, char *dst, unsigned long dstlen);
 
