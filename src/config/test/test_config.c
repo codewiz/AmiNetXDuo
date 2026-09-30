@@ -2940,7 +2940,13 @@ static void test_interface_gateway_line(void)
     /* A parseable value the parser overwrote is not named as the kept one. */
     strcpy(buf, "gateway=10.0.0.1\n"
                 "gateway=127.0.0.1\n");
-    CHECK(ami_cfg_interface_gateway_line(buf, b) == 1);
+    CHECK(ami_cfg_interface_gateway_line(buf, b) == 0);
+
+    /* The last accepted value wins, so the line that carried an overwritten
+       earlier value is not named for it either. */
+    strcpy(buf, "gateway=127.0.0.1\n"
+                "gateway=10.0.0.1\n");
+    CHECK(ami_cfg_interface_gateway_line(buf, a) == 0);
 
     /* The last line that carries the kept value wins. */
     strcpy(buf, "gateway=127.0.0.1\n"

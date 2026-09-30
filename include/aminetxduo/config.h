@@ -798,8 +798,9 @@ ULONG ami_cfg_default_gateway_line_file(const char *path);
    counted as the parser counts lines, or 0.  Mirrors ami_cfg_parse_interface()'s
    IF_KEY_GATEWAY case: a GATEWAY whose value parses overwrites out->gateway each
    time, so the LAST parseable value wins; an earlier GATEWAY, valid or not, is
-   overwritten or left alone (F-158).  `buf` is a whole file's text, split in
-   place. */
+   overwritten or left alone (F-158).  0 when the last parseable value is not
+   `want`, so an overwritten earlier value is never named.  `buf` is a whole
+   file's text, split in place. */
 ULONG ami_cfg_interface_gateway_line(char *buf, ULONG want);
 /* The same for a file, read through ami_cfg_read_file(); 0 when it cannot be
    read. */

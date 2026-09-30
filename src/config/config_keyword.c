@@ -257,15 +257,19 @@ ULONG ami_cfg_default_gateway_line_file(const char *path)
  * whose value parses overwrites out->gateway each time, so the LAST parseable
  * value wins: an earlier GATEWAY -- valid or not -- is overwritten or left
  * alone.  A plain keyword search would name the first GATEWAY line, which may
- * be an invalid value the parser skipped (F-158).  `buf` is split in place,
- * like every caller of ami_cfg_next_line().
+ * be an invalid value the parser skipped (F-158).  The kept value is the last
+ * parseable one, so when that is not `want` (the file changed between load and
+ * diagnosis) the answer is 0, not the line of an overwritten earlier value.
+ * `buf` is split in place, like every caller of ami_cfg_next_line().
  */
 ULONG ami_cfg_interface_gateway_line(char *buf, ULONG want)
 {
     char  *cursor = buf;
     char  *line;
     ULONG  lineno = 0;
-    ULONG  found  = 0;
+    ULONG  accepted_line = 0;
+    ULONG  accepted_val  = 0;
+    BOOL   have_accepted = FALSE;
 
     if (buf == NULL)
         return 0;
@@ -291,12 +295,16 @@ ULONG ami_cfg_interface_gateway_line(char *buf, ULONG want)
             if (ami_cfg_stricmp(key, "gateway") != 0)
                 continue;
 
-            if (ami_config_parse_ip(value, &ip) && ip == want)
-                found = lineno;         /* last accepted wins, as IF_KEY_GATEWAY */
+            if (ami_config_parse_ip(value, &ip))
+            {
+                accepted_line = lineno;         /* last accepted wins, as IF_KEY_GATEWAY */
+                accepted_val  = ip;
+                have_accepted = TRUE;
+            }
         }
     }
 
-    return found;
+    return (have_accepted && accepted_val == want) ? accepted_line : 0;
 }
 
 ULONG ami_cfg_interface_gateway_line_file(const char *path, ULONG want)
