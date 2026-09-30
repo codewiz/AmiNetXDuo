@@ -1031,6 +1031,16 @@ int main(int argc, char **argv)
             index = (LONG)slot;
         }
 
+        /* STATE=DOWN: netstack_interface_start() left it down, and so does
+           this, whether it was just started or already there (F-150). */
+        if (!ifc.up)
+        {
+            if (!quiet)
+                tool_printf("%s: the network is running, and %s is "
+                            "configured down\n", (LONG)name, (LONG)name);
+            continue;
+        }
+
         if (!netstack_interface_is_up((UWORD)index))
         {
             err = netstack_interface_up((UWORD)index);
