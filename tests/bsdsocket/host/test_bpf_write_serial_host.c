@@ -113,6 +113,10 @@ LONG ami_bpf_data_waiting(APTR owner, LONG channel)
 VOID ami_bpf_close_owner(APTR owner)
 { (void)owner; }
 
+/* bsd_bpf_zone_read() reads the Locale offset on a Process; the harness has
+ * no Process, so there is nothing to read (F-219). */
+VOID ami_bpf_time_init(VOID) { }
+
 int main(void)
 {
     struct AmiSocketBase base;
