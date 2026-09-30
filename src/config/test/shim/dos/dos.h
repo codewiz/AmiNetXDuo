@@ -26,6 +26,11 @@ struct DosLibrary;
 #define OFFSET_CURRENT      0
 #define OFFSET_END          1
 
+#ifndef ERROR_ACTION_NOT_KNOWN
+#define ERROR_OBJECT_NOT_FOUND  205
+#define ERROR_ACTION_NOT_KNOWN  209
+#endif
+
 #ifndef SIGBREAKF_CTRL_C
 #define SIGBREAKB_CTRL_C 12
 #define SIGBREAKF_CTRL_C (1L << SIGBREAKB_CTRL_C)

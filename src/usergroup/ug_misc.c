@@ -98,10 +98,16 @@ UBYTE *ugl_GetSalt(UG_A6, UG_REG(struct ug_passwd *user, "a0"),
  * no console (a non-Process caller, or no dos.library) the answer is the empty
  * string, and ug_GetErr() gives the reason.
  *
- * Ctrl-C, as the 0x03 a raw console delivers or as SIGBREAKF_CTRL_C or a
- * UGT_INTRMASK signal seen after a character, ends it with the empty string
- * and EINTR.  The signal is left set for the caller's own break check (F-306).
+ * A break ends it with the empty string and EINTR (F-306): SIGBREAKF_CTRL_C
+ * or a UGT_INTRMASK signal, or the 0x03 a console that does not signal (SER:)
+ * delivers.  A raw CON: sends Ctrl-C as the signal and no byte (RKRM DOS
+ * 13.2), so a Read would never return: the wait for each key is a
+ * WaitForChar() of UG_GETPASS_POLL_US, and the signals are looked at between
+ * waits.  DOSFALSE with IoErr() 0 is the timeout; any other IoErr() is a
+ * handler with no ACTION_WAIT_CHAR, which falls back to the blocking Read
+ * (RKRM DOS 5.5.3).  The signal is left set for the caller's own break check.
  */
+#define UG_GETPASS_POLL_US  100000L
 STRPTR ugl_getpass(UG_A6, UG_REG(STRPTR prompt, "a1"))
 {
     UG_ENTER("getpass");
@@ -111,6 +117,7 @@ STRPTR ugl_getpass(UG_A6, UG_REG(STRPTR prompt, "a1"))
     LONG  length = 0;
     BOOL  raw = FALSE;
     BOOL  intr = FALSE;
+    BOOL  poll = TRUE;
     ULONG brk = (ULONG)SIGBREAKF_CTRL_C | base->ug_IntrMask;
 
     base->ug_PassBuf[0] = '\0';
@@ -145,9 +152,23 @@ STRPTR ugl_getpass(UG_A6, UG_REG(STRPTR prompt, "a1"))
     {
         char c;
 
-        if (Read(fh, &c, 1) != 1)
+        if ((SetSignal(0, 0) & brk) != 0)
+        {
+            intr = TRUE;
             break;
-        if (c == 0x03 || (SetSignal(0, 0) & brk) != 0)
+        }
+        if (poll && !WaitForChar(fh, UG_GETPASS_POLL_US))
+        {
+            if (IoErr() == 0)
+                continue;               /* nothing typed yet */
+            poll = FALSE;               /* no ACTION_WAIT_CHAR: Read blocks */
+        }
+        if (Read(fh, &c, 1) != 1)
+        {
+            intr = (BOOL)((SetSignal(0, 0) & brk) != 0);
+            break;
+        }
+        if (c == 0x03)
         {
             intr = TRUE;
             break;

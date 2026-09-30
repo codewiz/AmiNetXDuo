@@ -287,32 +287,77 @@ static void test_getpass_setmode_refused(void)
 }
 
 /*
- * F-306: Ctrl-C ends the prompt.  As the byte a raw console delivers, or as
- * the break signal (or a UGT_INTRMASK one) seen after a character: the answer
- * is empty, the reason is EINTR, the console is put back and closed, and the
- * signal is left for the caller.  A signal outside the mask changes nothing.
+ * F-306: a break ends the prompt with the empty string and EINTR, the console
+ * put back and closed, and the signal left for the caller.  A raw CON: sends
+ * Ctrl-C as a signal and no byte, so the case that matters is a break while
+ * nothing is typed: the shim's interactive console times WaitForChar() out
+ * and the idle hook presses Ctrl-C on the third wait.  A blocking Read there
+ * would never return; in the shim it reads the end of the data instead.
  */
-static void test_getpass_break(void)
-{
-    STRPTR pw;
+static int idle_calls;
+static int idle_break_at;
 
-    world_reset();
-    console("abc\003def\n");
-    pw = ugl_getpass(&base, NULL);
-    CHECK_STR((char *)pw, "");
+static void press_ctrl_c_when_idle(void)
+{
+    if (++idle_calls == idle_break_at)
+        shim_signals |= SIGBREAKF_CTRL_C;
+}
+
+static void getpass_interrupted(const char *what)
+{
+    CHECK_STR((char *)base.ug_PassBuf, "");
     CHECK(base.ug_Err == UG_EINTR);
     CHECK(op_last('0') > op_last('r'));         /* echo back on */
     CHECK(op_last('c') == shim_dos_oplen - 1);  /* and closed */
     CHECK(salt_canary_intact());
+    (void)what;
+}
 
+static void test_getpass_break(void)
+{
+    STRPTR pw;
+
+    /* The one that matters: typed "ab", then Ctrl-C with no further key. */
     world_reset();
-    console("abc\n");
-    shim_signals = SIGBREAKF_CTRL_C;
+    console("ab");
+    shim_dos_interactive = 1;
+    idle_calls = 0;
+    idle_break_at = 3;
+    shim_dos_idle = press_ctrl_c_when_idle;
     pw = ugl_getpass(&base, NULL);
     CHECK_STR((char *)pw, "");
-    CHECK(base.ug_Err == UG_EINTR);
+    getpass_interrupted("idle break");
+    CHECK(idle_calls == 3);                     /* waited, then saw it */
+    CHECK(shim_dos_waits == 5);                 /* a, b, three timeouts */
     CHECK((shim_signals & SIGBREAKF_CTRL_C) != 0);  /* still the caller's */
 
+    /* The interactive console without a break still reads the line. */
+    world_reset();
+    console("hunter2\n");
+    shim_dos_interactive = 1;
+    pw = ugl_getpass(&base, NULL);
+    CHECK_STR((char *)pw, "hunter2");
+    CHECK(base.ug_Err == 0);
+
+    /* A handler with no ACTION_WAIT_CHAR: Read blocks, and a break raised
+       while it waited is seen when it returns short. */
+    world_reset();
+    console("ab");
+    idle_calls = 0;
+    idle_break_at = 1;
+    shim_dos_idle = press_ctrl_c_when_idle;
+    pw = ugl_getpass(&base, NULL);
+    CHECK_STR((char *)pw, "");
+    getpass_interrupted("short read");
+
+    /* The byte a SER: console sends for Ctrl-C. */
+    world_reset();
+    console("abc\003def\n");
+    pw = ugl_getpass(&base, NULL);
+    CHECK_STR((char *)pw, "");
+    getpass_interrupted("0x03");
+
+    /* A UGT_INTRMASK signal, already pending. */
     world_reset();
     console("abc\n");
     base.ug_IntrMask = 1UL << 20;
@@ -321,6 +366,7 @@ static void test_getpass_break(void)
     CHECK_STR((char *)pw, "");
     CHECK(base.ug_Err == UG_EINTR);
 
+    /* A signal outside the mask changes nothing. */
     world_reset();
     console("abc\n");
     base.ug_IntrMask = 1UL << 20;

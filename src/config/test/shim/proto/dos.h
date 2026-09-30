@@ -77,6 +77,21 @@ extern int  shim_dos_writelen;
 /* Set to make SetMode() fail, the case where raw mode is refused. */
 extern int  shim_dos_setmode_fails;
 
+/*
+ * WaitForChar().  0: the handler has no ACTION_WAIT_CHAR, as a file system:
+ * DOSFALSE with ERROR_ACTION_NOT_KNOWN.  1: an interactive console: DOSTRUE
+ * while unread bytes remain, else a timeout, DOSFALSE with IoErr() 0 (RKRM
+ * DOS 5.5.3).  shim_dos_idle, when set, runs each time the console has
+ * nothing to give -- a timeout, or a Read at the end -- so a test can press
+ * Ctrl-C there.  Waits past SHIM_DOS_WAIT_CAP fail, so a loop that never
+ * stops is a test failure, not a hang.
+ */
+#define SHIM_DOS_WAIT_CAP   10000
+extern int   shim_dos_interactive;
+extern int   shim_dos_waits;
+extern LONG  shim_dos_ioerr;
+extern void (*shim_dos_idle)(void);
+
 #define SHIM_DOS_DEFINE_STATE                                                \
     struct ShimDosFile   shim_dos_files[SHIM_DOS_MAX_FILES];                 \
     int                  shim_dos_file_count;                                \
@@ -88,7 +103,11 @@ extern int  shim_dos_setmode_fails;
     int                  shim_dos_oplen;                                     \
     char                 shim_dos_written[SHIM_DOS_WRITELOG];                \
     int                  shim_dos_writelen;                                  \
-    int                  shim_dos_setmode_fails
+    int                  shim_dos_setmode_fails;                             \
+    int                  shim_dos_interactive;                               \
+    int                  shim_dos_waits;                                     \
+    LONG                 shim_dos_ioerr;                                     \
+    void               (*shim_dos_idle)(void)
 
 /* Declared by the exec shim; Open() reads pr_WindowPtr through it. */
 extern struct Task *shim_current_task;
@@ -113,6 +132,10 @@ static inline void shim_dos_reset(void)
     shim_dos_oplen           = 0;
     shim_dos_writelen        = 0;
     shim_dos_setmode_fails   = 0;
+    shim_dos_interactive     = 0;
+    shim_dos_waits           = 0;
+    shim_dos_ioerr           = 0;
+    shim_dos_idle            = NULL;
 }
 
 static inline void shim_dos_add_file(const char *path, const char *data, long len)
@@ -225,7 +248,11 @@ static inline LONG Read(BPTR fh, APTR buffer, LONG length)
     len   = shim_dos_files[shim_dos_handles[h].file].len;
     avail = len - shim_dos_handles[h].pos;
     if (avail <= 0)
+    {
+        if (shim_dos_idle != NULL)
+            shim_dos_idle();
         return 0;
+    }
     if (length < avail)
         avail = length;
 
@@ -255,6 +282,40 @@ static inline LONG Write(BPTR fh, APTR buffer, LONG length)
     shim_dos_written[shim_dos_writelen] = '\0';
 
     return length;
+}
+
+static inline LONG IoErr(void) { return shim_dos_ioerr; }
+
+static inline LONG WaitForChar(BPTR fh, LONG timeout)
+{
+    int h = (int)fh - 1;
+
+    (void)timeout;
+    if (h < 0 || h >= SHIM_DOS_MAX_OPEN || !shim_dos_handles[h].used)
+    {
+        shim_dos_ioerr = ERROR_OBJECT_NOT_FOUND;
+        return DOSFALSE;
+    }
+    if (!shim_dos_interactive)
+    {
+        shim_dos_ioerr = ERROR_ACTION_NOT_KNOWN;
+        return DOSFALSE;
+    }
+    if (++shim_dos_waits > SHIM_DOS_WAIT_CAP)
+    {
+        shim_dos_ioerr = ERROR_ACTION_NOT_KNOWN;
+        return DOSFALSE;
+    }
+    if (shim_dos_handles[h].pos <
+        shim_dos_files[shim_dos_handles[h].file].len)
+    {
+        shim_dos_ioerr = 0;
+        return DOSTRUE;
+    }
+    if (shim_dos_idle != NULL)
+        shim_dos_idle();
+    shim_dos_ioerr = 0;
+    return DOSFALSE;
 }
 
 /* mode != 0 is raw: one character at a time, and the console stops echoing. */
