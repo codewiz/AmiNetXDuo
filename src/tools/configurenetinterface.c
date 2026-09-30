@@ -215,7 +215,7 @@ static const char *raw_state_name(UWORD raw)
 {
     static const char *const names[] = {
         "not started", "booting",  "starting",  "selecting", "requesting",
-        "bound",       "renewing", "rebinding", "renewing",  "probing"
+        "bound",       "renewing", "rebinding", "forcerenew", "probing"
     };
 
     if (raw >= (UWORD)(sizeof(names) / sizeof(names[0])))
