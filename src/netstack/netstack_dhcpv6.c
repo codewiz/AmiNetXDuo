@@ -139,8 +139,10 @@ VOID ami_netstack_dhcpv6_address_notify(NX_IP *ip_ptr, UINT status,
 }
 
 /* IP thread: one tx_event_flags_set() and nothing else, because nothing that
-   moves the client's state machine may block here. */
-static VOID ami_ns6_ra_flags(NX_IP *ip_ptr, UINT ra_flag)
+   moves the client's state machine may block here.  Registered with the
+   interface-aware callback, so only the AUTO interface's router is heard
+   (F-109). */
+static VOID ami_ns6_ra_flags(NX_IP *ip_ptr, UINT interface_index, UINT ra_flag)
 {
     AmiNetStack *ns = ami_netstack_raw();
     ULONG        want;
@@ -148,7 +150,9 @@ static VOID ami_ns6_ra_flags(NX_IP *ip_ptr, UINT ra_flag)
     if (ns == NULL || ip_ptr != &ns->ns_Ip || !ns->ns_Dhcpv6WorkReady)
         return;
 
-    switch (ami_dhcpv6_action_for_ra(ra_flag))
+    switch (ami_dhcpv6_action_for_ra_on((unsigned int)ns->ns_Dhcpv6Iface,
+                                        (unsigned int)interface_index,
+                                        (unsigned int)ra_flag))
     {
     case AMI_DHCPV6_ACT_STATEFUL:  want = AMI_DHCPV6_EV_STATEFUL;  break;
     case AMI_DHCPV6_ACT_STATELESS: want = AMI_DHCPV6_EV_STATELESS; break;
@@ -506,7 +510,7 @@ VOID ami_netstack_dhcpv6_configure(AmiNetStack *ns)
     /* REQUIRED.  Under AUTO this callback is the only thing that ever starts
        DHCPv6: without it the router's advertisement arrives and nothing reads
        the flags, so the wait never ends. */
-    if (nxd_icmpv6_ra_flag_callback_set(&ns->ns_Ip, ami_ns6_ra_flags)
+    if (nxd_icmpv6_ra_flag_interface_callback_set(&ns->ns_Ip, ami_ns6_ra_flags)
             != NX_SUCCESS)
         AMI_ERROR("netstack: the router-advertisement flags will not be read; "
                   "DHCPv6 will never be asked for under CONFIGURE6=AUTO");
@@ -715,7 +719,8 @@ VOID ami_netstack_dhcpv6_destroy(AmiNetStack *ns)
     /* The RA callback first: it reaches ns_Dhcpv6Events and runs on the IP
        thread, which is still going. */
     if (ns->ns_Ipv6Enabled && ns->ns_IpCreated)
-        AMI_NX_CLEANUP(nxd_icmpv6_ra_flag_callback_set(&ns->ns_Ip, NX_NULL));
+        AMI_NX_CLEANUP(nxd_icmpv6_ra_flag_interface_callback_set(&ns->ns_Ip,
+                                                                 NX_NULL));
 
     ns->ns_Dhcpv6WorkReady = FALSE;
 

@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "dhcpv6_wire.h"
 #include "nx_api.h"
 #include "nx_ip.h"
 #include "nx_ipv6.h"
@@ -659,6 +660,94 @@ ULONG spread = (want / 10) + 1;
     return (gap + spread >= want) && (gap <= want + spread);
 }
 
+/*
+ * F-109: the M and O flags on a host with two IPv6 links.  A router on the
+ * other link says O, then the AUTO interface's own router says M.  The
+ * original callback fires before the receiving interface is known, so a
+ * first-wins latch fed from it takes the foreign O; the interface-aware one
+ * is filtered to the AUTO interface and takes the local M.
+ */
+static NXD_IPV6_ADDRESS h_link_local_1;     /* the second link's address */
+static UINT             h_latch_old;
+static UINT             h_latch_new;
+static UINT             h_flag_iface[4];
+static UINT             h_flag_calls;
+
+static VOID h_ra_flags_old(NX_IP *ip_ptr, UINT ra_flag)
+{
+AmiDhcpv6Action action = ami_dhcpv6_action_for_ra(ra_flag);
+
+    (VOID)ip_ptr;
+    if (h_latch_old == AMI_DHCPV6_ACT_NONE)
+        h_latch_old = (UINT)action;
+}
+
+static VOID h_ra_flags_new(NX_IP *ip_ptr, UINT interface_index, UINT ra_flag)
+{
+AmiDhcpv6Action action = ami_dhcpv6_action_for_ra_on(0, interface_index, ra_flag);
+
+    (VOID)ip_ptr;
+    if (h_flag_calls < 4)
+        h_flag_iface[h_flag_calls] = interface_index;
+    h_flag_calls++;
+    if (h_latch_new == AMI_DHCPV6_ACT_NONE)
+        h_latch_new = (UINT)action;
+}
+
+static VOID h_ra_flags_by_interface(VOID)
+{
+NX_INTERFACE *if1;
+UINT          length;
+
+    h_reset();
+
+    if1 = &h_ip.nx_ip_interface[1];
+    if1 -> nx_interface_valid       = NX_TRUE;
+    if1 -> nx_interface_name        = "eth1";
+    if1 -> nx_interface_link_up     = NX_TRUE;
+    if1 -> nx_interface_ip_mtu_size = H_LINK_MTU;
+    if1 -> nx_interface_index       = 1;
+
+    memset(&h_link_local_1, 0, sizeof(h_link_local_1));
+    h_link_local_1 = h_link_local;
+    h_link_local_1.nxd_ipv6_address_attached = if1;
+    h_link_local_1.nxd_ipv6_address[3]      ^= 1UL;
+
+    h_latch_old  = AMI_DHCPV6_ACT_NONE;
+    h_latch_new  = AMI_DHCPV6_ACT_NONE;
+    h_flag_calls = 0;
+    h_check(_nxd_icmpv6_ra_flag_callback_set(&h_ip, h_ra_flags_old) == NX_SUCCESS,
+            "F-109: the original callback registers");
+    h_check(_nxd_icmpv6_ra_flag_interface_callback_set(&h_ip, h_ra_flags_new) == NX_SUCCESS,
+            "F-109: the interface callback registers");
+
+    /* The foreign link's router: O. */
+    h_build_ra(h_message, &length, 1800);
+    ((NX_ICMPV6_RA *)h_message) -> nx_icmpv6_ra_flag = 0x40;
+    h_packet.nx_packet_prepend_ptr = h_message;
+    h_packet.nx_packet_append_ptr  = h_message + length;
+    h_packet.nx_packet_length      = length;
+    h_packet.nx_packet_ip_header   = (UCHAR *)&h_ipv6_header;
+    h_packet.nx_packet_next        = NX_NULL;
+    h_packet.nx_packet_address.nx_packet_ipv6_address_ptr = &h_link_local_1;
+    _nx_icmpv6_process_ra(&h_ip, &h_packet);
+
+    /* The AUTO interface's own router: M. */
+    h_build_ra(h_message, &length, 1800);
+    ((NX_ICMPV6_RA *)h_message) -> nx_icmpv6_ra_flag = 0x80;
+    h_deliver(h_message, length);
+
+    h_check(h_flag_calls == 2 && h_flag_iface[0] == 1 && h_flag_iface[1] == 0,
+            "F-109: each advertisement is reported with the interface it came in on");
+    h_check(h_latch_old == AMI_DHCPV6_ACT_STATELESS,
+            "F-109: the original callback cannot tell links apart and latches the foreign O");
+    h_check(h_latch_new == AMI_DHCPV6_ACT_STATEFUL,
+            "F-109: filtered to the AUTO interface, the local M is what starts DHCPv6");
+
+    (VOID)_nxd_icmpv6_ra_flag_callback_set(&h_ip, NX_NULL);
+    (VOID)_nxd_icmpv6_ra_flag_interface_callback_set(&h_ip, NX_NULL);
+}
+
 int main(void)
 {
 UINT  i;
@@ -670,6 +759,8 @@ char  what[128];
     /* rand() is NX_RAND on this host and the backoff randomisation uses it.
        Seeded so a failure can be reproduced. */
     srand(1);
+
+    h_ra_flags_by_interface();
 
     /* On-link and autonomous, which always worked. */
     h_prefix_case(H_ONLINK | H_AUTONOMOUS, 3600, 1, 1, "A=1 L=1");

@@ -48,6 +48,16 @@ typedef enum {
 AmiDhcpv6Action ami_dhcpv6_action_for_ra(unsigned int ra_flag);
 
 /*
+ * The same, for an advertisement that arrived on ra_interface: only the
+ * interface CONFIGURE6=AUTO chose may start DHCPv6.  Another link's router
+ * speaks for that link, and its O must not settle a mode the local router
+ * asks for with M (F-109).
+ */
+AmiDhcpv6Action ami_dhcpv6_action_for_ra_on(unsigned int selected_interface,
+                                            unsigned int ra_interface,
+                                            unsigned int ra_flag);
+
+/*
  * Decide whether an existing client should repeat its last exchange when an
  * interface comes back.  A client that has not yet been created still has its
  * original worker event pending; a running one needs no duplicate request;
