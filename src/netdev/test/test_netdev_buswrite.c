@@ -270,11 +270,11 @@ static void one(const char *label, int dmode, int odd, UWORD len)
  * after the longword loop it writes exactly ONE word, so a 3-byte tail
  * delivers two bytes and DROPS THE THIRD.
  *
- * Nothing hits that today -- every caller passes an even length
- * (ne2000.c:321 and el3.c:631 round up with `(len + 1) & ~1`, and
- * ne2000_writemem's four callers pass 32, 32, 32 and ED_PAGE_SIZE) -- so this
- * is a precondition, not a live defect.  It is pinned here so that removing a
- * caller's round-up fails a test instead of quietly truncating a frame.
+ * Nothing hits that today -- ne2000_write_buf() and el3_tx() round the bus
+ * transfer length up to an even number, while ne2000_writemem()'s current
+ * callers pass fixed even-size patterns or pages.  This is a precondition,
+ * not a live defect.  It is pinned here so that removing a caller's round-up
+ * fails a test instead of quietly truncating a frame.
  */
 static void test_odd_tail_contract(void)
 {
