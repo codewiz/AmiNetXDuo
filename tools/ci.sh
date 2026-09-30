@@ -373,7 +373,8 @@ host_test_targets() { # builddir
 #      dead-task sweep detaches monitor hooks (F-050).  Both merged without
 #      this number, which left main's host stage failing at 475 against 473.
 #      476 with nslookup_budget: TIMEOUT as exactly secs * 5 slices (F-170)
-HOST_TESTS_EXPECTED=476
+#      477 with paysum_verdict: a receive with LEN moves exactly LEN (F-174)
+HOST_TESTS_EXPECTED=477
 case "$(uname -m)" in
     x86_64|amd64) ;;
     # test_inet, test_route, test_expunge, test_expunge_cork, test_select,

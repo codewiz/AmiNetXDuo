@@ -11,6 +11,7 @@
 
 #include "toolsock.h"
 #include "aminetxduo/version.h"
+#include "payverdict.h"
 
 const char *const tool_name = "paysum";
 
@@ -384,11 +385,8 @@ static LONG pay_run(struct Library *sb, const PayOptions *opt)
 
         pay_report(c, opt);
 
-        if (c->failed)
-            fails++;
-        else if (opt->verify && !opt->send && c->first_bad >= 0)
-            fails++;
-        else if (opt->send && c->moved != opt->len)
+        if (pay_conn_fails(c->failed, opt->verify, opt->send, c->first_bad,
+                           c->moved, opt->len))
             fails++;
     }
 

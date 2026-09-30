@@ -932,6 +932,12 @@ if(NOT CMAKE_CROSSCOMPILING)
     # because unsigned long is 64 bits here and 32 on the target: the sign of
     # a datagram id and the carry out of the byte counter were both wrong
     # until this compiled them the other way.
+    # paysum's per-connection verdict: a receive with LEN moves exactly LEN (F-174).
+    add_executable(test_payverdict test/test_payverdict.c)
+    target_include_directories(test_payverdict PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_compile_options(test_payverdict PRIVATE -Wall -Wextra)
+    add_test(NAME paysum_verdict COMMAND test_payverdict)
+
     # nslookup's TIMEOUT split into 200 ms slices over three attempts (F-170).
     add_executable(test_nslbudget test/test_nslbudget.c)
     target_include_directories(test_nslbudget PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
