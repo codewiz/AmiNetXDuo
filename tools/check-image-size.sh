@@ -79,9 +79,8 @@ BUDGETS=(
     # code growth, not diagnostic strings (+60 B of strings >= 8 chars).
     # No feature-preserving cut was identified; HOT_O2=OFF saves ~3.5 KB but
     # changes the measured RX/TX optimization policy.  Keep that trade separate.
-    # The same CI repair moves two large config temporaries off the 4 KB Shell
-    # stack; the next KiB of headroom includes that small resident-code cost.
-    "default:src/bsdsocket/bsdsocket.library:372000"
+    # The stack-safe config repair measured 370,884 (+56) on its final branch.
+    "default:src/bsdsocket/bsdsocket.library:371000"
     # 41,412 after stateless receive-checksum verification was added to the
     # EL3 and word/long NE2000 direct paths, 2026-09-15.  43,620 with
     # ANXD_CMD_RX_BATCH in the shell (claim, completion, staging copy, the
@@ -145,7 +144,7 @@ BUDGETS=(
     # 2026-09-26.
     # 238,240 with the bounded S2_OFFLINE (#90, see the default row).
     # 242,624 on e806188f with the same F-series fixes as the full build.
-    "minimal:src/bsdsocket/bsdsocket.library:244000"
+    "minimal:src/bsdsocket/bsdsocket.library:243000"
     "minimal:src/netdev/anxnet.device:46000"
     # 29,088 on e806188f after the audited device fixes.
     "minimal:src/netdev/anxgenet.device:29120"
@@ -168,7 +167,7 @@ BUDGETS=(
     # 2026-09-26.
     # 204,052 with the bounded S2_OFFLINE (#90, see the default row).
     # 208,132 on e806188f with the same F-series fixes as the full build.
-    "micro:src/bsdsocket/bsdsocket.library:209000"
+    "micro:src/bsdsocket/bsdsocket.library:208500"
     "micro:src/netdev/anxnet.device:46000"
     "micro:src/netdev/anxgenet.device:29120"
     "micro:src/wifipi/anxwifipi.device:56000"
