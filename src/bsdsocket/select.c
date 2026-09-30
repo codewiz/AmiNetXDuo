@@ -12,8 +12,17 @@
 #include <proto/timer.h>
 
 
-/* The largest timeout WaitSelect() accepts, from the autodoc. */
-#define BSD_SELECT_MAX_SECS 100000000UL
+/* The largest timeout WaitSelect() accepts.  The autodoc's 100,000,000 s
+   cannot be honoured: the deadline is kept in 32-bit *signed* ticks
+   (wanted_due - now), and a timeout whose tick total exceeds LONG_MAX reads
+   back as a negative remainder after an early kept-timer fire, so the wait
+   returns early (F-066).  The tick total is secs*TX_TIMER_TICKS_PER_SECOND
+   plus the sub-second part rounded up to a whole tick (up to one more
+   tick-second), so the largest whole-second count whose total always stays
+   under LONG_MAX is one second less than LONG_MAX/TPS.  On the Amiga port's
+   50 Hz tick that is 42,949,671 s (~497 days). */
+#define BSD_SELECT_MAX_SECS \
+    (0x7FFFFFFFUL / (ULONG)TX_TIMER_TICKS_PER_SECOND - 1UL)
 
 /* fd_set is an array of 32-bit words, bit (fd % 32) of word (fd / 32). */
 #define BSD_FD_WORD(fd)     ((ULONG)(fd) / BSD_FD_BITS)

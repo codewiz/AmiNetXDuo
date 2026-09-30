@@ -1090,6 +1090,61 @@ static void t_waitselect_rearm_overflow(void)
           "32-bit fraction");
 }
 
+/*
+ * F-066 (accepted-max bound): the deadline is 32-bit signed ticks, so a
+ * timeout whose tick total would exceed LONG_MAX cannot be re-armed after an
+ * early fire.  select.c caps the accepted tv_secs at LONG_MAX / TPS - 1
+ * (42,949,671 s ~ 497 days on the Amiga port's 50 Hz tick); the old
+ * 100,000,000 s max saturated the tick count and the wait came back early.
+ */
+static void t_waitselect_max_secs(void)
+{
+    /* Mirror of select.c's BSD_SELECT_MAX_SECS, so this test pins the bound
+       at whatever tick rate the build runs at (100 Hz here, 50 Hz on the
+       Amiga port). */
+    const ULONG max_secs =
+        (0x7FFFFFFFUL / (ULONG)TX_TIMER_TICKS_PER_SECOND) - 1UL;
+    HSets s;
+    LONG  n;
+    struct timeval bad, big;
+
+    printf("WaitSelect(): the accepted timeout stops at the tick deadline\n");
+
+    /* The old max saturates the tick count: on the old code it was accepted
+       and returned 0 at once (the re-arm remainder read back negative).  The
+       plan below lets that old path finish instead of blocking, so the old
+       code fails this check cleanly.  The new code refuses it at validation. */
+    h_reset();
+    bad.tv_secs    = 100000000UL;
+    bad.tv_micro   = 0;
+    h.wait_plan[0] = H_TIMER_SIG;
+    h.wait_planned = 1;
+    h.tick_jump    = TX_TIMER_TICKS_PER_SECOND / 2;
+    n = bsd_WaitSelect(0, NULL, NULL, NULL, &bad, NULL, &h_base);
+    CHECK(n == -1 && h_base.sb_Errno == AMI_EINVAL,
+          "100000000 seconds is EINVAL once the tick deadline bounds it");
+
+    /* The bound itself is accepted and re-arms the true remainder. */
+    h_reset();
+    (void)h_tcp(0, NX_TCP_SYN_SENT);
+    h_sock[0].as_Flags = ASF_TCP | ASF_CONNECTING;
+    h.wait_plan[0]     = H_TIMER_SIG;
+    h.wait_planned     = 1;
+    h.wait_establishes = &h_sock[0];
+    h.tick_jump        = TX_TIMER_TICKS_PER_SECOND / 2;
+    big.tv_secs        = max_secs;
+    big.tv_micro       = 0;
+    memset(&s, 0, sizeof(s));
+    h_set(s.write, 0);
+
+    n = bsd_WaitSelect(1, NULL, s.write, NULL, &big, NULL, &h_base);
+    CHECK(n == 1, "the bound is accepted and ends on the connect, not early");
+    CHECK(h_base.sb_TimerReq.tr_time.tv_secs == max_secs - 1UL &&
+          h_base.sb_TimerReq.tr_time.tv_micro == 500000UL,
+          "and its re-armed remainder is one second less the fired half-tick, "
+          "not a wrapped negative");
+}
+
 static void t_events(void)
 {
     AmiSocket *s;
@@ -1167,6 +1222,7 @@ int main(void)
     t_waitselect_signals();
     t_waitselect_timeout();
     t_waitselect_rearm_overflow();
+    t_waitselect_max_secs();
     t_events();
 
     printf("%lu checks, %lu failures\n", h_checks, h_failures);

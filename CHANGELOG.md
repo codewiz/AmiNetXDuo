@@ -14,6 +14,10 @@ version at the top when it merges.
   timer request fired early and the call had to re-arm the balance, multiplied
   the remaining ticks through a 32-bit microsecond constant and wrapped, cutting
   the wait short to a fraction of the requested time.
+- `WaitSelect` now refuses a timeout it cannot represent. The autodoc's
+  100,000,000 s maximum saturated the 32-bit signed tick deadline and a wait
+  that large returned at once; the largest accepted timeout is now 42,949,671 s
+  (~497 days), the most whose tick total always fits the deadline.
 - `AMINETXDUO_MAX_INTERFACES` above 32 is now a compile error; the DHCP
   resolver's pending-interface set is one 32-bit word and cannot name an
   index past bit 31.
