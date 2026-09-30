@@ -376,6 +376,15 @@ LONG tool_netstatus_query(struct Library *base, ULONG what,
                           APTR buffer, ULONG size, ULONG entry_size);
 
 /*
+ * Which place named this machine, from NETSTATUS_HOSTSOURCE (F-088): the
+ * source itself, where nss_HostSource has only its rank.  A library without
+ * the selector answers EINVAL, and `legacy`, the nss_HostSource the caller
+ * already has, is then all there is.  Any other failure is AMI_HOSTNAME_NONE:
+ * nothing is known.
+ */
+UWORD tool_netstatus_host_source(struct Library *base, UWORD legacy);
+
+/*
  * tool_ifdev.c.  tool_netstatus_devices() asks NETSTATUS_IFDEVICES once, for
  * every interface; tool_if_device() then copies interface `e`'s device path
  * into dst: whole when the library answered for that slot (TRUE), else

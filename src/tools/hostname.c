@@ -43,9 +43,15 @@ static BOOL running_name(char *out, ULONG outlen, UWORD *source)
         return FALSE;
 
     /* nss_HostSource is zero on a library too old to have it, which is
-       AMI_HOSTNAME_NONE: the name then reads as set by nothing. */
+       AMI_HOSTNAME_NONE: the name then reads as set by nothing.  It is only
+       the rank; the source itself comes from NETSTATUS_HOSTSOURCE (F-088). */
     if (tool_netstatus_system(&sys))
-        *source = (UWORD)sys.nss_HostSource;
+    {
+        struct Library *base = tool_netstatus_open(TRUE);
+
+        *source = tool_netstatus_host_source(base, (UWORD)sys.nss_HostSource);
+        tool_netstatus_close(base);
+    }
 
     return TRUE;
 }

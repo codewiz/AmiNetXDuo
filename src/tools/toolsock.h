@@ -147,6 +147,7 @@ typedef struct ToolAddrInfo
 /* The errno numbers these commands name.  4.4BSD's, which is what every
    Amiga bsdsocket.library reports (src/bsdsocket/bsdsocket_internal.h). */
 #define TOOL_EINTR          4
+#define TOOL_EINVAL         22
 #define TOOL_EPIPE          32
 #define TOOL_EWOULDBLOCK    35
 #define TOOL_EINPROGRESS    36

@@ -201,7 +201,9 @@ LONG tool_snapshot(ToolSnapshot *out, BOOL want_sockets)
                              nx_answer.system.e.nss_MdnsName);
         }
 
-        out->host_source = (UWORD)nx_answer.system.e.nss_HostSource;
+        /* The source, where nss_HostSource has only its rank (F-088). */
+        out->host_source = tool_netstatus_host_source(
+            base, (UWORD)nx_answer.system.e.nss_HostSource);
     }
 
     /*

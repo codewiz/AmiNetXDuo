@@ -1492,6 +1492,33 @@ LONG tool_netstatus_query(struct Library *base, ULONG what,
     return (LONG)hdr->nsh_Count;
 }
 
+UWORD tool_netstatus_host_source(struct Library *base, UWORD legacy)
+{
+    struct
+    {
+        NetStatusHeader     hdr;
+        NetStatusHostSource e;
+    } answer;
+
+    if (base == NULL)
+        return (UWORD)AMI_HOSTNAME_NONE;
+
+    answer.hdr.nsh_Magic   = AMI_NETSTATUS_MAGIC;
+    answer.hdr.nsh_Version = (UWORD)AMI_NETSTATUS_VERSION;
+
+    if (tool_call_netstatus_query(base, NETSTATUS_HOSTSOURCE, &answer,
+                                  sizeof(answer)) < 0)
+        return (tool_call_errno(base) == TOOL_EINVAL)
+                   ? legacy : (UWORD)AMI_HOSTNAME_NONE;
+
+    if (answer.hdr.nsh_Type != (UWORD)NETSTATUS_HOSTSOURCE ||
+        answer.hdr.nsh_Count != 1 ||
+        answer.hdr.nsh_EntrySize != (UWORD)sizeof(NetStatusHostSource))
+        return (UWORD)AMI_HOSTNAME_NONE;
+
+    return (UWORD)answer.e.nhs_Source;
+}
+
 LONG tool_netstatus_dhcp_state(struct Library *base, UWORD index,
                                ULONG *addr_out)
 {

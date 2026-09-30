@@ -228,6 +228,25 @@ typedef struct NetStatusIfDevice
     char    nsd_Device[NETSTATUS_FILE_LEN];     /* empty when unconfigured   */
 } NetStatusIfDevice;
 
+/* ---------------------------------------------- NETSTATUS_HOSTSOURCE --- */
+
+/*
+ * One NetStatusHostSource: which place named this machine (F-088).
+ * nss_HostSource carries only the source's rank, always 0..4, so a caller of
+ * any version can read it; this carries the source itself, which can be an
+ * AmiHostnameSource newer than the caller knows.  A library without this
+ * selector answers EINVAL, and the caller keeps nss_HostSource.  23, not the
+ * free 21: that was NETSTATUS_SOCKBINDINGS, and a caller that still asks for
+ * it must not be handed this.
+ */
+#define NETSTATUS_HOSTSOURCE    23
+
+typedef struct NetStatusHostSource
+{
+    ULONG   nhs_Source;                 /* AmiHostnameSource                 */
+    ULONG   nhs_Rank;                   /* its rank, as nss_HostSource       */
+} NetStatusHostSource;
+
 /* ----------------------------------------------- NETSTATUS_ADDRESSES6 --- */
 
 /* One entry per IPv6 address per interface, in NetX Duo's own order.  An

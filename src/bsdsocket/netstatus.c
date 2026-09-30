@@ -1579,6 +1579,7 @@ LONG bsd_NetStackQuery(register ULONG magic __asm("d0"),
         case NETSTATUS_STATS:       need = sizeof(NetStatusStats);   break;
         case NETSTATUS_INTERFACES:  need = 0;                        break;
         case NETSTATUS_IFDEVICES:   need = 0;                        break;
+        case NETSTATUS_HOSTSOURCE:  need = sizeof(NetStatusHostSource); break;
         case NETSTATUS_ARP:         need = 0;                        break;
         case NETSTATUS_MULTICAST:   need = 0;                        break;
         case NETSTATUS_ROUTES:      need = 0;                        break;
@@ -1855,6 +1856,27 @@ LONG bsd_NetStackQuery(register ULONG magic __asm("d0"),
             ns_fill_ifdevices(ip, &w);
             ns_writer_finish(&w);
             break;
+
+        case NETSTATUS_HOSTSOURCE:
+        {
+            /* The running stack's, as nss_HostSource is (F-088). */
+            const AmiConfig     *cfg = netstack_config();
+            NetStatusHostSource *hs;
+
+            ns_writer_init(&w, hdr, size, NETSTATUS_HOSTSOURCE,
+                           sizeof(NetStatusHostSource));
+            hs = (NetStatusHostSource *)ns_writer_next(&w);
+            if (hs != NULL)
+            {
+                UWORD source = (cfg != NULL) ? cfg->hostname_source
+                                             : (UWORD)AMI_HOSTNAME_NONE;
+
+                hs->nhs_Source = (ULONG)source;
+                hs->nhs_Rank   = (ULONG)ami_config_hostname_rank(source);
+            }
+            ns_writer_finish(&w);
+            break;
+        }
 
         case NETSTATUS_STATS:
             ns_writer_init(&w, hdr, size, NETSTATUS_STATS,
