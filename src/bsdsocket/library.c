@@ -1531,6 +1531,24 @@ APTR bsd_lib_expunge(register struct AmiSocketBase *SocketBase __asm("a6"))
         return NULL;
     }
 
+    /* OpenLibrary enters our Open vector with task switching forbidden, but
+       the gates above can wait and temporarily break that exclusion.  An
+       opener could have arrived since the first count check.  Make the last
+       check and removal from Exec's LibList one indivisible step, before any
+       teardown below can wait.  A later OpenLibrary must load a fresh base,
+       never one being dismantled. */
+    Forbid();
+    if (base->sb_Lib.lib_OpenCnt != 0)
+    {
+        base->sb_Lib.lib_Flags |= LIBF_DELEXP;
+        Permit();
+        ami_event(NETEVENT_EXPUNGE_DECLINED, NETEVENT_NOINDEX,
+                  NETEVENT_EXP_OPEN);
+        return NULL;
+    }
+    Remove((struct Node *)base);
+    Permit();
+
     /*
      * Deregister before anything is freed.  bsd_address_changed() lives in the
      */
@@ -1559,7 +1577,6 @@ APTR bsd_lib_expunge(register struct AmiSocketBase *SocketBase __asm("a6"))
 
     AMI_CENSUS_REPORT("bsd-expunge");
 
-    Remove((struct Node *)base);
     FreeMem((UBYTE *)base - neg, neg + pos);
 
     return seglist;
