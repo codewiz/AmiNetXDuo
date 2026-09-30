@@ -1241,6 +1241,76 @@ static void test_root_binding(void)
     CHECK(h_root_reads == 0);
 }
 
+/* Write `v` big-endian at `off` in the session file. */
+static void patch32(const char *path, long off, ULONG v)
+{
+    FILE *fh = fopen(path, "r+b");
+
+    CHECK(fh != NULL);
+    if (fh == NULL)
+        return;
+    fseek(fh, off, SEEK_SET);
+    fputc((int)(v >> 24), fh);
+    fputc((int)(v >> 16), fh);
+    fputc((int)(v >> 8), fh);
+    fputc((int)v, fh);
+    fclose(fh);
+}
+
+/*
+ * A bound root of key 0 or digest 0 is refused, from the file and in memory:
+ * zero is also what the store answers for a root it does not hold, so a
+ * stored zero would match an absent root and offer a session nothing
+ * verifies.  The store here holds no root at all.
+ */
+static void test_zero_binding_is_refused(void)
+{
+    const long rec  = 16;
+    const long key  = rec + 172 + TLS_RESUME_TICKET_MAX;
+    const long dig  = rec + 176 + TLS_RESUME_TICKET_MAX;
+    int        pass;
+
+    printf("tls_resume: a zero root key or digest never matches\n");
+
+    for (pass = 0; pass < 2; pass++)
+    {
+        unlink(h_path_a);
+        base_reset();
+        conn_init("example.com", 443, h_path_a, 0xCAFEBABEUL);
+        conn_take_ticket(192, 3600);
+        tls_resume_record(&h_conn);
+
+        patch32(h_path_a, (pass == 0) ? dig : key, 0);
+
+        base_reset();
+        conn_init("example.com", 443, h_path_a, 0xCAFEBABEUL);
+        h_store_has_root = 0;
+        tls_resume_prepare(&h_conn);
+        CHECK((h_conn.tc_ResumeFlags & TLSR_OFFERED) == 0);
+        CHECK(tls_resume_count(&h_base) == 0);      /* refused at decode */
+    }
+
+    /* The same in memory, past decode. */
+    for (pass = 0; pass < 2; pass++)
+    {
+        base_reset();
+        conn_init("example.com", 443, "", 0xCAFEBABEUL);
+        h_conn.tc_ResumeFlags &= ~TLSR_PERSIST;
+        conn_take_ticket(192, 3600);
+        tls_resume_record(&h_conn);
+        CHECK(tls_resume_count(&h_base) == 1);
+        if (pass == 0)
+            h_base.tb_Sessions[0].re_RootDigest[0] = 0;
+        else
+            h_base.tb_Sessions[0].re_RootKey[0] = 0;
+
+        conn_init("example.com", 443, "", 0xCAFEBABEUL);
+        h_store_has_root = 0;
+        tls_resume_prepare(&h_conn);
+        CHECK((h_conn.tc_ResumeFlags & TLSR_OFFERED) == 0);
+    }
+}
+
 /*
  * The previous format held no root binding.  An 'ATS3' file is ignored, and
  * an 'ATS4' record that says it was verified and names no root is refused.
@@ -1957,6 +2027,7 @@ int main(void)
     test_trust_key_discriminates();
     test_root_binding();
     test_unbound_files_are_ignored();
+    test_zero_binding_is_refused();
     test_no_host_name();
 
     test_expired_entry_is_wiped();

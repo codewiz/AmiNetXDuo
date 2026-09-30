@@ -358,9 +358,19 @@ static BOOL tls_resume_decode(TLSResumeEntry *e, const UBYTE *rec)
         return FALSE;
     }
 
-    /* A verified session names the roots it was checked against. */
-    if ((e->re_Flags & TLSRE_VERIFIED) != 0 && e->re_RootCount == 0)
-        return FALSE;
+    /* A verified session names the roots it was checked against.  Zero is no
+       key and no digest -- and the digest of a root the store does not
+       hold -- so a zero in either would match an absent root. */
+    if ((e->re_Flags & TLSRE_VERIFIED) != 0)
+    {
+        if (e->re_RootCount == 0)
+            return FALSE;
+        for (i = 0; i < e->re_RootCount; i++)
+        {
+            if (e->re_RootKey[i] == 0 || e->re_RootDigest[i] == 0)
+                return FALSE;
+        }
+    }
 
     /*
      * The live trust key is never zero, so a zero-key record is a truncated or
@@ -546,11 +556,18 @@ static BOOL tls_resume_roots_current(TLSConnection *conn,
         conn->tc_Store == NULL || conn->tc_RootDer == NULL)
         return FALSE;
 
+    /* Zero is an absent root, so it never matches, whatever the table says:
+       the table is plain memory on a machine with no protection. */
     for (i = 0; i < entry->re_RootCount; i++)
     {
-        if (tls_store_root_digest(conn->tc_Store, entry->re_RootKey[i],
-                                  conn->tc_RootDer, TLS_ROOT_DER_MAX) !=
-            entry->re_RootDigest[i])
+        ULONG digest;
+
+        if (entry->re_RootKey[i] == 0 || entry->re_RootDigest[i] == 0)
+            return FALSE;
+
+        digest = tls_store_root_digest(conn->tc_Store, entry->re_RootKey[i],
+                                       conn->tc_RootDer, TLS_ROOT_DER_MAX);
+        if (digest == 0 || digest != entry->re_RootDigest[i])
             return FALSE;
     }
 
