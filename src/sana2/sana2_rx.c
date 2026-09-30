@@ -465,8 +465,16 @@ static VOID ami_sana2_rx_dispatch(NX_IP *ip, NX_PACKET *packet, UINT type)
 static VOID __attribute__((noinline))
 ami_sana2_rx_group(AmiSana2If *iface, const UCHAR *dst)
 {
-    if (dst[0] != 0xFFU || dst[1] != 0xFFU)
-        iface->stats.rx_multicast++;
+    UWORD i;
+
+    for (i = 0; i < AMI_ETH_ADDR_SIZE; i++)
+    {
+        if (dst[i] != 0xFFU)
+        {
+            iface->stats.rx_multicast++;
+            break;
+        }
+    }
 }
 
 VOID ami_sana2_rx_deliver(AmiSana2If *iface, NX_PACKET *packet,

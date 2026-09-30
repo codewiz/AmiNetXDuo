@@ -609,6 +609,17 @@ static void test_multicast_is_counted(void)
         h_check(iface.stats.packets_received == 1,
                 "and it is counted as received either way");
     }
+
+    /* F-118: the broadcast exception is the whole six-byte address, not
+       merely its first two bytes. */
+    fixture_init();
+    frame_init(AMI_ETHERTYPE_IPV4, 40);
+    buffer[AMI_SANA2_RX_PAD + 2] = 0x00;
+    buffer[AMI_SANA2_RX_PAD + 5] = 0x01;
+    h_deliver();
+    h_check(h_went == TO_IP, "ff:ff:00:ff:ff:01 was delivered");
+    h_check(iface.stats.rx_multicast == 1,
+            "ff:ff:00:ff:ff:01 is multicast, not broadcast");
 }
 
 static void test_payload_alignment(void)
