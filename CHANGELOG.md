@@ -9,6 +9,9 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `httpd` falls back to its host console encoder if the ZZ9000 replies to a
+  band request with an unrelated opcode or a truncated payload, instead of
+  treating those bytes as a completed frame.
 - `NetTrace` and `NetCapture` bound each capture record's header and payload
   separately instead of by their sum. A record whose claimed length wrapped a
   32-bit total could pass the old check and make the command read past the

@@ -228,6 +228,16 @@ LONG httpzz_encode(UWORD ty0, UWORD ty1, UBYTE *out, ULONG out_max,
     if (zz_call(&req, &reply, HTTPZZ_CALL_SPINS) != ZZ9K_STATUS_OK ||
         reply.status != ZZ9K_STATUS_OK)
         return -1;
+    /* ZZ9KCall matches the request ID, but does not validate the reply's
+       opcode or payload shape for this vendor service.  An empty or unrelated
+       completion must fall back to the host encoder, not advance the card's
+       delta baseline as though it encoded a band. */
+    /* The service contract returns exactly one HttpZzEncodeReply.  Requiring
+       its exact length also rejects an in-place request echo (36 bytes) from
+       a service that returned OK without producing an encode reply. */
+    if (reply.opcode != HTTPZZ_OP_ENCODE ||
+        reply.payload_len != sizeof(rr))
+        return -1;
 
     memcpy(&rr, reply.payload.inline_data, sizeof(rr));
     n = rr.out_len;
