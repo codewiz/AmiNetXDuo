@@ -29,7 +29,10 @@ VOID ami_bpf_tap_tx(APTR cookie, NX_PACKET *packet, BOOL has_link_header,
     if (ami_bpf_bound_channels == 0 || packet == NX_NULL)
         return;
 
-    ami_bpf_lock();
+    /* Packet transmission must not park behind a capture client's lock.
+       Capture is observational, so skip this frame on contention. */
+    if (!ami_bpf_try_lock())
+        return;
     ifp = ami_bpf_iface_by_cookie(cookie);
     if (ifp == NULL)
     {
