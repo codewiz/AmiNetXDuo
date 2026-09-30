@@ -26,8 +26,6 @@ static int checks, failures;
 
 /* ------------------------------------------------------------ the host -- */
 
-struct DosLibrary *DOSBase = (struct DosLibrary *)1;
-
 APTR AllocVec(ULONG size, ULONG requirements)
 {
     (VOID)requirements;
@@ -187,6 +185,8 @@ int main(void)
     TLSStore store;
     UCHAR    der[256];
     ULONG    n;
+
+    DOSBase = (struct DosLibrary *)1;   /* tls_runtime.c's; never called through */
 
     if (fd < 0)
     {
