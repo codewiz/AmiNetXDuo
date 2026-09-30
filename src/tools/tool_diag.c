@@ -7,6 +7,7 @@
  */
 
 #include "tools.h"
+#include "toolsock.h"                  /* TOOL_EINVAL */
 
 #include <exec/execbase.h>
 #include <exec/io.h>
