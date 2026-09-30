@@ -686,10 +686,11 @@ static const NetdbFile cnc_netdb[] =
 
 /*
  * A netdb file being read for check_netdb_file().  left is what remains of the
- * size Seek() measured: FGetC() answers -1 for an error as for the end of the
- * file, and IoErr() is not specified after it, so a -1 with bytes still to
- * come is the only sign of a failed read (F-094).  The loader's one Read()
- * fails the whole file then, and the built-ins are used.
+ * size Seek() measured, which is all the loader's one Read() asks for: the
+ * checker reads no further.  FGetC() answers -1 for an error as for the end of
+ * the file, and IoErr() is not specified after it, so a -1 with bytes still to
+ * come means the check did not see the whole file (F-094); whether that was a
+ * failed read or the file shrinking, what the loader got cannot be known.
  */
 typedef struct CncNetdbRead
 {
@@ -702,14 +703,16 @@ typedef struct CncNetdbRead
 
 static LONG cnc_netdb_getc(CncNetdbRead *r)
 {
-    LONG c = FGetC(r->file);
+    LONG c;
 
+    if (r->left == 0)
+        return -1;                  /* the measured end: bytes added since are
+                                       not read by the loader either */
+
+    c = FGetC(r->file);
     if (c == -1)
-    {
-        if (r->left != 0)
-            r->failed = TRUE;
-    }
-    else if (r->left != 0)
+        r->failed = TRUE;
+    else
         r->left--;
 
     return c;
@@ -884,8 +887,8 @@ static VOID check_netdb_file(const NetdbFile *spec)
     if (rd.failed)
     {
         finding(spec->path, 0, AMI_CFG_PROBLEM_WARN);
-        say("      this file could not be read to its end, so none of it is\n");
-        say("      used and the built-in list is used instead\n");
+        say("      this file could not be read to its end, so it was not\n");
+        say("      completely checked\n");
     }
 
     Close(file);
