@@ -11,6 +11,7 @@
 #include "aminetxduo/crashguard.h"
 #include "aminetxduo/compat.h"
 
+#include <exec/memory.h>
 #include <exec/tasks.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
@@ -336,26 +337,86 @@ VOID ami_alert_report(ULONG num)
     }
 }
 
+/*
+ * WHO OWNS THE VECTOR (F-080).  Alert() is Exec's, and another image -- the
+ * library and a tool, two tools -- patches it the same way.  Taken out of
+ * order, a hook put Exec's own Alert() back over the other image's, and that
+ * image, removing later, put back this one's trampoline: in code that had
+ * been unloaded, reached by the next Guru.  Checking before restoring is not
+ * enough on its own: the image above has saved this one's address, and calls
+ * it whether or not the vector still does.
+ *
+ * So the vector points at a stub in public memory that outlives the image,
+ *
+ *     move.l  target(pc),-(sp)
+ *     rts
+ *     target: this image's trampoline while the hook is in, `old' after
+ *     old:    what the vector held before
+ *
+ * and taking the hook out turns the stub into a pure pass-through to `old',
+ * whoever still calls it.  The vector is put back only if it still points at
+ * the stub; under Disable(), so nothing can Alert() while it is briefly
+ * `old'.  The stub is never freed: another image may hold its address.
+ */
+#define AMI_ALERT_STUB_BYTES    14
+#define AMI_ALERT_STUB_TARGET   6       /* byte offsets of the two addresses */
+#define AMI_ALERT_STUB_OLD      10
+
+static UWORD *ami_alert_stub;
+
+static APTR *ami_alert_stub_cell(UWORD *stub, ULONG offset)
+{
+    return (APTR *)((UBYTE *)stub + offset);
+}
+
 BOOL ami_crash_install_alert_hook(VOID)
 {
-    if (ami_alert_old != NULL)
+    UWORD *stub;
+    APTR   old;
+
+    if (ami_alert_stub != NULL)
         return TRUE;
 
-    Forbid();
-    ami_alert_old = SetFunction((struct Library *)SysBase, -108,
-                                (APTR)ami_alert_trampoline);
-    Permit();
+    stub = (UWORD *)AllocMem(AMI_ALERT_STUB_BYTES, MEMF_PUBLIC);
+    if (stub == NULL)
+        return FALSE;
 
-    return ami_alert_old != NULL;
+    stub[0] = 0x2F3A;                   /* move.l (d16,pc),-(sp)             */
+    stub[1] = AMI_ALERT_STUB_TARGET - 2; /* from the extension word          */
+    stub[2] = 0x4E75;                   /* rts                               */
+    *ami_alert_stub_cell(stub, AMI_ALERT_STUB_TARGET) =
+        (APTR)ami_alert_trampoline;
+    *ami_alert_stub_cell(stub, AMI_ALERT_STUB_OLD) = NULL;
+    CacheClearU();
+
+    Disable();
+    old = SetFunction((struct Library *)SysBase, -108, (APTR)stub);
+    *ami_alert_stub_cell(stub, AMI_ALERT_STUB_OLD) = old;
+    ami_alert_old = old;
+    Enable();
+
+    ami_alert_stub = stub;
+    return TRUE;
 }
 
 VOID ami_crash_remove_alert_hook(VOID)
 {
-    if (ami_alert_old == NULL)
+    UWORD *stub = ami_alert_stub;
+    APTR   old;
+    APTR   was;
+
+    if (stub == NULL)
         return;
 
-    Forbid();
-    (VOID)SetFunction((struct Library *)SysBase, -108, ami_alert_old);
-    Permit();
-    ami_alert_old = NULL;
+    old = *ami_alert_stub_cell(stub, AMI_ALERT_STUB_OLD);
+
+    Disable();
+    was = SetFunction((struct Library *)SysBase, -108, old);
+    if (was != (APTR)stub)
+        (VOID)SetFunction((struct Library *)SysBase, -108, was);
+    *ami_alert_stub_cell(stub, AMI_ALERT_STUB_TARGET) = old;
+    Enable();
+
+    ami_alert_stub = NULL;
+    ami_alert_old  = NULL;
 }
