@@ -581,6 +581,7 @@ LONG ami_bpf_read(APTR owner, LONG channel, APTR buffer, LONG len)
     ULONG        tick_usec;
     ULONG        waited = 0;
     ULONG        irq_mask;
+    ULONG        generation;
     BOOL         pending;
 
     ami_bpf_lock();
@@ -591,6 +592,9 @@ LONG ami_bpf_read(APTR owner, LONG channel, APTR buffer, LONG len)
         ami_bpf_unlock();
         return status;
     }
+
+    generation = ami_bpf_chan_generation[channel];
+
 
     /*
      * "len -- ... must be exactly the same number the packet filter uses for
@@ -632,6 +636,11 @@ LONG ami_bpf_read(APTR owner, LONG channel, APTR buffer, LONG len)
         {
             ami_bpf_unlock();
             return status;
+        }
+        if (ami_bpf_chan_generation[channel] != generation)
+        {
+            ami_bpf_unlock();
+            return AMI_BPF_ENXIO;
         }
 
         if (ch->reading)
