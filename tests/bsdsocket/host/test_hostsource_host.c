@@ -41,9 +41,6 @@ static AmiIfConfig          h_cfg[NX_MAX_PHYSICAL_INTERFACES];
 static LONG                 h_error;
 static BOOL                 h_ipv6_on = TRUE;
 
-/* 40 characters: the ShowNetStatus report that found this. */
-static const char h_long[] = "Workbench:Devs/Networks/x-surf-100.device";
-
 static VOID h_reset(VOID)
 {
     memset(&h_base, 0, sizeof(h_base));
@@ -52,14 +49,6 @@ static VOID h_reset(VOID)
     h_base.sb_StackRefs = 1;
     h_base.sb_StackIp   = &h_ip;
     h_error             = 0;
-}
-
-static VOID h_attach(UWORD i, const char *device)
-{
-    size_t n = strlen(device);
-
-    h_ip.nx_ip_interface[i].nx_interface_valid = NX_TRUE;
-    memcpy(h_cfg[i].device, device, n + 1);
 }
 
 static UBYTE h_buffer[sizeof(NetStatusHeader) + sizeof(NetStatusSystem) +
@@ -76,11 +65,6 @@ static LONG h_query(ULONG what, ULONG size, UWORD version)
 
     return bsd_NetStackQuery(AMI_NETSTATUS_MAGIC, what, h_buffer, size,
                              &h_base);
-}
-
-static const NetStatusIfDevice *h_entry(UWORD i)
-{
-    return (const NetStatusIfDevice *)NETSTATUS_ENTRIES(h_hdr) + i;
 }
 
 LONG netstack_interface_dhcp_state(UWORD i)
