@@ -253,6 +253,33 @@ static void test_ipv6(void)
            netdev_rx_verify6(ip, (UWORD)(len + 2), packet_sum(ip, len)) == 0);
 }
 
+#if defined(__unix__) || defined(__APPLE__)
+#include <sys/mman.h>
+#include <unistd.h>
+#define GUARD_PAGE 1
+
+/* The first byte of an inaccessible page, after a writable one: a frame of
+   n bytes at (result - n) ends exactly where reading faults. */
+static UBYTE *guard_frame_end(void)
+{
+    long   pg = sysconf(_SC_PAGESIZE);
+    UBYTE *m;
+
+    if (pg <= 0)
+        return NULL;
+    m = (UBYTE *)mmap(NULL, (size_t)pg * 2, PROT_READ | PROT_WRITE,
+                      MAP_PRIVATE | MAP_ANON, -1, 0);
+    if (m == (UBYTE *)MAP_FAILED)
+        return NULL;
+    if (mprotect(m + pg, (size_t)pg, PROT_NONE) != 0)
+        return NULL;
+    return m + pg;
+}
+#else
+#define GUARD_PAGE 0
+static UBYTE *guard_frame_end(void) { return NULL; }
+#endif
+
 /*
  * F-314: a payload length of 65516 plus the 40-byte header wrapped to 20 in
  * sixteen bits and matched a 20-byte frame.  Bytes 8-9 balance the sum so the
@@ -285,22 +312,31 @@ static void test_ipv6_short(void)
     expect("a 20-byte IPv6/UDP frame claiming 65516 is refused",
            netdev_rx_verify6(ip, plen, packet_sum(ip, plen)) == 0);
 
-    {   /* Every length short of the header, whatever the claim. */
-        UWORD n;
-        int   refused = 1;
+    {   /* Every length short of the header, whatever the claim, with the
+           frame ending at an unmapped page where one can be had: a read of
+           any byte past plen faults instead of being masked by the array. */
+        UBYTE *page = guard_frame_end();
+        UWORD  n;
+        int    refused = 1;
 
         for (n = 0; n < 40; n++)
         {
+            UBYTE *f = (page != NULL) ? page - n : ip;
+
             memset(ip, 0, sizeof(ip));
             ip[0] = 0x60;
             put16(ip + 4, (UWORD)(n - 40));
             ip[6] = 6;
             if (n >= 10)
                 put16(ip + 8, finish_sum(add16((UWORD)(n - 40), 6)));
-            if (netdev_rx_verify6(ip, n, packet_sum(ip, n)) != 0)
+            if (f != ip)
+                memcpy(f, ip, n);
+            if (netdev_rx_verify6(f, n, packet_sum(f, n)) != 0)
                 refused = 0;
         }
         expect("no frame shorter than the IPv6 header is certified", refused);
+        expect("the short-frame sweep ran against a guard page",
+               page != NULL || !GUARD_PAGE);
     }
 
     /* The exact fit still verifies. */

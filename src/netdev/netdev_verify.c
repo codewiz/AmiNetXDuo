@@ -167,8 +167,8 @@ UBYTE netdev_rx_verify6(const UBYTE *ip, UWORD plen, ULONG sum)
     UWORD tlen;
     UBYTE nh;
     ULONG acc;
-    if (ip == NULL || (ip[0] >> 4) != 6)
-        return 0;
+    if (ip == NULL || plen < 40 || (ip[0] >> 4) != 6)
+        return 0;                       /* no header byte read past plen */
     tlen = nd_be16(ip + 4);
     if ((ULONG)tlen + 40UL != (ULONG)plen)
         return 0;                       /* padded or truncated; no wrap (F-314) */
