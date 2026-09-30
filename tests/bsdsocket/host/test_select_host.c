@@ -73,6 +73,7 @@ static struct
        Wait(), because nothing else can change the fixture mid-call. */
     AmiSocket   *wait_establishes;
     LONG         wait_nx_enter_result; /* value installed by the next Wait */
+    ULONG        wait_post_signal;     /* a signal arriving right after Wait */
 
     ULONG        opens;             /* OpenDevice()                          */
     BYTE         open_result;
@@ -217,6 +218,15 @@ ULONG Wait(ULONG signalSet)
 
     if (h.wait_nx_enter_result != 0)
         h.nx_enter_result = h.wait_nx_enter_result;
+
+    /* A signal that arrives after Wait() returns, in the window before the
+       caller's next SetSignal() read -- the pending-break case at the loop
+       top.  One-shot, like wait_establishes. */
+    if (h.wait_post_signal != 0)
+    {
+        h.signals |= h.wait_post_signal;
+        h.wait_post_signal = 0;
+    }
 
     return arrived;
 }
@@ -1260,20 +1270,21 @@ static void t_waitselect_terminal(void)
           h_base.sb_TimerReq.tr_time.tv_micro == 0,
           "for one second, not the leftover 100000000");
 
-    /* A break on the re-block after an empty event wake is the same class:
-       the terminal request must not survive the EINTR. */
+    /* A break that lands in the window before the loop-top re-check -- pending
+       at the SetSignal read rather than delivered by Wait -- must also take
+       the terminal request back. */
     h_reset();
     (void)h_tcp(0, NX_TCP_SYN_SENT);
     h_sock[0].as_Flags = ASF_TCP | ASF_CONNECTING;
     h.wait_plan[0]     = H_EVENT_SIG;
-    h.wait_plan[1]     = H_BREAK_SIG;
-    h.wait_planned     = 2;
+    h.wait_planned     = 1;
+    h.wait_post_signal = H_BREAK_SIG;     /* after the wake, before the re-check */
     memset(&s, 0, sizeof(s));
     h_set(s.read, 0);
 
     n = bsd_WaitSelect(1, s.read, NULL, NULL, &big, NULL, &h_base);
     CHECK(n == -1 && h_base.sb_Errno == AMI_EINTR,
-          "a break on the re-block after an empty event wake is EINTR");
+          "a break pending at the loop-top re-check is EINTR");
     CHECK(h.abortios == 1 && !h_base.sb_TimerArmed,
           "and takes its request back, not leaving it out");
 
