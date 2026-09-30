@@ -307,7 +307,9 @@ static void test_without_a_clock(void)
  * all got a try, 27 s in all.  tool_budget_secs() turns DateStamp deltas
  * into the elapsed seconds that stop it after the second.
  */
-static unsigned long walk_refusals(unsigned long fail_after, int clock_moves)
+/* clock: 0 stopped (old), 1 the DOS clock moves, 2 no clock and every
+   failure charged its allotment, as tool_sock_connect_host() now does. */
+static unsigned long walk_refusals(unsigned long fail_after, int clock)
 {
     ToolBudget    b;
     unsigned long spent = 0, i, secs;
@@ -316,7 +318,7 @@ static unsigned long walk_refusals(unsigned long fail_after, int clock_moves)
     tool_budget_init(&b, 10UL, 3UL);
     for (i = 0; i < 3UL; i++)
     {
-        unsigned long elapsed = clock_moves
+        unsigned long elapsed = (clock == 1)
             ? tool_budget_secs((long)(spent / 86400UL),
                                (long)((spent % 86400UL) / 60UL),
                                (long)((spent % 60UL) * 50UL))
@@ -325,7 +327,7 @@ static unsigned long walk_refusals(unsigned long fail_after, int clock_moves)
         if (!tool_budget_first(&b, i, elapsed, &secs, &cut))
             break;
         spent += (fail_after < secs) ? fail_after : secs;   /* a refusal */
-        tool_budget_done(&b, i, secs, 0, cut);
+        tool_budget_done(&b, i, secs, (clock == 2) ? 1 : 0, 0);
     }
     return spent;
 }
@@ -342,6 +344,8 @@ static void test_slow_refusal_is_charged(void)
 
     CHECK(walk_refusals(9UL, 0) == 27UL);    /* what a stopped clock allowed    */
     CHECK(walk_refusals(9UL, 1) <= 10UL);    /* what the DOS clock holds it to  */
+    CHECK(walk_refusals(9UL, 2) <= 10UL);    /* and charging, with no clock     */
+    CHECK(walk_refusals(1UL, 2) <= 10UL);    /* fast refusals too               */
 }
 
 int main(void)

@@ -150,6 +150,7 @@ typedef struct ToolAddrInfo
 #define TOOL_EPIPE          32
 #define TOOL_EWOULDBLOCK    35
 #define TOOL_EINPROGRESS    36
+#define TOOL_EOPNOTSUPP     45
 #define TOOL_EADDRINUSE     48
 #define TOOL_ENETUNREACH    51
 #define TOOL_ECONNRESET     54

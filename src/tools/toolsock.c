@@ -1063,12 +1063,10 @@ LONG tool_sock_connect_timed(struct Library *base, LONG s,
 
     if (tool_sock_ioctl(base, s, TOOL_FIONBIO, &nonblock) != 0)
     {
-        /* No non-blocking mode: the blocking call is still correct, it just
-           cannot be cut short. */
-        if (tool_sock_connect(base, s, sa) == 0)
-            return 0;
-
-        *why = tool_sock_errno(base);
+        /* No non-blocking mode, and a timeout was asked for: a blocking
+           connect cannot be cut short, so it is refused rather than let run
+           for as long as the stack likes (F-249). */
+        *why = TOOL_EOPNOTSUPP;
         return -1;
     }
 
@@ -1124,20 +1122,54 @@ LONG tool_sock_connect_timed(struct Library *base, LONG s,
 }
 
 /*
- * Seconds since `t0` by the DOS clock (tool_budget_secs).  Not ami_millis():
- * it answers 0 throughout on a machine where timer.device does not open, and
- * then a connect that failed slowly, without timing out, charged the budget
- * nothing and the next address got the whole of it again (F-249).
+ * The clocks the connect budget is timed by (F-249).  timer.device's is
+ * monotonic but may not be there: ami_millis() then answers 0 throughout.
+ * The DOS clock is always there for a Process but is all zero on a machine
+ * whose date was never set, and moves when the date is set.  Elapsed is the
+ * larger of the two that exist.  With neither, the caller charges every
+ * failed attempt its whole allotment, so the budget holds without a clock.
  */
-static ULONG tool_elapsed(const struct DateStamp *t0)
+typedef struct ToolClock
 {
-    struct DateStamp now;
+    ULONG            ms0;
+    BOOL             have_ms;
+    struct DateStamp ds0;
+    BOOL             have_ds;
+} ToolClock;
 
-    DateStamp(&now);
+static VOID tool_clock_start(ToolClock *c)
+{
+    c->ms0     = ami_millis();
+    c->have_ms = (BOOL)(c->ms0 != 0UL);
+    DateStamp(&c->ds0);
+    c->have_ds = (BOOL)((c->ds0.ds_Days | c->ds0.ds_Minute |
+                         c->ds0.ds_Tick) != 0);
+}
 
-    return (ULONG)tool_budget_secs((long)(now.ds_Days - t0->ds_Days),
-                                   (long)(now.ds_Minute - t0->ds_Minute),
-                                   (long)(now.ds_Tick - t0->ds_Tick));
+static BOOL tool_clock_real(const ToolClock *c)
+{
+    return (BOOL)(c->have_ms || c->have_ds);
+}
+
+static ULONG tool_elapsed(const ToolClock *c)
+{
+    ULONG ms = 0UL;
+    ULONG ds = 0UL;
+
+    if (c->have_ms)
+        ms = (ami_millis() - c->ms0) / 1000UL;
+
+    if (c->have_ds)
+    {
+        struct DateStamp now;
+
+        DateStamp(&now);
+        ds = (ULONG)tool_budget_secs((long)(now.ds_Days - c->ds0.ds_Days),
+                                     (long)(now.ds_Minute - c->ds0.ds_Minute),
+                                     (long)(now.ds_Tick - c->ds0.ds_Tick));
+    }
+
+    return (ms > ds) ? ms : ds;
 }
 
 /* -p on nc: the wildcard of the family being connected to, plus a port. */
@@ -1223,7 +1255,7 @@ LONG tool_sock_connect_host(struct Library *base, const char *host,
 {
     ToolAddrList list;
     ToolBudget       budget;
-    struct DateStamp started;
+    ToolClock        started;
     ULONG        i;
     LONG         rc = TOOL_CONNECT_FAILED;
 
@@ -1233,7 +1265,7 @@ LONG tool_sock_connect_host(struct Library *base, const char *host,
     if (!tool_sock_resolve_list(base, host, how->family, &list))
         return TOOL_CONNECT_NORESOLVE;
 
-    DateStamp(&started);
+    tool_clock_start(&started);
 
     tool_budget_init(&budget, how->timeout, list.count);
 
@@ -1257,8 +1289,12 @@ LONG tool_sock_connect_host(struct Library *base, const char *host,
 
         rc = result;
 
+        /* Only a timeout is retried in the second pass; without a clock a
+           refusal is charged its allotment but not retried. */
         tool_budget_done(&budget, i, secs,
-                         (result == TOOL_CONNECT_TIMEDOUT) ? 1 : 0, cut);
+                         (result == TOOL_CONNECT_TIMEDOUT ||
+                          !tool_clock_real(&started)) ? 1 : 0,
+                         (result == TOOL_CONNECT_TIMEDOUT) ? cut : 0);
     }
 
     /* Second pass: the addresses that were cut short, out of whatever the
@@ -1281,7 +1317,8 @@ LONG tool_sock_connect_host(struct Library *base, const char *host,
         rc = result;
 
         tool_budget_done(&budget, i, secs,
-                         (result == TOOL_CONNECT_TIMEDOUT) ? 1 : 0, 0);
+                         (result == TOOL_CONNECT_TIMEDOUT ||
+                          !tool_clock_real(&started)) ? 1 : 0, 0);
     }
 
     return rc;
