@@ -154,7 +154,28 @@ static struct
     UINT        sent_port;
     ULONG       raw_sends;          /* bsd_raw_send_packet() calls           */
     ULONG       sent_scope;         /* and the zone it was handed            */
+
+    /* F-060: a clock the waits advance, and what each wait was handed.  A
+       call given a wait other than NX_NO_WAIT costs `cost` ticks. */
+    ULONG       clock;
+    ULONG       cost;
+    BOOL        forever;            /* bsd_wait_option() answers FOREVER     */
+    ULONG       alloc_waits[H_PLAN], send_waits[H_PLAN], recv_waits[H_PLAN];
+
+    /* A scripted TCP receive: `rx_packets` packets of `rx_len` bytes, which
+       the extract then really copies, then NX_NO_PACKET. */
+    unsigned    rx_packets, recvs;
+    ULONG       rx_len;
+    BOOL        extract_real;
 } h;
+
+ULONG _tx_time_get(VOID) { return h.clock; }
+
+static VOID h_spend(ULONG wait)
+{
+    if (wait != NX_NO_WAIT)
+        h.clock += h.cost;
+}
 
 static void h_reset(void)
 {
@@ -265,7 +286,8 @@ ULONG bsd_wait_option(AmiSocket *sock, ULONG timeout_ticks, LONG flags)
     (VOID)timeout_ticks;
 
     h.wait_option = ((sock->as_Flags & ASF_NONBLOCK) != 0 ||
-                     (flags & MSG_DONTWAIT) != 0) ? NX_NO_WAIT : 100UL;
+                     (flags & MSG_DONTWAIT) != 0) ? NX_NO_WAIT
+                  : h.forever ? NX_WAIT_FOREVER : 100UL;
 
     return h.wait_option;
 }
@@ -593,7 +615,10 @@ UINT _nxe_packet_allocate(NX_PACKET_POOL *pool_ptr, NX_PACKET **packet_ptr,
 
     (VOID)pool_ptr;
     (VOID)packet_type;
-    (VOID)wait_option;
+
+    if (h.allocs < H_PLAN)
+        h.alloc_waits[h.allocs] = wait_option;
+    h_spend(wait_option);
 
     status = h_plan(h.alloc_plan, h.alloc_planned, h.allocs);
     h.allocs++;
@@ -702,7 +727,10 @@ UINT _nxe_tcp_socket_send(NX_TCP_SOCKET *socket_ptr, NX_PACKET **packet_ptr_ptr,
     UINT     status;
 
     (VOID)socket_ptr;
-    (VOID)wait_option;
+
+    if (h.sends < H_PLAN)
+        h.send_waits[h.sends] = wait_option;
+    h_spend(wait_option);
 
     status = h_plan(h.send_plan, h.send_planned, h.sends);
     h.sends++;
@@ -738,9 +766,30 @@ UINT _nxe_tcp_socket_send(NX_TCP_SOCKET *socket_ptr, NX_PACKET **packet_ptr_ptr,
 UINT _nx_tcp_socket_receive(NX_TCP_SOCKET *socket_ptr, NX_PACKET **packet_ptr,
                             ULONG wait_option)
 {
+    unsigned i;
+
     (VOID)socket_ptr;
-    (VOID)packet_ptr;
-    (VOID)wait_option;
+
+    if (h.recvs < H_PLAN)
+        h.recv_waits[h.recvs] = wait_option;
+    h.recvs++;
+    h_spend(wait_option);
+
+    if (h.rx_packets == 0)
+        return NX_NO_PACKET;
+
+    for (i = 0; i < H_PKTS; i++)
+    {
+        if (!h_pkt[i].in_use)
+        {
+            memset(&h_pkt[i], 0, sizeof(h_pkt[i]));
+            h_pkt[i].in_use = TRUE;
+            h_len(&h_pkt[i]) = h.rx_len;
+            *packet_ptr = &h_pkt[i].nx;
+            h.rx_packets--;
+            return NX_SUCCESS;
+        }
+    }
 
     return NX_NO_PACKET;
 }
@@ -825,6 +874,18 @@ UINT _nxe_packet_data_extract_offset(NX_PACKET *packet_ptr, ULONG offset,
                                      VOID *buffer_start, ULONG buffer_length,
                                      ULONG *bytes_copied)
 {
+    if (h.extract_real && packet_ptr != NULL &&
+        offset < packet_ptr->nx_packet_length)
+    {
+        ULONG n = packet_ptr->nx_packet_length - offset;
+
+        if (n > buffer_length)
+            n = buffer_length;
+        memset(buffer_start, 0x5A, n);
+        *bytes_copied = n;
+        return NX_SUCCESS;
+    }
+
     (VOID)packet_ptr;
     (VOID)offset;
     (VOID)buffer_start;
@@ -1661,10 +1722,73 @@ static void t_send_monitor(void)
     CHECK(h.monitor_calls == 0, "with no hook, nothing is dispatched");
 }
 
+/*
+ * F-060: SO_SNDTIMEO / SO_RCVTIMEO bound the CALL.  A three-segment send
+ * waits for a packet and for the window three times, and a MSG_WAITALL
+ * receive once per packet; every wait used to be handed the full 100 ticks.
+ * Now each gets what is left of one budget, NX_NO_WAIT once it is spent, and
+ * NX_WAIT_FOREVER and non-blocking sockets are as they were.
+ */
+static void t_call_budget(void)
+{
+    UBYTE buf[64];
+
+    printf("transfer: one timeout per call, not per wait\n");
+
+    /* A blocking send of three 10-byte segments, each wait costing 30. */
+    h_reset();
+    h_tcp(0);
+    h.mss  = 10;
+    h.cost = 30;
+    h.clock = 0xFFFFFFC0UL;                     /* across a tick wrap */
+    CHECK(bsd_send(0, buf, 24, 0, &h_base) == 24, "the send completes");
+    CHECK(h.sends == 3, "in three segments");
+    CHECK(h.alloc_waits[0] == 100UL && h.send_waits[0] == 70UL,
+          "the first packet gets the whole budget, its send what is left");
+    CHECK(h.alloc_waits[1] == 40UL && h.send_waits[1] == 10UL,
+          "the second segment what is left after that");
+    CHECK(h.alloc_waits[2] == NX_NO_WAIT && h.send_waits[2] == NX_NO_WAIT,
+          "and once it is spent, no wait at all");
+
+    /* NX_WAIT_FOREVER stays forever. */
+    h_reset();
+    h_tcp(0);
+    h.mss     = 10;
+    h.cost    = 30;
+    h.forever = TRUE;
+    CHECK(bsd_send(0, buf, 24, 0, &h_base) == 24, "a forever send completes");
+    CHECK(h.alloc_waits[2] == NX_WAIT_FOREVER &&
+              h.send_waits[2] == NX_WAIT_FOREVER,
+          "and every wait is still forever");
+
+    /* Non-blocking stays non-blocking, and costs nothing. */
+    h_reset();
+    h_tcp(0)->as_Flags |= ASF_NONBLOCK;
+    h.mss  = 10;
+    h.cost = 30;
+    CHECK(bsd_send(0, buf, 24, 0, &h_base) == 24, "a non-blocking send");
+    CHECK(h.send_waits[0] == NX_NO_WAIT && h.clock == 0,
+          "never waits");
+
+    /* MSG_WAITALL: three 4-byte packets, each receive costing 30. */
+    h_reset();
+    h_tcp(0);
+    h.cost         = 30;
+    h.rx_packets   = 3;
+    h.rx_len       = 4;
+    h.extract_real = TRUE;
+    CHECK(bsd_recv(0, buf, 12, MSG_WAITALL, &h_base) == 12,
+          "MSG_WAITALL gathers all twelve bytes");
+    CHECK(h.recv_waits[0] == 100UL && h.recv_waits[1] == 70UL &&
+              h.recv_waits[2] == 40UL,
+          "each receive waits only for what is left of the one budget");
+}
+
 int main(void)
 {
     printf("transfer.c host checks\n\n");
 
+    t_call_budget();
     t_abi();
     t_refusals();
     t_iov_total();

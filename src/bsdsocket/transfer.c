@@ -328,9 +328,46 @@ static VOID bsd_send_mss_get(struct AmiSocketBase *base, AmiSocket *sock,
     AMI_NX_BY_OUTPUT(nx_tcp_socket_mss_get(&sock->as_Nx.tcp, mss));
 }
 
+/*
+ * ONE SO_SNDTIMEO OR SO_RCVTIMEO PER CALL (F-060).  A TCP send waits for a
+ * packet and for the window once per segment, and a MSG_WAITALL receive once
+ * per packet; each wait used to be handed the whole timeout again, so a call
+ * could block for many times what the caller set.  BSD's timeout bounds the
+ * call.  The budget starts when the call does and every wait gets what is
+ * left, measured with tx_time_get() and unsigned subtraction, which is right
+ * across a tick-counter wrap.  NX_WAIT_FOREVER and NX_NO_WAIT pass through as
+ * they are, and a finite timeout never becomes NX_WAIT_FOREVER: what is left
+ * is less than what was set, and options.c clamps what was set below it.
+ */
+typedef struct BsdWaitBudget
+{
+    ULONG   bwb_Wait;       /* as bsd_wait_option() answered, for errno     */
+    ULONG   bwb_Start;      /* tx_time_get() when the call began            */
+} BsdWaitBudget;
+
+static VOID bsd_budget_start(BsdWaitBudget *b, ULONG wait)
+{
+    b->bwb_Wait  = wait;
+    b->bwb_Start = (wait == NX_NO_WAIT || wait == NX_WAIT_FOREVER)
+                       ? 0UL : tx_time_get();
+}
+
+/* What the next wait may take: nothing once the budget is spent. */
+static ULONG bsd_budget_left(const BsdWaitBudget *b)
+{
+    ULONG spent;
+
+    if (b->bwb_Wait == NX_NO_WAIT || b->bwb_Wait == NX_WAIT_FOREVER)
+        return b->bwb_Wait;
+
+    spent = tx_time_get() - b->bwb_Start;
+
+    return (spent >= b->bwb_Wait) ? NX_NO_WAIT : b->bwb_Wait - spent;
+}
+
 static LONG bsd_send_tcp_run(struct AmiSocketBase *base, AmiSocket *sock,
                              BsdIovCursor *cur, LONG len, LONG flags,
-                             AmiSana2If *run)
+                             AmiSana2If *run, const BsdWaitBudget *tb)
 {
     NX_PACKET_POOL *pool = bsd_stack_pool(base);
     ULONG           mss  = 0;
@@ -351,7 +388,7 @@ static LONG bsd_send_tcp_run(struct AmiSocketBase *base, AmiSocket *sock,
     if (mss == 0)
         mss = BSD_DEFAULT_MSS;
 
-    wait = bsd_wait_option(sock, sock->as_SndTimeout, flags);
+    wait = tb->bwb_Wait;
 
     while (sent < len)
     {
@@ -371,8 +408,10 @@ static LONG bsd_send_tcp_run(struct AmiSocketBase *base, AmiSocket *sock,
             aargs.packet = &packet;
             aargs.run    = run;
 
-            status = bsd_wait_sliced(base, wait, bsd_alloc_once, &aargs,
-                                     &aborted);
+            status = bsd_wait_sliced(base,
+                                     (wait == NX_NO_WAIT) ? NX_NO_WAIT
+                                                          : bsd_budget_left(tb),
+                                     bsd_alloc_once, &aargs, &aborted);
             if (aborted)
             {
                 if (sent > 0)
@@ -386,7 +425,10 @@ static LONG bsd_send_tcp_run(struct AmiSocketBase *base, AmiSocket *sock,
             break;
         }
 
-        filled = bsd_packet_append_iov(packet, cur, chunk, pool, wait, &why);
+        filled = bsd_packet_append_iov(packet, cur, chunk, pool,
+                                       (wait == NX_NO_WAIT)
+                                           ? NX_NO_WAIT : bsd_budget_left(tb),
+                                       &why);
         if (filled <= 0)
         {
             nx_packet_release(packet);
@@ -401,8 +443,10 @@ static LONG bsd_send_tcp_run(struct AmiSocketBase *base, AmiSocket *sock,
             sargs.packet = packet;
             sargs.run    = run;
 
-            status = bsd_wait_sliced(base, wait, bsd_send_once, &sargs,
-                                     &aborted);
+            status = bsd_wait_sliced(base,
+                                     (wait == NX_NO_WAIT) ? NX_NO_WAIT
+                                                          : bsd_budget_left(tb),
+                                     bsd_send_once, &sargs, &aborted);
             if (aborted)
             {
                 sent += bsd_send_consumed(packet, filled);
@@ -531,15 +575,16 @@ static LONG bsd_cork_so_error(struct AmiSocketBase *base, AmiSocket *sock)
  * or -1 with errno set when some of it is still held.
  */
 static LONG bsd_cork_drain(struct AmiSocketBase *base, AmiSocket *sock,
-                           ULONG wait, AmiSana2If *run)
+                           const BsdWaitBudget *tb, AmiSana2If *run)
 {
     NX_PACKET *pkt     = NULL;
     ULONG      why     = 0;
     UINT       status  = NX_SUCCESS;
     BOOL       aborted = FALSE;
+    ULONG      wait    = tb->bwb_Wait;
     LONG       rc;
 
-    rc = bsd_cork_claim(base, sock, wait, &pkt);
+    rc = bsd_cork_claim(base, sock, bsd_budget_left(tb), &pkt);
     if (rc != 0)
     {
         if (rc == AMI_EAGAIN)
@@ -548,8 +593,8 @@ static LONG bsd_cork_drain(struct AmiSocketBase *base, AmiSocket *sock,
     }
 
     if (pkt != NULL)
-        why = bsd_cork_flush_wait(base, sock, &pkt, wait, run, &status,
-                                  &aborted);
+        why = bsd_cork_flush_wait(base, sock, &pkt, bsd_budget_left(tb), run,
+                                  &status, &aborted);
 
     if (pkt != NULL && wait == NX_NO_WAIT)
         sock->as_TxWait = 1;
@@ -569,7 +614,7 @@ static LONG bsd_cork_drain(struct AmiSocketBase *base, AmiSocket *sock,
 
 static LONG bsd_send_tcp_cork(struct AmiSocketBase *base, AmiSocket *sock,
                               BsdIovCursor *cur, LONG len, LONG flags,
-                              AmiSana2If *run)
+                              AmiSana2If *run, const BsdWaitBudget *tb)
 {
     NX_PACKET_POOL *pool    = bsd_stack_pool(base);
     NX_PACKET      *pkt     = NULL;
@@ -594,9 +639,9 @@ static LONG bsd_send_tcp_cork(struct AmiSocketBase *base, AmiSocket *sock,
     if (sock->as_SoError != 0)
         return bsd_cork_so_error(base, sock);
 
-    wait = bsd_wait_option(sock, sock->as_SndTimeout, flags);
+    wait = tb->bwb_Wait;
 
-    rc = bsd_cork_claim(base, sock, wait, &pkt);
+    rc = bsd_cork_claim(base, sock, bsd_budget_left(tb), &pkt);
     if (rc != 0)
     {
         if (rc == AMI_EAGAIN)
@@ -612,9 +657,9 @@ static LONG bsd_send_tcp_cork(struct AmiSocketBase *base, AmiSocket *sock,
     {
         if (bsd_cork_unclaim(sock, pkt, BSD_CORKF_TICK))
             bsd_tcp_send_fin(sock);
-        if (bsd_cork_drain(base, sock, wait, run) != 0)
+        if (bsd_cork_drain(base, sock, tb, run) != 0)
             return -1;
-        return bsd_send_tcp_run(base, sock, cur, len, flags, run);
+        return bsd_send_tcp_run(base, sock, cur, len, flags, run, tb);
     }
 
     bsd_send_mss_get(base, sock, &mss);
@@ -640,8 +685,8 @@ static LONG bsd_send_tcp_cork(struct AmiSocketBase *base, AmiSocket *sock,
             aargs.packet = &pkt;
             aargs.run    = run;
 
-            status = bsd_wait_sliced(base, wait, bsd_alloc_once, &aargs,
-                                     &aborted);
+            status = bsd_wait_sliced(base, bsd_budget_left(tb), bsd_alloc_once,
+                                     &aargs, &aborted);
             if (aborted || status != NX_SUCCESS)
             {
                 pkt = NULL;
@@ -682,8 +727,8 @@ static LONG bsd_send_tcp_cork(struct AmiSocketBase *base, AmiSocket *sock,
 
         /* It does not fit: what is pending goes first, so the bytes keep
            their order. */
-        why = bsd_cork_flush_wait(base, sock, &pkt, wait, run, &status,
-                                  &aborted);
+        why = bsd_cork_flush_wait(base, sock, &pkt, bsd_budget_left(tb), run,
+                                  &status, &aborted);
         if (pkt != NULL)
         {
             if (wait == NX_NO_WAIT && !aborted)
@@ -730,7 +775,7 @@ static LONG bsd_send_tcp_cork(struct AmiSocketBase *base, AmiSocket *sock,
         return (taken > 0) ? taken : bsd_cork_so_error(base, sock);
 
     /* Nothing pending: the rest takes the uncorked path. */
-    rest = bsd_send_tcp_run(base, sock, cur, len - taken, flags, run);
+    rest = bsd_send_tcp_run(base, sock, cur, len - taken, flags, run, tb);
     if (rest < 0)
         return (taken > 0) ? taken : -1;
 
@@ -797,20 +842,22 @@ static BOOL bsd_cork_fast_append(AmiSocket *sock, BsdIovCursor *cur, LONG len)
 static LONG bsd_send_tcp(struct AmiSocketBase *base, AmiSocket *sock,
                          BsdIovCursor *cur, LONG len, LONG flags)
 {
-    AmiSana2If *run = bsd_send_run_iface(sock);
-    LONG        result;
+    AmiSana2If   *run = bsd_send_run_iface(sock);
+    BsdWaitBudget tb;
+    LONG          result;
 
 #ifdef AMINETXDUO_SCHEDCOUNT
     base->sb_ScTcpSends++;
 #endif
+    bsd_budget_start(&tb, bsd_wait_option(sock, sock->as_SndTimeout, flags));
     ami_sana2_tx_run_begin(run);
 #ifdef AMINETXDUO_TCP_CORK
     if ((sock->as_CorkFlags & BSD_CORKF_ON) != 0 || sock->as_CorkPkt != NULL ||
         sock->as_CorkState != BSD_CORK_IDLE)
-        result = bsd_send_tcp_cork(base, sock, cur, len, flags, run);
+        result = bsd_send_tcp_cork(base, sock, cur, len, flags, run, &tb);
     else
 #endif
-    result = bsd_send_tcp_run(base, sock, cur, len, flags, run);
+    result = bsd_send_tcp_run(base, sock, cur, len, flags, run, &tb);
     ami_sana2_tx_run_end(run);
 
     return result;
@@ -1512,10 +1559,14 @@ static LONG bsd_recv_direct(struct AmiSocketBase *base, AmiSocket *sock,
 static LONG bsd_recv_tcp(struct AmiSocketBase *base, AmiSocket *sock,
                          BsdIovCursor *cur, LONG len, LONG flags, BOOL *held)
 {
-    LONG  copied = 0;
-    ULONG wait   = bsd_wait_option(sock, sock->as_RcvTimeout, flags);
-    BOOL  peek   = ((flags & MSG_PEEK) != 0);
-    BOOL  first  = TRUE;
+    LONG          copied = 0;
+    ULONG         wait   = bsd_wait_option(sock, sock->as_RcvTimeout, flags);
+    BOOL          peek   = ((flags & MSG_PEEK) != 0);
+    BOOL          first  = TRUE;
+    BsdWaitBudget tb;
+
+    /* MSG_WAITALL waits once per packet: one budget for all of them (F-060). */
+    bsd_budget_start(&tb, wait);
 
     if ((sock->as_Flags & ASF_RDSHUT) != 0)
         return 0;
@@ -1537,8 +1588,8 @@ static LONG bsd_recv_tcp(struct AmiSocketBase *base, AmiSocket *sock,
         {
             NX_PACKET *packet = NX_NULL;
 
-            ULONG now = (first || (flags & MSG_WAITALL) != 0) ? wait
-                                                              : NX_NO_WAIT;
+            ULONG now = (first || (flags & MSG_WAITALL) != 0)
+                            ? bsd_budget_left(&tb) : NX_NO_WAIT;
 
 #ifdef AMINETXDUO_TCP_CORK
             /* About to wait for the peer, with nothing queued to read: what
@@ -2090,9 +2141,11 @@ static LONG bsd_send_oob(struct AmiSocketBase *base, AmiSocket *sock,
        first, however long that takes, and nothing after it is corked. */
     if (sock->as_CorkPkt != NULL || sock->as_CorkState != BSD_CORK_IDLE)
     {
-        if (bsd_cork_drain(base, sock,
-                           bsd_wait_option(sock, sock->as_SndTimeout, flags),
-                           bsd_send_run_iface(sock)) != 0)
+        BsdWaitBudget tb;
+
+        bsd_budget_start(&tb, bsd_wait_option(sock, sock->as_SndTimeout,
+                                               flags));
+        if (bsd_cork_drain(base, sock, &tb, bsd_send_run_iface(sock)) != 0)
         {
             bsd_nx_leave(base);
             return -1;
