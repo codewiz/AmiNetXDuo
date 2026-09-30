@@ -379,7 +379,9 @@ host_test_targets() { # builddir
 #      interface, whatever the unit (F-172)
 #      480 with route_match: DeleteNetRoute finds a static /0 by 0.0.0.0 and
 #      an explicit mask only by an exact static row (F-133)
-HOST_TESTS_EXPECTED=480
+#      481 with tls_time_window: a DateStamp day count is bounded before it
+#      is multiplied, so a 32-bit wrap is not a known date (F-301)
+HOST_TESTS_EXPECTED=481
 case "$(uname -m)" in
     x86_64|amd64) ;;
     # test_inet, test_route, test_expunge, test_expunge_cork, test_select,

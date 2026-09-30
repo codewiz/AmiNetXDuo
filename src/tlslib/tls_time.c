@@ -25,6 +25,14 @@
 #define TLS_TICKS_PER_SECOND    50UL
 
 /*
+ * The last AmigaOS day that can fall inside the window.  A day count is held
+ * to it BEFORE it is multiplied: days * 86400 wraps in 32 bits every 49710
+ * days, so a clock 136 years out, or any garbage count, landed back inside
+ * the window and was taken as a known date (F-301).
+ */
+#define TLS_CLOCK_LAST_DAY      ((TLS_CLOCK_CEILING - TLS_AMIGA_EPOCH) / 86400UL)
+
+/*
  * DateStamp() as it stands, with no floor or ceiling applied.  On a machine
  * without a set clock it counts from boot, which is wrong as a date and still
  * useful as elapsed time; TLS_CLOCK_FLOOR tells the two cases apart.
@@ -49,12 +57,41 @@ ULONG tls_time_monotonic(VOID)
     return seconds + TLS_AMIGA_EPOCH;
 }
 
+/*
+ * The DateStamp as a date inside [TLS_CLOCK_FLOOR, TLS_CLOCK_CEILING], or 0.
+ * Each field is bounded before any arithmetic, so nothing here wraps.
+ * tls_time_monotonic() stays the plain sum: tls_resume.c ages sessions by it
+ * and needs it to keep counting whatever the clock says.
+ */
+static ULONG tls_time_date(VOID)
+{
+    struct DateStamp ds;
+    ULONG            now;
+
+    if (DOSBase == NULL)
+        return 0;
+
+    (VOID)DateStamp(&ds);
+
+    if (ds.ds_Days < 0 || (ULONG)ds.ds_Days > TLS_CLOCK_LAST_DAY ||
+        ds.ds_Minute < 0 || ds.ds_Minute >= 24L * 60L ||
+        ds.ds_Tick < 0 || ds.ds_Tick >= 60L * (LONG)TLS_TICKS_PER_SECOND)
+        return 0;
+
+    now  = (ULONG)ds.ds_Days * 86400UL;
+    now += (ULONG)ds.ds_Minute * 60UL;
+    now += (ULONG)ds.ds_Tick / TLS_TICKS_PER_SECOND;
+    now += TLS_AMIGA_EPOCH;
+
+    if (now < TLS_CLOCK_FLOOR || now > TLS_CLOCK_CEILING)
+        return 0;
+
+    return now;
+}
+
 BOOL tls_time_is_known(VOID)
 {
-    ULONG now = tls_time_monotonic();
-
-    return (BOOL)((now >= TLS_CLOCK_FLOOR && now <= TLS_CLOCK_CEILING)
-                  ? TRUE : FALSE);
+    return (BOOL)((tls_time_date() != 0) ? TRUE : FALSE);
 }
 
 /*
@@ -64,10 +101,5 @@ BOOL tls_time_is_known(VOID)
  */
 ULONG tls_time_now(VOID)
 {
-    ULONG now = tls_time_monotonic();
-
-    if (now < TLS_CLOCK_FLOOR || now > TLS_CLOCK_CEILING)
-        return 0;
-
-    return now;
+    return tls_time_date();
 }

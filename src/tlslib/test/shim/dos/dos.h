@@ -18,4 +18,11 @@ struct DosLibrary;
 #define MODE_OLDFILE    1005L
 #define MODE_NEWFILE    1006L
 
+struct DateStamp
+{
+    LONG ds_Days;
+    LONG ds_Minute;
+    LONG ds_Tick;
+};
+
 #endif

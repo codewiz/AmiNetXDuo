@@ -381,6 +381,23 @@ if(NOT CMAKE_CROSSCOMPILING)
 
     add_test(NAME tls_session_resume COMMAND test_tls_resume)
 
+    # tls_time.c against a DateStamp() the test sets: a day count is bounded
+    # before it is multiplied, so a clock that wraps 32 bits is not a date
+    # inside the window (F-301).  The same includes and defines as
+    # test_tls_resume, for the same tls_internal.h.
+    add_executable(test_tls_time
+        test/test_tls_time.c
+        tls_time.c)
+
+    get_target_property(_tls_time_inc test_tls_resume INCLUDE_DIRECTORIES)
+    get_target_property(_tls_time_def test_tls_resume COMPILE_DEFINITIONS)
+    target_include_directories(test_tls_time PRIVATE ${_tls_time_inc})
+    target_compile_definitions(test_tls_time PRIVATE ${_tls_time_def})
+    target_compile_options(test_tls_time PRIVATE -Wall -Wextra -UAMINETXDUO_IPV6)
+    set_target_properties(test_tls_time PROPERTIES C_STANDARD 11)
+
+    add_test(NAME tls_time_window COMMAND test_tls_time)
+
     # TLSClose() uses the ThreadX bracket as the global serialization for
     # NetX Secure's shared session list. Compile the shipping vector itself,
     # then discard its unrelated entry points at link time; the test records

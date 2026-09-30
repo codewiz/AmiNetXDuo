@@ -22,4 +22,7 @@ LONG Write(BPTR fh, const void *buffer, LONG length);
    waits on. */
 VOID Delay(LONG ticks);
 
+/* tls_time.c; test_tls_time.c sets the clock. */
+struct DateStamp *DateStamp(struct DateStamp *ds);
+
 #endif
