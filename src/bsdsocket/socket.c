@@ -373,6 +373,7 @@ LONG bsd_table_size(struct AmiSocketBase *base)
 LONG bsd_table_resize(struct AmiSocketBase *base, LONG size)
 {
     AmiSocket **table;
+    AmiSocket **old;
     LONG        i, copy;
 
     if (size < 1 || size > BSD_MAX_DTABLESIZE)
@@ -407,9 +408,14 @@ LONG bsd_table_resize(struct AmiSocketBase *base, LONG size)
     for (i = 0; i < copy; i++)
         table[i] = base->sb_Table[i];
 
-    ami_free(base->sb_Table);
+    /* Published whole under Forbid() and the old one freed after: another
+       opener's bsd_owner_elect() reads this table (F-043). */
+    Forbid();
+    old = base->sb_Table;
     base->sb_Table     = table;
     base->sb_TableSize = size;
+    Permit();
+    ami_free(old);
 
     return 0;
 }

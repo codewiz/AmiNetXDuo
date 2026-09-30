@@ -7,6 +7,7 @@
 
 #include "bsdsocket_vectors.h"
 
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,10 +24,24 @@ static unsigned long failures;
         }                                                                     \
     } while (0)
 
-static AmiSocket *tables[3][4];
+static AmiSocket *tables[4][4];
 static struct AmiSocketBase master_base;
 static struct AmiSocketBase source_base;
 static struct AmiSocketBase target_base;
+static struct AmiSocketBase third_base;
+
+/* Signal(), recorded: which task was told, and how often. */
+static struct Task  task_a, task_b, task_c;
+static struct Task *signalled_task;
+static ULONG        signalled_mask;
+static int          signals;
+
+VOID Signal(struct Task *task, ULONG mask)
+{
+    signalled_task = task;
+    signalled_mask = mask;
+    signals++;
+}
 
 VOID AddTail(struct List *list, struct Node *node)
 {
@@ -115,6 +130,7 @@ static VOID reset_fixture(AmiSocket *sock)
     memset(&master_base, 0, sizeof(master_base));
     memset(&source_base, 0, sizeof(source_base));
     memset(&target_base, 0, sizeof(target_base));
+    memset(&third_base, 0, sizeof(third_base));
     memset(sock, 0, sizeof(*sock));
 
     master_base.sb_Table = tables[0];
@@ -202,6 +218,114 @@ static VOID test_alias_keeps_owner(VOID)
     CHECK(sock.as_Owner == &target_base, "another base's ownership is left alone");
 }
 
+/*
+ * F-043: the socket passes to another opener still holding it.  A copies a
+ * listener out with ReleaseCopyOfSocket() and keeps its descriptor; B obtains
+ * the copy and owns it.  When B's descriptor goes, A must own it again, and be
+ * told once, or its descriptor has no stack and no signals.  The bases sit on
+ * the master's sb_Children as bsd_child_create() leaves them.
+ */
+static VOID link_children(VOID)
+{
+    struct List *l = (struct List *)&master_base.sb_Children;
+
+    l->lh_Head     = (struct Node *)&l->lh_Tail;
+    l->lh_Tail     = NULL;
+    l->lh_TailPred = (struct Node *)&l->lh_Head;
+    AddTail(l, (struct Node *)&source_base.sb_Node);
+    AddTail(l, (struct Node *)&target_base.sb_Node);
+    AddTail(l, (struct Node *)&third_base.sb_Node);
+
+    memset(&third_base, 0, offsetof(struct AmiSocketBase, sb_Node));
+    third_base.sb_Table = tables[3];
+    third_base.sb_TableSize = 4;
+    third_base.sb_Master = &master_base;
+
+    source_base.sb_Task = &task_a;
+    target_base.sb_Task = &task_b;
+    third_base.sb_Task  = &task_c;
+    source_base.sb_EventSigMask = 1UL << 10;
+    target_base.sb_EventSigMask = 1UL << 11;
+    third_base.sb_EventSigMask  = 1UL << 12;
+    signals = 0;
+    signalled_task = NULL;
+}
+
+/* A descriptor of `base` goes, the way the close path takes it. */
+static VOID close_fd(struct AmiSocketBase *base, LONG fd, AmiSocket *sock)
+{
+    CHECK(bsd_fd_free(base, fd) == 0, "the descriptor is freed");
+    bsd_socket_release(base, sock);
+}
+
+static VOID test_owner_reelect(VOID)
+{
+    AmiSocket sock;
+    LONG id;
+    LONG fd;
+
+    /* Two bases: A copies, B obtains and closes. */
+    reset_fixture(&sock);
+    memset(tables[3], 0, sizeof(tables[3]));
+    link_children();
+    id = bsd_ReleaseCopyOfSocket(0, UNIQUE_ID, &source_base);
+    fd = bsd_ObtainSocket(id, AF_INET, SOCK_STREAM, IPPROTO_TCP, &target_base);
+    CHECK(fd == 0 && sock.as_Owner == &target_base,
+          "the obtaining base owns the copy, as before");
+    close_fd(&target_base, fd, &sock);
+    CHECK(sock.as_RefCount == 1, "A's reference is left");
+    CHECK(sock.as_Owner == &source_base,
+          "A, still holding it, owns it again");
+    CHECK(signals == 1 && signalled_task == &task_a &&
+              signalled_mask == source_base.sb_EventSigMask,
+          "and is signalled once for what it missed");
+
+    /* Three bases: A holds, B and C obtain copies; the owner closes each
+       time, and the socket always lands on a base that still holds it. */
+    reset_fixture(&sock);
+    memset(tables[3], 0, sizeof(tables[3]));
+    link_children();
+    id = bsd_ReleaseCopyOfSocket(0, UNIQUE_ID, &source_base);
+    CHECK(bsd_ObtainSocket(id, AF_INET, SOCK_STREAM, IPPROTO_TCP,
+                           &target_base) == 0, "B obtains a copy");
+    id = bsd_ReleaseCopyOfSocket(0, UNIQUE_ID, &source_base);
+    CHECK(bsd_ObtainSocket(id, AF_INET, SOCK_STREAM, IPPROTO_TCP,
+                           &third_base) == 0, "C obtains another");
+    CHECK(sock.as_Owner == &third_base && sock.as_RefCount == 3,
+          "C owns it, three references");
+    close_fd(&third_base, 0, &sock);
+    CHECK(sock.as_Owner == &source_base, "C goes: the first holder, A");
+    close_fd(&source_base, 0, &sock);
+    CHECK(sock.as_Owner == &target_base, "A goes: B, the last holder");
+    CHECK(sock.as_RefCount == 1, "one reference left");
+
+    /* A holder whose Task is gone is the owner only if no live one holds. */
+    reset_fixture(&sock);
+    memset(tables[3], 0, sizeof(tables[3]));
+    link_children();
+    id = bsd_ReleaseCopyOfSocket(0, UNIQUE_ID, &source_base);
+    CHECK(bsd_ObtainSocket(id, AF_INET, SOCK_STREAM, IPPROTO_TCP,
+                           &target_base) == 0, "B obtains a copy");
+    id = bsd_ReleaseCopyOfSocket(0, UNIQUE_ID, &source_base);
+    CHECK(bsd_ObtainSocket(id, AF_INET, SOCK_STREAM, IPPROTO_TCP,
+                           &third_base) == 0, "C obtains another");
+    source_base.sb_Task = NULL;             /* A's Task died */
+    signals = 0;
+    close_fd(&third_base, 0, &sock);
+    CHECK(sock.as_Owner == &target_base, "a live holder is preferred");
+    close_fd(&target_base, 0, &sock);
+    CHECK(sock.as_Owner == &source_base, "the dead one when it is the only one");
+    CHECK(signals == 1, "and nobody signals a Task that is gone");
+
+    /* Nobody else holds it: NULL, as before. */
+    reset_fixture(&sock);
+    memset(tables[3], 0, sizeof(tables[3]));
+    link_children();
+    id = bsd_ReleaseSocket(0, UNIQUE_ID, &source_base);
+    CHECK(sock.as_Owner == NULL, "a fully released socket belongs to nobody");
+    CHECK(signals == 0, "and nobody is signalled");
+}
+
 static VOID test_release_copy_listener(VOID)
 {
     AmiSocket sock;
@@ -267,6 +391,7 @@ int main(void)
     test_release_listener();
     test_release_copy_listener();
     test_alias_keeps_owner();
+    test_owner_reelect();
     test_take_and_flush();
     printf("handoff: %lu checks, %lu failures\n", checks, failures);
     return failures ? 1 : 0;

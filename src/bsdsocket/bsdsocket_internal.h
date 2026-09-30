@@ -853,15 +853,70 @@ VOID       bsd_socket_retain(AmiSocket *sock);
 VOID       bsd_socket_release(struct AmiSocketBase *base, AmiSocket *sock);
 
 /*
+ * Another opener of this master whose descriptor table names `sock`, or NULL
+ * (F-043).  One with a live Task is preferred.  Caller holds Forbid(), and
+ * that is all this needs:
+ *   - sb_Children changes only by AddTail() and Remove() (library.c), and
+ *     both are safe to walk forward at every instruction boundary: ADDTAIL
+ *     writes the node's own links before the one store that makes it
+ *     reachable, and REMOVE's first store unlinks it (exec/lists.i).  A child
+ *     is retired only after its Remove().
+ *   - a table is replaced or retired under Forbid() and freed after
+ *     (bsd_table_resize(), bsd_child_destroy()), so no table read here is
+ *     freed or half-published; a slot is one longword.
+ */
+static inline struct AmiSocketBase *bsd_owner_elect(struct AmiSocketBase *base,
+                                                    AmiSocket *sock)
+{
+    struct AmiSocketBase *master = (base->sb_Master != NULL) ? base->sb_Master
+                                                             : base;
+    struct AmiSocketBase *fallback = NULL;
+    struct MinNode       *node;
+    LONG                  fd;
+
+    for (node = master->sb_Children.mlh_Head;
+         node != NULL && node->mln_Succ != NULL;
+         node = node->mln_Succ)
+    {
+        struct AmiSocketBase *child =
+            (struct AmiSocketBase *)((UBYTE *)node -
+                                     offsetof(struct AmiSocketBase, sb_Node));
+
+        if (child == base || child->sb_Table == NULL)
+            continue;
+
+        for (fd = 0; fd < child->sb_TableSize; fd++)
+        {
+            if (child->sb_Table[fd] != sock)
+                continue;
+            if (child->sb_Task != NULL)
+                return child;
+            if (fallback == NULL)
+                fallback = child;
+            break;
+        }
+    }
+
+    return fallback;
+}
+
+/*
  * A descriptor of this base has just been freed and the socket lives on
  * elsewhere (another reference, or a handoff entry).  The base stops being the
  * one signalled -- unless it still holds a Dup2Socket() alias of the socket,
  * which would otherwise get no events and no stack (F-057).  Callers free the
  * descriptor first and hold Forbid() or the handoff lock.
+ *
+ * The socket passes to another opener still holding it (F-043): a
+ * ReleaseCopyOfSocket() base whose ObtainSocket() copy has just gone kept a
+ * NULL owner, so no stack and no signals.  The new owner is signalled once,
+ * because events that came while it was not the owner went elsewhere.  With
+ * nobody left holding a descriptor it is NULL, as before.
  */
 static inline VOID bsd_owner_drop(struct AmiSocketBase *base, AmiSocket *sock)
 {
-    LONG fd;
+    struct AmiSocketBase *heir;
+    LONG                  fd;
 
     if (sock->as_Owner != base)
         return;
@@ -873,7 +928,13 @@ static inline VOID bsd_owner_drop(struct AmiSocketBase *base, AmiSocket *sock)
                 return;
         }
     }
-    sock->as_Owner = NULL;
+
+    Forbid();
+    heir = bsd_owner_elect(base, sock);
+    sock->as_Owner = heir;
+    if (heir != NULL && heir->sb_Task != NULL)
+        Signal(heir->sb_Task, heir->sb_EventSigMask);
+    Permit();
 }
 
 /* socket.c, reclaim sockets whose orderly close has finished. Must be called

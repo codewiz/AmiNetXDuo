@@ -660,9 +660,16 @@ static VOID bsd_child_destroy(struct AmiSocketBase *child)
 
     if (child->sb_Table != NULL)
     {
-        ami_free(child->sb_Table);
+        /* Retired under Forbid() and freed after: the child is still on
+           sb_Children, where bsd_owner_elect() reads its table (F-043). */
+        AmiSocket **table;
+
+        Forbid();
+        table               = child->sb_Table;
         child->sb_Table     = NULL;
         child->sb_TableSize = 0;
+        Permit();
+        ami_free(table);
     }
 
     ami_signal_free(child->sb_EventSignal);
