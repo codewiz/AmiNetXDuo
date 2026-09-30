@@ -192,7 +192,7 @@ ULONG ami_cfg_tokenize(char *line, char **tokens, ULONG max);
 
 /* Columns a netdb line is read to: name + value + 32 aliases.  The loader
    (netdb.c) and the checker's verdict (netdb_check.c) share it. */
-#define AMI_NETDB_MAX_TOKENS    34
+#define AMI_NETDB_MAX_TOKENS    AMI_NETDB_WORDS
 
 /*
  * Pull the next `KEY=value` or `KEY value` pair off *cursor (which points into

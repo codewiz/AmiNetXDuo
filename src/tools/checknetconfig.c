@@ -776,6 +776,14 @@ static VOID check_netdb_file(const NetdbFile *spec)
             note(spec->shape);
             said++;
         }
+        else if (verdict == AMI_NETDB_LINE_CUT)
+        {
+            finding(spec->path, lineno, AMI_CFG_PROBLEM_WARN);
+            say("      only the first %ld words of this line are read, so\n",
+                (LONG)AMI_NETDB_WORDS);
+            say("      \"%s\" and the words after it are ignored\n", (LONG)word);
+            said++;
+        }
 
         if (said >= 5)
         {

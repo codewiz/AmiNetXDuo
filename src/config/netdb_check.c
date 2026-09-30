@@ -56,11 +56,23 @@ static BOOL netdb_check_resolver(const char *token)
                   netdb_check_keyword(token, "HOSTNAME"));
 }
 
+/* A line the loader keeps, less any words past AMI_NETDB_MAX_TOKENS, which
+   ami_cfg_tokenize() leaves unread and netdb.c never sees. */
+static UWORD netdb_check_entry(const char *dropped, char *word, ULONG wordlen)
+{
+    if (dropped == NULL)
+        return AMI_NETDB_LINE_ENTRY;
+
+    netdb_check_word(word, wordlen, dropped);
+    return AMI_NETDB_LINE_CUT;
+}
+
 UWORD ami_netdb_line_verdict(UWORD kind, const char *text, char *word,
                              ULONG wordlen)
 {
     char   buf[NETDB_CHECK_LINE];
-    char  *tokens[AMI_NETDB_MAX_TOKENS];
+    char  *tokens[AMI_NETDB_MAX_TOKENS + 1];     /* one more, to see a cut */
+    const char *dropped = NULL;
     char  *line;
     ULONG  count;
     ULONG  value;
@@ -76,7 +88,12 @@ UWORD ami_netdb_line_verdict(UWORD kind, const char *text, char *word,
     if (*line == '\0')
         return AMI_NETDB_LINE_SKIP;
 
-    count = ami_cfg_tokenize(line, tokens, AMI_NETDB_MAX_TOKENS);
+    count = ami_cfg_tokenize(line, tokens, AMI_NETDB_MAX_TOKENS + 1);
+    if (count > AMI_NETDB_MAX_TOKENS)
+    {
+        dropped = tokens[AMI_NETDB_MAX_TOKENS];
+        count   = AMI_NETDB_MAX_TOKENS;
+    }
 
     if (kind == AMI_NETDB_HOSTS)
     {
@@ -95,7 +112,7 @@ UWORD ami_netdb_line_verdict(UWORD kind, const char *text, char *word,
                 netdb_check_word(word, wordlen, row[1]);
                 return AMI_NETDB_LINE_BAD;
             }
-            return AMI_NETDB_LINE_ENTRY;
+            return netdb_check_entry(dropped, word, wordlen);
         }
 
         if (!ami_config_parse_ip(row[0], &value))
@@ -106,7 +123,9 @@ UWORD ami_netdb_line_verdict(UWORD kind, const char *text, char *word,
             return AMI_NETDB_LINE_BAD;
         }
 
-        return (count < 2) ? AMI_NETDB_LINE_SHORT : AMI_NETDB_LINE_ENTRY;
+        if (count < 2)
+            return AMI_NETDB_LINE_SHORT;
+        return netdb_check_entry(dropped, word, wordlen);
     }
 
     if (count < 2)
@@ -146,5 +165,5 @@ UWORD ami_netdb_line_verdict(UWORD kind, const char *text, char *word,
     }
 
     netdb_check_word(word, wordlen, "");
-    return AMI_NETDB_LINE_ENTRY;
+    return netdb_check_entry(dropped, word, wordlen);
 }

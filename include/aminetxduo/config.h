@@ -787,7 +787,7 @@ ULONG ami_cfg_address6_line_file(const char *path, const char *ifname,
 /*
  * One line of a netdb file judged by the loader's rules, for CheckNetConfig
  * (src/config/netdb_check.c, F-094).  word, when not NULL, gets the column the
- * loader could not read.
+ * loader could not read, or the first word it did not keep.
  */
 #define AMI_NETDB_HOSTS         0
 #define AMI_NETDB_NETWORKS      1
@@ -798,6 +798,10 @@ ULONG ami_cfg_address6_line_file(const char *path, const char *ifname,
 #define AMI_NETDB_LINE_SKIP     1   /* blank, comment, or a hosts resolver line */
 #define AMI_NETDB_LINE_SHORT    2   /* too few columns: dropped */
 #define AMI_NETDB_LINE_BAD      3   /* a column it cannot read: dropped */
+#define AMI_NETDB_LINE_CUT      4   /* loaded, words past AMI_NETDB_WORDS not */
+
+/* The words of one netdb line the loader keeps: two columns and 32 aliases. */
+#define AMI_NETDB_WORDS         34
 
 UWORD ami_netdb_line_verdict(UWORD kind, const char *line, char *word,
                              ULONG wordlen);

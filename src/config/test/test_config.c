@@ -2558,6 +2558,77 @@ static BOOL netdb_case_loaded(const struct NetdbCase *c)
     return loaded;
 }
 
+/* A line of `lead` and then aliases a1..a<n>, in `line`. */
+static void netdb_alias_line(char *line, size_t size, const char *lead,
+                             unsigned n)
+{
+    unsigned i;
+    size_t   used = (size_t)snprintf(line, size, "%s", lead);
+
+    for (i = 1; i <= n && used < size; i++)
+        used += (size_t)snprintf(line + used, size - used, " a%u", i);
+    if (used < size)
+        (void)snprintf(line + used, size - used, "\n");
+}
+
+/* F-094: the loader keeps AMI_NETDB_WORDS words, and the checker says what
+   it drops rather than calling the line fine. */
+static void test_netdb_alias_cut(void)
+{
+    static const struct
+    {
+        UWORD       kind;
+        const char *lead;
+        unsigned    aliases;
+        UWORD       verdict;
+        const char *word;
+        const char *kept;           /* an alias the loader must have */
+        const char *gone;           /* and one it must not           */
+    } c[] =
+    {
+        { AMI_NETDB_HOSTS, "10.0.0.1 hn", 32, AMI_NETDB_LINE_ENTRY, "",
+          "a32", NULL },
+        { AMI_NETDB_HOSTS, "10.0.0.1 hn", 33, AMI_NETDB_LINE_CUT, "a33",
+          "a32", "a33" },
+        { AMI_NETDB_HOSTS, "10.0.0.1 hn", 40, AMI_NETDB_LINE_CUT, "a33",
+          "a32", "a40" },
+        { AMI_NETDB_HOSTS, "HOST 10.0.0.1 hn", 31, AMI_NETDB_LINE_ENTRY, "",
+          "a31", NULL },
+        { AMI_NETDB_HOSTS, "HOST 10.0.0.1 hn", 32, AMI_NETDB_LINE_CUT, "a32",
+          "a31", "a32" },
+        { AMI_NETDB_SERVICES, "hn 80/tcp", 33, AMI_NETDB_LINE_CUT, "a33",
+          NULL, NULL },
+        { AMI_NETDB_PROTOCOLS, "hn 6", 33, AMI_NETDB_LINE_CUT, "a33",
+          NULL, NULL },
+    };
+    unsigned i;
+
+    printf("netdb alias cut\n");
+
+    for (i = 0; i < sizeof(c) / sizeof(c[0]); i++)
+    {
+        char  line[256];
+        char  word[64];
+        UWORD verdict;
+
+        netdb_alias_line(line, sizeof(line), c[i].lead, c[i].aliases);
+        verdict = ami_netdb_line_verdict(c[i].kind, line, word, sizeof(word));
+        CHECK(verdict == c[i].verdict && strcmp(word, c[i].word) == 0);
+
+        if (c[i].kept != NULL)
+        {
+            ami_netdb_free();
+            clear_fixtures();
+            set_fixture(AMI_CFG_FILE_HOSTS, line);
+            (VOID)ami_netdb_load();
+            CHECK(ami_netdb_host_by_name(c[i].kept) != NULL);
+            if (c[i].gone != NULL)
+                CHECK(ami_netdb_host_by_name(c[i].gone) == NULL);
+            ami_netdb_free();
+        }
+    }
+}
+
 static void test_netdb_checker(void)
 {
     unsigned i;
@@ -2590,7 +2661,8 @@ static void test_netdb_checker(void)
 
         checks++;
         if (verdict != c->verdict || strcmp(word, c->word) != 0 ||
-            loaded != (verdict == AMI_NETDB_LINE_ENTRY))
+            loaded != (verdict == AMI_NETDB_LINE_ENTRY ||
+                       verdict == AMI_NETDB_LINE_CUT))
         {
             failures++;
             printf("  FAIL netdb line %u \"%.*s\": verdict %u word \"%s\" "
@@ -3473,6 +3545,7 @@ int main(int argc, char **argv)
     test_netdb();
     test_keyword_line();
     test_netdb_checker();
+    test_netdb_alias_cut();
     test_netdb_nomem();
     test_netdb_read_nomem();
     test_netdb_missing_files();
