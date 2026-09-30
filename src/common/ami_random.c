@@ -631,8 +631,12 @@ static BOOL   arrival_done;             /* the gate on the receive path     */
 static VOID arrival_flush(const UBYTE *batch)
 {
     ULONG varying = 0;
+    ULONG credited;
+    ULONG batches;
+    ULONG barren;
     UBYTE changed = 0;
     UWORD i;
+    BOOL report = FALSE;
 
     /* Which bit positions moved across the batch. */
     for (i = 1; i < ARRIVAL_BATCH; i++)
@@ -644,7 +648,22 @@ static VOID arrival_flush(const UBYTE *batch)
             varying++;
     }
 
-    if (varying > (AMI_RANDOM_ARRIVAL_MAX_BITS - arrival_bits))
+    /* Several receive threads can finish their private batches together.
+       Keep the ceiling, counters and stop gate in one scheduler-atomic
+       transaction; the hash/mix below must remain outside Forbid(). */
+    Forbid();
+    if (arrival_done)
+    {
+        Permit();
+        return;
+    }
+
+    if (arrival_bits >= AMI_RANDOM_ARRIVAL_MAX_BITS)
+    {
+        arrival_bits = AMI_RANDOM_ARRIVAL_MAX_BITS;
+        varying = 0;
+    }
+    else if (varying > (AMI_RANDOM_ARRIVAL_MAX_BITS - arrival_bits))
         varying = AMI_RANDOM_ARRIVAL_MAX_BITS - arrival_bits;
 
     arrival_bits += varying;
@@ -654,21 +673,46 @@ static VOID arrival_flush(const UBYTE *batch)
     else
         arrival_barren = 0UL;
 
+    credited = arrival_bits;
+    batches  = arrival_batches;
+    barren   = arrival_barren;
+    if (ami_random_arrival_stop(credited, batches, pool_bits, barren))
+    {
+        arrival_done = TRUE;
+        report = TRUE;
+    }
+    Permit();
+
     pool_mix(batch, (ULONG)ARRIVAL_BATCH, varying);
 
     AMI_DEBUG("random: arrival batch varied %lu of %lu bit(s), %lu credited",
-              (LONG)varying, (LONG)ARRIVAL_BITS_KEPT, (LONG)arrival_bits);
+              (LONG)varying, (LONG)ARRIVAL_BITS_KEPT, (LONG)credited);
 
-    if (ami_random_arrival_stop(arrival_bits, arrival_batches, pool_bits,
-                                arrival_barren))
+    /* Mixing this batch may itself have reached the pool threshold.  Only
+       the first thread to close the gate reports the final counters. */
+    if (!report)
     {
-        arrival_done = TRUE;
+        Forbid();
+        if (!arrival_done &&
+            ami_random_arrival_stop(arrival_bits, arrival_batches, pool_bits,
+                                    arrival_barren))
+        {
+            arrival_done = TRUE;
+            credited = arrival_bits;
+            batches  = arrival_batches;
+            barren   = arrival_barren;
+            report = TRUE;
+        }
+        Permit();
+    }
 
+    if (report)
+    {
         /* INFO rather than DEBUG: it fires exactly once per machine. */
         AMI_INFO("random: arrivals credited %lu bits in %lu batches "
                  "(%lu barren), pool %lu, seeded=%s",
-                 (LONG)arrival_bits, (LONG)arrival_batches,
-                 (LONG)arrival_barren, (LONG)pool_bits,
+                 (LONG)credited, (LONG)batches,
+                 (LONG)barren, (LONG)pool_bits,
                  (LONG)(ami_random_is_seeded() ? "TRUE" : "FALSE"));
     }
 }

@@ -621,6 +621,34 @@ static void f_arrival_before_init(void)
            "and a thousand arrivals leave the estimate standing");
 }
 
+/* A concurrent old flush can leave the credit just beyond its ceiling before
+   another batch reaches its clamp.  The clamp must saturate, not subtract an
+   unsigned value from a smaller ceiling and credit yet more bits. */
+static void f_arrival_credit_ceiling(void)
+{
+    UBYTE batch[ARRIVAL_BATCH];
+    UWORD i;
+
+    world_init();
+    for (i = 0; i < ARRIVAL_BATCH; i++)
+        batch[i] = (UBYTE)(i & 1u);
+
+    arrival_bits = AMI_RANDOM_ARRIVAL_MAX_BITS + 1UL;
+    arrival_batches = 0;
+    arrival_barren = 0;
+    arrival_done = FALSE;
+    pool_bits = 0;
+
+    arrival_flush(batch);
+    expect(arrival_bits == AMI_RANDOM_ARRIVAL_MAX_BITS,
+           "arrival credit saturates at the ceiling after an interleaving");
+    expect(arrival_done && arrival_batches == 1,
+           "and closes the arrival gate once");
+    arrival_flush(batch);
+    expect(arrival_batches == 1 && forbid_depth == 0,
+           "a queued batch after the gate closes does not add credit");
+}
+
 /*
  * A clock that does not move.  gather_jitter() and gather_clock() then
  * contribute a constant, which is the shape of a machine with no working
@@ -660,6 +688,7 @@ int main(void)
     d_ulongs_move();
     e_added_entropy_is_credited_and_bounded();
     f_arrival_before_init();
+    f_arrival_credit_ceiling();
     g_a_frozen_clock_does_not_freeze_the_output();
 
     if (failures != 0)
