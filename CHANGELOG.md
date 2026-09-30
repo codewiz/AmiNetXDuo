@@ -9,6 +9,13 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `CheckNetConfig` names the file a default-gateway finding was read from, not
+  the one the loader read last. `load_gateway()` reads
+  `DEVS:Internet/default_gateway` first and that value wins, then
+  `DEVS:Internet/routes`; the gateway check searched `routes` first, so with a
+  `GATEWAY` in both files a finding about the router named `routes` and a real
+  line number beside a router the machine does not use. The check now asks the
+  compatibility file first, matching the loader's order.
 - `traceroute` measures a per-probe wait from the whole EClock and caps `WAIT`
   at 214748 seconds instead of reading the timer's low word alone. The wait is
   multiplied by 10000 to tenths of a millisecond and compared with a signed

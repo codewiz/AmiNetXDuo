@@ -466,16 +466,16 @@ static VOID check_gateway(const AmiConfig *cfg)
         return;
     }
 
-    /* Which file it came from, so the finding can name the one to edit. */
-    path = "DEVS:Internet/routes";
+    /* Which file it came from, so the finding can name the one to edit.
+       load_gateway() reads the compatibility file first and it wins, so ask
+       it before the Roadshow routes file; a GATEWAY= taken from an interface
+       file has no name here and stays line 0. */
+    path = "DEVS:Internet/default_gateway";
     line = keyword_line(path, "GATEWAY");
     if (line == 0)
     {
-        if (keyword_line("DEVS:Internet/default_gateway", "GATEWAY") != 0)
-        {
-            path = "DEVS:Internet/default_gateway";
-            line = keyword_line(path, "GATEWAY");
-        }
+        path = "DEVS:Internet/routes";
+        line = keyword_line(path, "GATEWAY");
     }
 
     if ((cfg->default_gateway >> 24) == 127UL ||

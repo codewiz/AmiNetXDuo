@@ -2415,6 +2415,70 @@ static void test_gateway(void)
     CHECK(cfg.static_route_count == 0);
 }
 
+static void test_gateway_precedence(void)
+{
+    const char *path;
+    ULONG       line;
+
+    printf("gateway precedence\n");
+
+    /* The loader reads the compatibility file first and it wins, then the
+       Roadshow routes file (load_gateway).  Give the two files different
+       routers and watch which one each search names (F-158 gateway
+       precedence). */
+    clear_fixtures();
+    set_fixture(AMI_CFG_FILE_GATEWAY, "GATEWAY = 127.0.0.1\n");
+    set_fixture(AMI_CFG_FILE_ROUTES,  "GATEWAY = 192.168.1.1\n");
+
+    /* Each file really holds its GATEWAY on line 1. */
+    CHECK(ami_cfg_keyword_line_file(AMI_CFG_FILE_GATEWAY, "GATEWAY") == 1);
+    CHECK(ami_cfg_keyword_line_file(AMI_CFG_FILE_ROUTES, "GATEWAY") == 1);
+
+    /* The loader commits the compatibility file's value and the Roadshow file
+       cannot displace it: first wins. */
+    {
+        AmiConfig cfg;
+        ULONG     gw = 0;
+        char     *buf;
+
+        memset(&cfg, 0, sizeof(cfg));
+        buf = dup_text("GATEWAY = 127.0.0.1\n");
+        ami_cfg_parse_gateway(buf, &gw);
+        free(buf);
+        CHECK_IP(gw, 127, 0, 0, 1);
+
+        cfg.default_gateway = gw;
+        buf = dup_text("GATEWAY = 192.168.1.1\n");
+        ami_cfg_parse_routes(buf, &cfg);
+        free(buf);
+        CHECK_IP(cfg.default_gateway, 127, 0, 0, 1);   /* still the first */
+    }
+
+    /* The old search asked routes first, so with both files present it named
+       the file whose value the loader did NOT use. */
+    path = AMI_CFG_FILE_ROUTES;
+    line = ami_cfg_keyword_line_file(path, "GATEWAY");
+    if (line == 0)
+    {
+        if (ami_cfg_keyword_line_file(AMI_CFG_FILE_GATEWAY, "GATEWAY") != 0)
+        {
+            path = AMI_CFG_FILE_GATEWAY;
+            line = ami_cfg_keyword_line_file(path, "GATEWAY");
+        }
+    }
+    CHECK(strcmp(path, AMI_CFG_FILE_ROUTES) == 0);   /* the wrong file */
+
+    /* The new search asks the compatibility file first, matching load_gateway. */
+    path = AMI_CFG_FILE_GATEWAY;
+    line = ami_cfg_keyword_line_file(path, "GATEWAY");
+    if (line == 0)
+    {
+        path = AMI_CFG_FILE_ROUTES;
+        line = ami_cfg_keyword_line_file(path, "GATEWAY");
+    }
+    CHECK(strcmp(path, AMI_CFG_FILE_GATEWAY) == 0);  /* the file that won */
+}
+
 static void test_tcp_handler(void)
 {
     BOOL  on;
@@ -3541,6 +3605,7 @@ int main(int argc, char **argv)
     test_ra_search_option();
     test_ra_nameserver6();
     test_gateway();
+    test_gateway_precedence();
     test_tcp_handler();
     test_netdb();
     test_keyword_line();
