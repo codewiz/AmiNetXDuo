@@ -17,6 +17,7 @@ BPTR Open(STRPTR name, LONG mode);
 VOID Close(BPTR fh);
 LONG Read(BPTR fh, APTR buffer, LONG length);
 LONG Write(BPTR fh, const void *buffer, LONG length);
+LONG Seek(BPTR fh, LONG position, LONG mode);    /* tls_store.c's root read */
 
 /* tls_runtime.c only, for the NetX Duo tick conversion nothing on the host
    waits on. */

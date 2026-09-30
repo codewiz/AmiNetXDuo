@@ -477,6 +477,11 @@ VOID  tls_packet_pool_delete(NX_PACKET_POOL *pool);
 LONG  tls_store_open(TLSStore *store, const char *path);
 VOID  tls_store_close(TLSStore *store);
 ULONG tls_store_count(const TLSStore *store);
+#if defined(TLS_STORE_TEST)
+/* test_tls_store.c: the handshake's root read, without a handshake. */
+ULONG tls_store_test_fetch(TLSStore *store, ULONG key, UCHAR *buffer,
+                           ULONG size);
+#endif
 
 /*
  * Put the connection in the session->connection registry.  Every connection

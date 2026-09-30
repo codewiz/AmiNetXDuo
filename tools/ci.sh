@@ -381,7 +381,10 @@ host_test_targets() { # builddir
 #      an explicit mask only by an exact static row (F-133)
 #      481 with tls_time_window: a DateStamp day count is bounded before it
 #      is multiplied, so a 32-bit wrap is not a known date (F-301)
-HOST_TESTS_EXPECTED=481
+#      482 with tls_store_coherent: the root read takes index and
+#      certificate from one open, so a replaced store is never read at the
+#      old offsets (F-300 D1)
+HOST_TESTS_EXPECTED=482
 case "$(uname -m)" in
     x86_64|amd64) ;;
     # test_inet, test_route, test_expunge, test_expunge_cork, test_select,

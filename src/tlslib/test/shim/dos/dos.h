@@ -18,6 +18,8 @@ struct DosLibrary;
 #define MODE_OLDFILE    1005L
 #define MODE_NEWFILE    1006L
 
+#define OFFSET_BEGINNING (-1L)
+
 struct DateStamp
 {
     LONG ds_Days;

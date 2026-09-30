@@ -381,6 +381,25 @@ if(NOT CMAKE_CROSSCOMPILING)
 
     add_test(NAME tls_session_resume COMMAND test_tls_resume)
 
+    # The trust store's root read takes the index and the certificate from one
+    # open, so a store copied over the file after TLSOpen() is never read at
+    # the old store's offsets (F-300).  Real ACS1 files on disk; the same
+    # includes and defines as test_tls_resume, for tls_internal.h.
+    add_executable(test_tls_store
+        test/test_tls_store.c
+        tls_store.c
+        tls_runtime.c)
+
+    get_target_property(_tls_store_inc test_tls_resume INCLUDE_DIRECTORIES)
+    get_target_property(_tls_store_def test_tls_resume COMPILE_DEFINITIONS)
+    target_include_directories(test_tls_store PRIVATE ${_tls_store_inc})
+    target_compile_definitions(test_tls_store PRIVATE ${_tls_store_def}
+        TLS_STORE_TEST)
+    target_compile_options(test_tls_store PRIVATE -Wall -Wextra -UAMINETXDUO_IPV6)
+    set_target_properties(test_tls_store PROPERTIES C_STANDARD 11)
+
+    add_test(NAME tls_store_coherent COMMAND test_tls_store)
+
     # tls_time.c against a DateStamp() the test sets: a day count is bounded
     # before it is multiplied, so a clock that wraps 32 bits is not a date
     # inside the window (F-301).  The same includes and defines as

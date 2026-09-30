@@ -272,6 +272,52 @@ ULONG tls_store_count(const TLSStore *store)
     return (store != NULL) ? store->ts_Count : 0;
 }
 
+/*
+ * Is the file behind `fh`, from its start, the store this connection indexed?
+ * The header and every index record are compared with the TLSOpen() snapshot,
+ * sixteen records at a time so the stack cost stays small.
+ */
+#define TLS_STORE_CHUNK     16UL
+
+static BOOL tls_store_same(const TLSStore *store, BPTR fh)
+{
+    UBYTE header[TLS_STORE_HEADER];
+    UBYTE raw[TLS_STORE_CHUNK * TLS_STORE_ENTRY];
+    ULONG done;
+    ULONG n;
+    ULONG i;
+
+    if (Read(fh, header, (LONG)TLS_STORE_HEADER) != (LONG)TLS_STORE_HEADER ||
+        tls_be32(header) != TLS_STORE_MAGIC ||
+        tls_be32(&header[4]) != store->ts_Count ||
+        tls_be32(&header[8]) != TLS_STORE_HEADER)
+        return FALSE;
+
+    for (done = 0; done < store->ts_Count; done += n)
+    {
+        n = store->ts_Count - done;
+        if (n > TLS_STORE_CHUNK)
+            n = TLS_STORE_CHUNK;
+
+        if (Read(fh, raw, (LONG)(n * TLS_STORE_ENTRY)) !=
+            (LONG)(n * TLS_STORE_ENTRY))
+            return FALSE;
+
+        for (i = 0; i < n; i++)
+        {
+            const TLSStoreEntry *e = &store->ts_Index[done + i];
+            const UBYTE         *r = &raw[i * TLS_STORE_ENTRY];
+
+            if (tls_be32(r) != e->se_Key ||
+                tls_be32(r + 4) != e->se_Offset ||
+                tls_be32(r + 8) != e->se_Length)
+                return FALSE;
+        }
+    }
+
+    return TRUE;
+}
+
 static ULONG tls_store_fetch(TLSStore *store, ULONG key, UCHAR *buffer, ULONG size)
 {
     ULONG lo, hi, mid;
@@ -312,12 +358,21 @@ static ULONG tls_store_fetch(TLSStore *store, ULONG key, UCHAR *buffer, ULONG si
      * The one disk access inside the handshake.  It used to need the ThreadX
      * baton returned around it; tls.library holds no baton now, so a blocking
      * dos.library call here stalls this task and nothing else.
+     *
+     * The index and the certificate come from ONE open (F-300).  Replacing
+     * the file is the update mechanism, and a copy landing between TLSOpen()
+     * and this read put the old store's offsets over the new store's bytes.
+     * The file is checked against the snapshot and the DER read through the
+     * same handle; a copy cannot rewrite the file while it is open here, and
+     * the handle lives for this local read only, never across a network
+     * wait.  A mismatch loads nothing and the chain check fails closed.
      */
     fh = Open((STRPTR)store->ts_Path, MODE_OLDFILE);
     if (fh == (BPTR)0)
         return 0;
 
-    if (Seek(fh, (LONG)offset, OFFSET_BEGINNING) < 0 ||
+    if (!tls_store_same(store, fh) ||
+        Seek(fh, (LONG)offset, OFFSET_BEGINNING) < 0 ||
         Read(fh, buffer, (LONG)length) != (LONG)length)
     {
         length = 0;
@@ -327,6 +382,14 @@ static ULONG tls_store_fetch(TLSStore *store, ULONG key, UCHAR *buffer, ULONG si
 
     return length;
 }
+
+#if defined(TLS_STORE_TEST)
+ULONG tls_store_test_fetch(TLSStore *store, ULONG key, UCHAR *buffer,
+                           ULONG size)
+{
+    return tls_store_fetch(store, key, buffer, size);
+}
+#endif
 
 /* ------------------------------------------ the lazy certificate check -- */
 
