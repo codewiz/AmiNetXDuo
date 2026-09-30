@@ -20,11 +20,9 @@
  * of exactly one, which is the selection (RFC 7301 3.1); in TLS 1.2 that rides
  * in the ServerHello and in TLS 1.3 in EncryptedExtensions (RFC 8446 4.2).
  *
- * A server that does not answer is a server that did not negotiate, and that
- * is NOT an error: the connection continues with no application protocol
- * agreed, which for HTTP means HTTP/1.1 by the pre-ALPN default.  A server
- * that answers with something that was never offered IS an error, and RFC 7301
- * 3.2 says it is a fatal no_application_protocol.
+ * A server with no ALPN list may ignore the offer.  A configured server with
+ * no protocol in common MUST instead send fatal no_application_protocol per
+ * RFC 7301 3.2; likewise a client refuses an unoffered selection.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -332,8 +330,7 @@ UINT name_length;
 /*  The server half.  Selects the FIRST of our own protocols that the     */
 /*  client also offered, so the preference is the server's (RFC 7301 3.2  */
 /*  leaves the choice to the server and warns against following the       */
-/*  client's order).  No overlap selects nothing and is not an error       */
-/*  here: the caller decides between a silent answer and an alert.        */
+/*  client's order).  A configured list without overlap is fatal.         */
 /**************************************************************************/
 UINT _nx_secure_tls_alpn_process_offer(NX_SECURE_TLS_SESSION *tls_session,
                                        const UCHAR *packet_buffer,
@@ -401,5 +398,6 @@ UINT         ours_length;
         }
     }
 
-    return(NX_SUCCESS);
+    return((tls_session -> nx_secure_tls_alpn_selected_length != 0)
+               ? NX_SUCCESS : NX_SECURE_TLS_ALPN_PROTOCOL_MISMATCH);
 }

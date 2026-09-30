@@ -246,6 +246,8 @@ static void test_server_selection(void)
     UCHAR                 packet[64];
     ULONG                 offset;
     USHORT                written = 0;
+    UINT                  alert_number = 0;
+    UINT                  alert_level = 0;
 
     printf("tls_alpn: the server picks by ITS order, and answers with one\n");
 
@@ -277,23 +279,19 @@ static void test_server_selection(void)
     CHECK(client.nx_secure_tls_alpn_selected_length == 8);
     CHECK(memcmp(client.nx_secure_tls_alpn_selected, "http/1.1", 8) == 0);
 
-    /* No overlap selects nothing, and a server with nothing selected writes
-       no extension at all rather than an empty one. */
+    /* A configured server with no overlap refuses the handshake with the
+       RFC 7301 fatal no_application_protocol alert. */
     memset(&server, 0, sizeof(server));
     CHECK(_nx_secure_tls_alpn_protocol_set(&server, (const UCHAR *)"\x02" "h2",
                                            3) == NX_SUCCESS);
     CHECK(_nx_secure_tls_alpn_process_offer(
               &server, (const UCHAR *)"\x00\x0b\x00\x09\x08" "http/1.1", 13) ==
-          NX_SUCCESS);
+          NX_SECURE_TLS_ALPN_PROTOCOL_MISMATCH);
     CHECK(server.nx_secure_tls_alpn_selected_length == 0);
-
-    offset = 0;
-    written = 0xFFFF;
-    CHECK(_nx_secure_tls_alpn_send_extension(&server, packet, &offset, &written,
-                                             sizeof(packet), NX_TRUE) ==
-          NX_SUCCESS);
-    CHECK(written == 0);
-    CHECK(offset == 0);
+    _nx_secure_tls_map_error_to_alert(NX_SECURE_TLS_ALPN_PROTOCOL_MISMATCH,
+                                      &alert_number, &alert_level);
+    CHECK(alert_number == NX_SECURE_TLS_ALERT_NO_APPLICATION_PROTOCOL);
+    CHECK(alert_level == NX_SECURE_TLS_ALERT_LEVEL_FATAL);
 
     /* A server with no list of its own selects nothing and does not fail: a
        client offer is not a demand. */

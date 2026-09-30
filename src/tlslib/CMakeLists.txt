@@ -483,7 +483,8 @@ if(NOT CMAKE_CROSSCOMPILING)
     add_executable(test_tls_alpn
         test/test_tls_alpn.c
         tls_alpn.c
-        "${CMAKE_SOURCE_DIR}/src/tls/alpn/nx_secure_tls_alpn.c")
+        "${CMAKE_SOURCE_DIR}/src/tls/alpn/nx_secure_tls_alpn.c"
+        "${AMINETXDUO_NETXDUO}/nx_secure/src/nx_secure_tls_map_error_to_alert.c")
     add_executable(test_tls_transport
         test/test_tls_transport.c
         tls_netx.c
