@@ -41,8 +41,19 @@ LONG bsd_nx_enter(struct AmiSocketBase *base)
     if (base == NULL)
         return -1;
 
+    /*
+     * The depth is the base's, the bracket is its holder's.  Another Task
+     * reaching this base while the holder is inside -- suspended in NetX, or
+     * only time-sliced out by Exec -- used to nest on it and run NetX with no
+     * TX_THREAD and no baton, racing the holder, and its leave could end the
+     * holder's bracket from the wrong Task (F-042).  It is refused, as
+     * ami_netstack_enter_cached() refuses a second Task at depth 0.
+     */
     if (base->sb_NxNest > 0)
     {
+        if (base->sb_NxTask != FindTask(NULL))
+            return -1;
+
         base->sb_NxNest++;
 #ifdef AMINETXDUO_NXCENSUS
         base->sb_NxNested++;

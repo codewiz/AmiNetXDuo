@@ -86,6 +86,27 @@ if(NOT CMAKE_CROSSCOMPILING AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
     target_link_options(test_scope_epoch PRIVATE -Wl,--gc-sections)
     add_test(NAME scope_slot_epoch COMMAND test_scope_epoch)
 
+    # netx_call.c: a second Task on a base whose bracket another Task holds is
+    # refused, not nested with no TX_THREAD (F-042).
+    add_executable(test_nx_nest host/test_nx_nest_host.c)
+    target_include_directories(test_nx_nest PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/host/shim"
+        "${CMAKE_SOURCE_DIR}/src/bsdsocket"
+        "${CMAKE_SOURCE_DIR}/include"
+        "${AMINETXDUO_THREADX}/common/inc"
+        "${AMINETXDUO_THREADX}/ports/linux/gnu/inc"
+        "${AMINETXDUO_NETXDUO}/common/inc"
+        "${AMINETXDUO_NETXDUO}/ports/linux/gnu/inc"
+        "${CMAKE_SOURCE_DIR}/port/netxduo-amiga/inc")
+    target_compile_options(test_nx_nest PRIVATE
+        -include "${CMAKE_CURRENT_SOURCE_DIR}/host/shim/host_prelude.h"
+        -ffunction-sections -fdata-sections)
+    target_compile_definitions(test_nx_nest PRIVATE
+        AMINETXDUO_MULTICAST AMINETXDUO_IPV6 AMINETXDUO_CMSG
+        NX_INCLUDE_USER_DEFINE_FILE)
+    target_link_options(test_nx_nest PRIVATE -Wl,--gc-sections)
+    add_test(NAME nx_nest_task COMMAND test_nx_nest)
+
     # cmsg.c as IPV6=ON, CMSG=OFF: the stub reset installs the ICMPv6 filter's
     # pass-all default that raw.c applies either way (F-036).
     add_executable(test_icmp6_filter_nocmsg host/test_icmp6_filter_nocmsg_host.c)
