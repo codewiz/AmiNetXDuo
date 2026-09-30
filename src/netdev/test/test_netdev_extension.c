@@ -147,6 +147,13 @@ static void test_tx_needs_owned_metadata(void)
           "checksum feature is refused without the owned callback");
 }
 
+/* S2_CopyToBuff: present, never called. */
+static BOOL copy_to(APTR to, APTR from, ULONG len)
+{
+    (void)to; (void)from; (void)len;
+    return TRUE;
+}
+
 static void test_supported_features_follow_opener_and_unit(void)
 {
     NetdevOpener op;
@@ -158,6 +165,7 @@ static void test_supported_features_follow_opener_and_unit(void)
     op.op_RxDirect = (APTR)rx_direct;
     op.op_RxFilled = (APTR)rx_filled;
     op.op_RxLinkHdr = TRUE;
+    op.op_CopyTo = (APTR)copy_to;
     op.op_RxFlags = ANXD_S2_RXF_VERIFIED;
     op.op_TxFlags = (APTR)tx_flags;
     op.op_TxCsum = ANXD_S2_TXF_TCP | ANXD_S2_TXF_UDP;
@@ -181,6 +189,16 @@ static void test_supported_features_follow_opener_and_unit(void)
     CHECK((supported & ANXD_S2F_TX_CSUM_UDP) == 0 &&
           op.op_TxCsum == ANXD_S2_TXF_TCP,
           "unsupported per-unit checksum facts are removed");
+
+    /* F-310: netdev_queue_batch() refuses an opener without CopyTo, so the
+       batch is never accepted for one. */
+    op.op_CopyTo = NULL;
+    supported = netdev_extension_supported(&op, &nic);
+    CHECK((supported & ANXD_S2F_RX_BATCH) == 0,
+          "an opener without CopyTo never advertises the receive batch");
+    CHECK((supported & ANXD_S2F_RX_DIRECT) != 0,
+          "while its direct receive is still reported");
+    op.op_CopyTo = (APTR)copy_to;
 
     op.op_Raw = 1;
     supported = netdev_extension_supported(&op, &nic);

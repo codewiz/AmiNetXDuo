@@ -56,9 +56,11 @@ ULONG netdev_extension_supported(NetdevOpener *op, const NetdevNic *nic)
         supported |= ANXD_S2F_RX_DIRECT;
     if (op->op_RxLinkHdr)
         supported |= ANXD_S2F_RX_LINK_HDR;
+    /* The same conditions netdev_queue_batch() refuses without, CopyTo
+       included (F-310). */
     if (nic->rx_batches && op->op_RxDirect != NULL &&
-        op->op_RxFilled != NULL && op->op_RxLinkHdr && !op->op_Raw &&
-        op->op_Filter == NULL)
+        op->op_RxFilled != NULL && op->op_CopyTo != NULL &&
+        op->op_RxLinkHdr && !op->op_Raw && op->op_Filter == NULL)
         supported |= ANXD_S2F_RX_BATCH;
     if (nic->tx_flush != NULL && op->op_TxFlags != NULL)
         supported |= ANXD_S2F_TX_MORE;
