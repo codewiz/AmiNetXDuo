@@ -1395,7 +1395,7 @@ static BOOL ge_rxintr(NetdevNic *nic)
                             GENET_RX_DESC_STATUS_EOP)) !=
                  (GENET_RX_DESC_STATUS_SOP | GENET_RX_DESC_STATUS_EOP) ||
                  len < GE_RX_HEAD + NETDEV_HDR_LEN ||
-                 len > GE_RX_HEAD + NETDEV_RXBUF_MAX)
+                 len > GE_BUFSZ)
         {
             nic->rx_errors++;
             nic->core_stat[GE_ST_RX_LEN]++;
