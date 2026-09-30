@@ -821,9 +821,25 @@ VOID bsd_defer_sweep(struct AmiSocketBase *base)
  * dead stack leaves both lists empty, so no sweep ever reaches its sockets.
  *
  * A socket is on at most one list: a parked close has no reference left to
- * owe.  An owed socket that still has a reference no release is owed for is
- * named by something live, and is never freed here.
+ * owe.  An owed listener takes its unaccepted connections with it, as
+ * bsd_socket_release() would: nothing else names them.  An owed socket that
+ * still has a reference no release is owed for is named by something live:
+ * the owed releases are paid as counts and it is left to that holder, whose
+ * own close then owes the last one and comes back here.
  */
+static VOID bsd_orphan_free(AmiSocket *sock)
+{
+    while (sock->as_Incoming != NULL)
+    {
+        AmiSocket *child = sock->as_Incoming;
+
+        sock->as_Incoming = child->as_IncomingNext;
+        bsd_socket_dispose(child);
+    }
+
+    bsd_socket_dispose(sock);
+}
+
 VOID bsd_orphans_reclaim(VOID)
 {
     AmiSocket *closing;
@@ -857,9 +873,17 @@ VOID bsd_orphans_reclaim(VOID)
 
         if ((sock->as_Flags & ASF_CLOSING) != 0 ||
             sock->as_RefCount > sock->as_DeferRefs)
+        {
+            Forbid();
+            if ((sock->as_Flags & ASF_CLOSING) == 0)
+                sock->as_RefCount -= sock->as_DeferRefs;
+            sock->as_DeferNext = NULL;
+            sock->as_DeferRefs = 0;
+            Permit();
             continue;
+        }
 
-        bsd_socket_dispose(sock);
+        bsd_orphan_free(sock);
     }
 
     for (sock = closing; sock != NULL; sock = next)

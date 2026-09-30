@@ -1520,6 +1520,10 @@ APTR bsd_lib_expunge(register struct AmiSocketBase *SocketBase __asm("a6"))
         return NULL;
     }
 
+    /* A stack that went down after the last close kept its leftovers
+       (F-059): gone and quiet now, so they go before the library does. */
+    bsd_orphans_reclaim();
+
 #ifdef AMINETXDUO_TCPDEVICE
     if (bsd_tcp_handler_alive())
     {

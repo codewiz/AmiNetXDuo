@@ -368,8 +368,23 @@ APTR AllocMem(ULONG s, ULONG r)
 VOID CopyMem(const APTR s, APTR d, ULONG n) { (VOID)s; (VOID)d; (VOID)n; h_unreachable("CopyMem"); }
 VOID AddTail(struct List *l, struct Node *n) { (VOID)l; (VOID)n; h_unreachable("AddTail"); }
 struct Task *FindTask(const char *n) { (VOID)n; return &h_task; }
-VOID Signal(struct Task *t, ULONG s) { (VOID)t; (VOID)s; h_unreachable("Signal"); }
-ULONG Wait(ULONG s) { (VOID)s; h_unreachable("Wait"); return 0UL; }
+/* With h_run_entry the launched Process runs to completion inside
+   CreateNewProc(), so the stack job and its Signal()/Wait() are real. */
+static BOOL h_run_entry;
+static struct Process h_proc;
+VOID Signal(struct Task *t, ULONG s)
+{
+    (VOID)t;
+    (VOID)s;
+    if (!h_run_entry)
+        h_unreachable("Signal");
+}
+ULONG Wait(ULONG s)
+{
+    if (!h_run_entry)
+        h_unreachable("Wait");
+    return s;
+}
 BYTE AllocSignal(LONG n)
 {
     (VOID)n;
@@ -382,10 +397,14 @@ VOID FreeSignal(LONG n) { (VOID)n; h.free_signal_calls++; }
 VOID CloseDevice(struct IORequest *io) { (VOID)io; h_unreachable("CloseDevice"); }
 struct Process *CreateNewProc(const struct TagItem *t)
 {
-    (VOID)t;
     h.create_proc_calls++;
     if (h.forbid_depth > 0)
         h.blocking_under_forbid++;
+    if (h_run_entry && t[0].ti_Tag == NP_Entry)
+    {
+        ((VOID (*)(VOID))t[0].ti_Data)();
+        return &h_proc;
+    }
     return NULL;
 }
 
@@ -436,9 +455,40 @@ VOID bsd_handoff_flush(struct AmiSocketBase *b, struct MinList *list,
         h_flushes_bracketed++;
 }
 VOID bsd_closing_drain(VOID) { h_drains++; }
-/* socket.c's parked closes, emptied by a last close that cannot drain. */
+/* socket.c's parked closes, kept by a last close that cannot drain. */
 AmiSocket *bsd_closing_head;
 static AmiSocket h_parked;
+
+/* socket.c's reclaim of them (F-059), reached through the real gate, release,
+   shutdown, startup and expunge paths: when it ran, what had run by then, and
+   whether the stack was up.  With the stack gone it empties the parked list,
+   as the real one does. */
+static LONG h_reclaims;
+static LONG h_reclaim_shutdowns;
+static LONG h_reclaim_startups;
+static LONG h_reclaim_first_startups;
+static BOOL h_reclaim_stack_up;
+
+static VOID h_reclaim_reset(VOID)
+{
+    h_reclaims          = 0;
+    h_reclaim_shutdowns = -1;
+    h_reclaim_startups  = -1;
+    h_reclaim_first_startups = -1;
+    h_reclaim_stack_up  = FALSE;
+}
+
+VOID bsd_orphans_reclaim(VOID)
+{
+    h_reclaims++;
+    if (h_reclaims == 1)
+        h_reclaim_first_startups = h.startup_calls;
+    h_reclaim_shutdowns = h.shutdown_calls;
+    h_reclaim_startups  = h.startup_calls;
+    h_reclaim_stack_up  = h.stack_running;
+    if (!h.stack_running)
+        bsd_closing_head = NULL;
+}
 BOOL bsd_handoff_pending(struct AmiSocketBase *m) { (VOID)m; return FALSE; }
 LONG bsd_nx_enter(struct AmiSocketBase *b)
 {
@@ -914,9 +964,11 @@ static struct AmiSocketBase *h_tableless_child(VOID)
 static VOID t_tableless_last_closer(VOID)
 {
     struct AmiSocketBase *b;
+    LONG                  shutdowns;
 
     printf("the last closer never made a descriptor\n");
 
+    h_reclaim_reset();
     h_closers_reset(2, FALSE);
     h_base->sb_Lib.lib_OpenCnt = 3;
     b = h_tableless_child();
@@ -955,11 +1007,80 @@ static VOID t_tableless_last_closer(VOID)
     CHECK(h_takes == 1 && h_flushes == 1 && h_flushes_bracketed == 0,
           "kernel down: the registry is emptied unbracketed");
     CHECK(h_drains == 0 && h_nx_leaves == 0, "and no NetX call is made");
-    CHECK(bsd_closing_head == NULL,
-          "the parked sockets nobody can drain are forgotten, so no sweep "
-          "after the teardown reaches them");
+    CHECK(bsd_closing_head == &h_parked && h_reclaims == 0,
+          "the parked sockets nobody can drain are kept for the teardown, "
+          "not forgotten (F-059)");
+    shutdowns = h.shutdown_calls;
     (VOID)bsd_stack_close_release(h_base);
     CHECK(h_base->sb_StackClosing == 0, "the count still comes back");
+    CHECK(h.shutdown_calls == shutdowns + 1 && h_reclaims == 1 &&
+              h_reclaim_shutdowns == h.shutdown_calls && !h_reclaim_stack_up,
+          "the release tears down and then reclaims, the stack gone");
+    CHECK(bsd_closing_head == NULL,
+          "so no sweep after the teardown reaches them");
+
+    /* The same, with another holder keeping the stack up: kept, for the next
+       bracketed close to pay against the live IP instance. */
+    h_closers_reset(2, FALSE);
+    h_reclaim_reset();
+    h_base->sb_Lib.lib_OpenCnt = 3;
+    b = h_tableless_child();
+    h_nx_enter_result = -1;
+    h_gate(&h_child_a);
+    bsd_closing_head = &h_parked;
+    (VOID)bsd_lib_close(b);
+    h.stack_running = TRUE;
+    (VOID)bsd_stack_close_release(h_base);
+    CHECK(h_reclaims == 1 && h_reclaim_stack_up &&
+              bsd_closing_head == &h_parked,
+          "a stack still up keeps them");
+    bsd_closing_head = NULL;
+    h.stack_running  = FALSE;
+}
+
+/* F-059: what a last close could not drain, on the two other ways a stack's
+   life ends here -- a restart, and the library going. */
+static VOID t_orphans_restart_and_expunge(VOID)
+{
+    struct AmiSocketBase *opened;
+    APTR                  r;
+
+    printf("leftovers of a dead stack at a restart and at expunge
+");
+
+    /* The stack job starts a stack: the leftovers go first.  The startup is
+       made to fail so the open stops at the job, which is all this needs. */
+    h_machine_reset(TRUE);
+    h_reclaim_reset();
+    h.startup_result      = AMI_NET_ERR_CONFIG;
+    h.alloc_signal_result = 5;
+    h_run_entry           = TRUE;
+    bsd_closing_head      = &h_parked;
+    opened = bsd_lib_open(4UL, h_base);
+    h_run_entry = FALSE;
+    CHECK(opened == NULL && h.startup_calls == 1, "the stack job ran once");
+    CHECK(h_reclaims >= 1 && h_reclaim_first_startups == 0,
+          "the reclaim ran before the startup");
+    CHECK(bsd_closing_head == NULL,
+          "so the new stack's sweeps find nothing of the old");
+
+    /* Expunge once the stack is gone and quiet: they go with the library. */
+    h_machine_reset(TRUE);
+    h_reclaim_reset();
+    bsd_closing_head = &h_parked;
+    r = bsd_lib_expunge(h_base);
+    CHECK(r == H_SEGLIST && h_reclaims == 1 && !h_reclaim_stack_up &&
+              bsd_closing_head == NULL,
+          "an expunge after the stack went down reclaims them");
+
+    /* A declined expunge touches nothing. */
+    h_machine_reset(FALSE);
+    h_reclaim_reset();
+    bsd_closing_head = &h_parked;
+    r = bsd_lib_expunge(h_base);
+    CHECK(r == NULL && h_reclaims == 0 && bsd_closing_head == &h_parked,
+          "an expunge the netstack refuses reclaims nothing");
+    bsd_closing_head = NULL;
 }
 
 #ifdef AMINETXDUO_TCP_CORK
@@ -1163,6 +1284,7 @@ int main(void)
     t_concurrent_closers_drain();
     t_tableless_last_closer();
     t_failed_open_drains();
+    t_orphans_restart_and_expunge();
     t_loopback_startup_failure_ownership();
 #ifdef AMINETXDUO_TCP_CORK
     t_cork_pass_keeps_stack();

@@ -40,6 +40,7 @@ static struct AmiSocketBase h_other;
 static AmiSocket           *h_table[H_FDS];
 static AmiSocket           *h_other_table[H_FDS];
 static AmiSocket            h_sock[4];
+static AmiSocket            h_child[2];         /* a listener's unaccepted */
 static struct Task          h_task_base, h_task_other;
 static int                  h_signals;
 static struct Task         *h_signalled;
@@ -141,6 +142,7 @@ static void h_reset(void)
     memset(h_table, 0, sizeof(h_table));
     memset(h_other_table, 0, sizeof(h_other_table));
     memset(h_sock, 0, sizeof(h_sock));
+    memset(h_child, 0, sizeof(h_child));
     h_sock[0].as_Flags = ASF_DELETED;
     h_sock[1].as_Flags = ASF_DELETED;
     h_sock[2].as_Flags = ASF_DELETED;
@@ -262,10 +264,38 @@ int main(void)
           "once each, and nothing in NetX is called");
     CHECK(!h_freed_once(&h_sock[2]) && !h_freed_once(&h_sock[3]),
           "one still named by something live is not freed");
+    CHECK(h_sock[2].as_RefCount == 1 && h_sock[2].as_DeferRefs == 0 &&
+          h_sock[2].as_DeferNext == NULL,
+          "its owed release is paid as a count and it is off the list");
     CHECK(bsd_closing_head == NULL && bsd_defer_head == NULL,
           "and both lists are empty");
     bsd_orphans_reclaim();
     CHECK(h_frees == 2, "a second call frees nothing again");
+
+    /* Its holder closes it later, still with no bracket: owed again, and the
+       next dead-stack reclaim frees it. */
+    h_table[1] = &h_sock[2];
+    h_sock[2].as_Owner = &h_base;
+    h_bracket = 0;
+    CHECK(bsd_CloseSocket(1, &h_base) == 0 && bsd_defer_head == &h_sock[2],
+          "the holder's own unbracketed close owes the last reference");
+    bsd_orphans_reclaim();
+    CHECK(h_frees == 3 && h_freed_once(&h_sock[2]) && bsd_defer_head == NULL,
+          "and the next reclaim frees it, once");
+
+    /* An owed listener with two connections nobody accepted: all three go. */
+    h_reset();
+    h_sock[0].as_RefCount = 1;
+    h_sock[0].as_Incoming = &h_child[0];
+    h_child[0].as_IncomingNext = &h_child[1];
+    h_child[1].as_IncomingNext = NULL;
+    bsd_socket_defer(&h_sock[0]);
+    h_stack = NULL;
+    h_quiet = TRUE;
+    bsd_orphans_reclaim();
+    CHECK(h_frees == 3 && h_freed_once(&h_sock[0]) &&
+          h_freed_once(&h_child[0]) && h_freed_once(&h_child[1]),
+          "an owed listener is freed with its unaccepted connections");
 
     /* Destroyed, but a kernel that did not stop: forgotten, not freed. */
     H_ORPHANS();
@@ -290,8 +320,8 @@ int main(void)
     CHECK(bsd_CloseSocket(0, &h_other) == 0 && h_frees == 1 &&
           h_freed_once(&h_sock[1]) && bsd_defer_head == NULL,
           "the next bracketed close pays them: freed once");
-    CHECK(h_sock[2].as_RefCount == 1, "and the live one only loses its owed "
-          "reference");
+    CHECK(h_sock[2].as_RefCount == 1 && h_sock[2].as_DeferRefs == 0,
+          "and the live one only loses its owed reference");
 
     /* A restart: the startup guard empties a dead stack's lists before
        anything on the new stack can sweep them. */
