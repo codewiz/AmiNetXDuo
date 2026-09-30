@@ -55,6 +55,8 @@ enum
 #define PING_MAX_SIZE           65467UL
 #define PING_DEFAULT_INTERVAL   1UL         /* seconds                        */
 #define PING_REPLY_WAIT         5UL         /* seconds to wait for one reply  */
+/* The most TIMEOUT the millisecond clock can measure before it wraps. */
+#define PING_MAX_TIMEOUT        4294967UL   /* 0xffffffff ms / 1000           */
 
 /* ICMP, the two types this command reads. ICMPv6 renumbered both. */
 #define ICMP_ECHOREPLY          0
@@ -233,18 +235,14 @@ static BOOL ping_pause(ULONG seconds)
     return FALSE;
 }
 
-/* Milliseconds TIMEOUT has left.  Seconds are compared first so that the
-   product fits: past 4294966 seconds the clock itself cannot count it.
-   ami_millis() wraps every 49.7 days, so elapsed does too: a TIMEOUT longer
-   than that is never reached. */
+/* Milliseconds TIMEOUT has left.  TIMEOUT is at most PING_MAX_TIMEOUT, so
+   the product fits in 32 bits. */
 static ULONG ping_left_ms(ULONG timeout, ULONG elapsed_ms)
 {
     ULONG secs = elapsed_ms / 1000UL;
 
     if (secs >= timeout)
         return 0;
-    if (timeout - secs > 4294966UL)
-        return 0xffffffffUL;
 
     return (timeout - secs) * 1000UL - elapsed_ms % 1000UL;
 }
@@ -347,6 +345,15 @@ static int ping_main(int argc, char **argv)
     if (size > PING_MAX_SIZE)
     {
         tool_error("SIZE must be %lu bytes or less", PING_MAX_SIZE);
+        FreeArgs(rda);
+        return RETURN_ERROR;
+    }
+
+    /* ami_millis() wraps every 49.7 days, and a TIMEOUT past that would
+       never be reached. */
+    if (timeout > PING_MAX_TIMEOUT)
+    {
+        tool_error("TIMEOUT must be %lu seconds or less", PING_MAX_TIMEOUT);
         FreeArgs(rda);
         return RETURN_ERROR;
     }
