@@ -1059,6 +1059,37 @@ static void t_waitselect_timeout(void)
           "a timer.device that will not open is ENOMEM");
 }
 
+/*
+ * F-066: a large accepted timeout re-arms the remainder from ticks.  The old
+ * `left * BSD_TICK_US` is 32-bit and wraps once the remainder passes ~214748
+ * ticks (about 71 minutes), so a multi-hour wait came back hours early.
+ */
+static void t_waitselect_rearm_overflow(void)
+{
+    HSets s;
+    LONG  n;
+    struct timeval long_wait = { 100000, 0 };   /* 27.8 hours, accepted */
+
+    printf("WaitSelect(): a large timeout re-arms the true remainder\n");
+
+    h_reset();
+    (void)h_tcp(0, NX_TCP_SYN_SENT);
+    h_sock[0].as_Flags = ASF_TCP | ASF_CONNECTING;
+    h.wait_plan[0]     = H_TIMER_SIG;           /* the kept request fires early */
+    h.wait_planned     = 1;
+    h.wait_establishes = &h_sock[0];            /* ends the wait after the re-arm */
+    h.tick_jump        = TX_TIMER_TICKS_PER_SECOND / 2;   /* half a second */
+    memset(&s, 0, sizeof(s));
+    h_set(s.write, 0);
+
+    n = bsd_WaitSelect(1, NULL, s.write, NULL, &long_wait, NULL, &h_base);
+    CHECK(n == 1, "a connect completing after the re-arm ends the wait");
+    CHECK(h_base.sb_TimerReq.tr_time.tv_secs == 99999UL &&
+          h_base.sb_TimerReq.tr_time.tv_micro == 500000UL,
+          "and the re-armed remainder is 99999.5 seconds, not a wrapped "
+          "32-bit fraction");
+}
+
 static void t_events(void)
 {
     AmiSocket *s;
@@ -1135,6 +1166,7 @@ int main(void)
     t_waitselect_foreign_task();
     t_waitselect_signals();
     t_waitselect_timeout();
+    t_waitselect_rearm_overflow();
     t_events();
 
     printf("%lu checks, %lu failures\n", h_checks, h_failures);

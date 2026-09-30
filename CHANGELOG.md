@@ -9,6 +9,11 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `WaitSelect` re-arms a large timeout as the true remainder instead of a
+  wrapped 32-bit value. A wait accepted for more than ~71 minutes, when a kept
+  timer request fired early and the call had to re-arm the balance, multiplied
+  the remaining ticks through a 32-bit microsecond constant and wrapped, cutting
+  the wait short to a fraction of the requested time.
 - `AMINETXDUO_MAX_INTERFACES` above 32 is now a compile error; the DHCP
   resolver's pending-interface set is one 32-bit word and cannot name an
   index past bit 31.

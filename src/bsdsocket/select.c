@@ -1030,10 +1030,15 @@ LONG bsd_WaitSelect(register LONG nfds                __asm("d0"),
             left = (LONG)(wanted_due - now);
             if (left > 0)
             {
-                ULONG us = (ULONG)left * BSD_TICK_US;
+                /* The remainder, split in ticks instead of multiplied through
+                   BSD_TICK_US: `left * BSD_TICK_US` is 32-bit and wraps once
+                   the remainder exceeds ~214748 ticks (about 71 minutes), so a
+                   large accepted timeout re-armed for far too little (F-066). */
+                ULONG secs  = (ULONG)left / (ULONG)TX_TIMER_TICKS_PER_SECOND;
+                ULONG micro = ((ULONG)left % (ULONG)TX_TIMER_TICKS_PER_SECOND) *
+                              BSD_TICK_US;
 
-                bsd_timer_arm(SocketBase, us / 1000000UL, us % 1000000UL,
-                              wanted_due);
+                bsd_timer_arm(SocketBase, secs, micro, wanted_due);
                 continue;
             }
 
