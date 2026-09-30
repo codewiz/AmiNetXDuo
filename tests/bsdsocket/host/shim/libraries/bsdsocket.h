@@ -213,4 +213,95 @@ struct ErrorHookMsg
 #define EHMA_Set_errno          1
 #define EHMA_Set_h_errno        2
 
+/*
+ * The address allocation message, for test_aam_delete (src/bsdsocket/
+ * addralloc.c).  NDK 3.2 SANA+RoadshowTCP-IP/netinclude/libraries/
+ * bsdsocket.h:883-1100; the meanings are in doc/bsdsocket.doc under
+ * CreateAddrAllocMessageA, BeginInterfaceConfig and DeleteAddrAllocMessage.
+ */
+struct DateStamp;
+
+struct AddressAllocationMessage
+{
+    struct Message      aam_Message;
+    LONG                aam_Reserved;
+    LONG                aam_Result;
+    LONG                aam_Version;
+    LONG                aam_Protocol;
+    char                aam_InterfaceName[16];
+    LONG                aam_Timeout;
+    ULONG               aam_LeaseTime;
+    ULONG               aam_RequestedAddress;
+    STRPTR              aam_ClientIdentifier;
+    ULONG               aam_Address;
+    ULONG               aam_ServerAddress;
+    ULONG               aam_SubnetMask;
+    STRPTR              aam_NAKMessage;
+    LONG                aam_NAKMessageSize;
+    ULONG              *aam_RouterTable;
+    LONG                aam_RouterTableSize;
+    ULONG              *aam_DNSTable;
+    LONG                aam_DNSTableSize;
+    ULONG              *aam_StaticRouteTable;
+    LONG                aam_StaticRouteTableSize;
+    STRPTR              aam_HostName;
+    LONG                aam_HostNameSize;
+    STRPTR              aam_DomainName;
+    LONG                aam_DomainNameSize;
+    UBYTE              *aam_BOOTPMessage;
+    LONG                aam_BOOTPMessageSize;
+    struct DateStamp   *aam_LeaseExpires;
+    BOOL                aam_Unicast;
+};
+
+#define AAM_VERSION                     2
+#define AAM_VERSION_MINIMUM             1
+
+#define AAMR_Success                    0
+#define AAMR_Aborted                    1
+#define AAMR_InterfaceNotKnown          2
+#define AAMR_InterfaceWrongType         3
+#define AAMR_AddressKnown               4
+#define AAMR_VersionUnknown             5
+#define AAMR_NoMemory                   6
+#define AAMR_Timeout                    7
+#define AAMR_AddrChangeFailed           9
+#define AAMR_Busy                       11
+#define AAMR_Ignored                    (-1)
+
+#define AAM_TIMEOUT_MIN                 10
+
+#define DHCP_DEFAULT_LEASE_TIME         0
+#define DHCP_INFINITE_LEASE_TIME        0xFFFFFFFFUL
+
+#define AAMP_BOOTP                      0
+#define AAMP_DHCP                       1
+
+#define CAAMTA_BASE                     (TAG_USER + 2000)
+#define CAAMTA_Timeout                  (CAAMTA_BASE + 1)
+#define CAAMTA_LeaseTime                (CAAMTA_BASE + 2)
+#define CAAMTA_RequestedAddress         (CAAMTA_BASE + 3)
+#define CAAMTA_ClientIdentifier         (CAAMTA_BASE + 4)
+#define CAAMTA_NAKMessageSize           (CAAMTA_BASE + 5)
+#define CAAMTA_RouterTableSize          (CAAMTA_BASE + 6)
+#define CAAMTA_DNSTableSize             (CAAMTA_BASE + 7)
+#define CAAMTA_StaticRouteTableSize     (CAAMTA_BASE + 8)
+#define CAAMTA_HostNameSize             (CAAMTA_BASE + 9)
+#define CAAMTA_DomainNameSize           (CAAMTA_BASE + 10)
+#define CAAMTA_BOOTPMessageSize         (CAAMTA_BASE + 11)
+#define CAAMTA_RecordLeaseExpiration    (CAAMTA_BASE + 12)
+#define CAAMTA_ReplyPort                (CAAMTA_BASE + 13)
+#define CAAMTA_RequestUnicast           (CAAMTA_BASE + 14)
+
+#define CAAME_Success                       0
+#define CAAME_Invalid_result_ptr            1
+#define CAAME_Not_enough_memory             2
+#define CAAME_Invalid_version               3
+#define CAAME_Invalid_protocol              4
+#define CAAME_Invalid_interface_name        5
+#define CAAME_Interface_not_found           6
+#define CAAME_Invalid_client_identifier     7
+#define CAAME_Client_identifier_too_short   8
+#define CAAME_Client_identifier_too_long    9
+
 #endif

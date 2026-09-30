@@ -326,29 +326,6 @@ LONG bsd_CreateAddrAllocMessageA(register LONG version __asm("d0"),
     return CAAME_Success;
 }
 
-VOID bsd_DeleteAddrAllocMessage(register struct AddressAllocationMessage *aam __asm("a0"),
-                                register struct AmiSocketBase *SocketBase __asm("a6"))
-{
-    (VOID)SocketBase;
-
-    /* "Passing a NULL pointer in place of a valid message address is
-       harmless." */
-    if (aam == NULL)
-        return;
-
-    /*
-     * "This routine can only deallocate address allocation messages created
-     * by CreateAddrAllocMessageA() and will not work with anything else."
-     */
-    if (aam->aam_Reserved != BSD_AAM_COOKIE)
-        return;
-
-    /* Cleared before the free so that a double delete finds no cookie. */
-    aam->aam_Reserved = 0;
-
-    ami_free(aam);
-}
-
 /*
  * BeginInterfaceConfig() is documented asynchronous, "This routine starts an
  * asynchronous operation, very much like exec.library/SendIO()", and has to
@@ -374,6 +351,7 @@ typedef struct BsdAamJob
     UWORD                            baj_Index;
     volatile BOOL                    baj_Abort;
     volatile BOOL                    baj_Done;
+    volatile BOOL                    baj_Orphan;    /* deleted in flight */
 } BsdAamJob;
 
 /*
@@ -402,6 +380,76 @@ static BsdAamJob *bsd_aam_find(const struct AddressAllocationMessage *aam)
     }
 
     return NULL;
+}
+
+VOID bsd_DeleteAddrAllocMessage(register struct AddressAllocationMessage *aam __asm("a0"),
+                                register struct AmiSocketBase *SocketBase __asm("a6"))
+{
+    BsdAamJob *job;
+
+    (VOID)SocketBase;
+
+    /* "Passing a NULL pointer in place of a valid message address is
+       harmless." */
+    if (aam == NULL)
+        return;
+
+    Forbid();
+
+    /*
+     * "This routine can only deallocate address allocation messages created
+     * by CreateAddrAllocMessageA() and will not work with anything else."
+     * Cleared before the free so that a double delete finds no cookie.
+     */
+    if (aam->aam_Reserved != BSD_AAM_COOKIE)
+    {
+        Permit();
+        return;
+    }
+    aam->aam_Reserved = 0;
+
+    /*
+     * Still with a worker, which reads it, writes the lease and the result
+     * into it and replies it (F-029).  It is not freed under the worker: the
+     * job is told to stop and that the message is gone, and the worker frees
+     * it instead of replying.  The worker notices within one poll.
+     */
+    job = bsd_aam_find(aam);
+    if (job != NULL)
+    {
+        job->baj_Abort  = TRUE;
+        job->baj_Orphan = TRUE;
+        Permit();
+        return;
+    }
+
+    Permit();
+
+    ami_free(aam);
+}
+
+/*
+ * The job leaves the table and the message is replied in one Forbid(), so a
+ * delete sees either a job it can orphan or a message that is the caller's
+ * again.  TRUE when the message was deleted in flight: nothing was replied
+ * and the caller of this frees it.
+ */
+static BOOL bsd_aam_finish(BsdAamJob *job, struct AddressAllocationMessage *aam,
+                           LONG result)
+{
+    BOOL orphan;
+
+    Forbid();
+    if (job->baj_Index < (UWORD)AMI_CFG_MAX_ATTACHED &&
+        bsd_aam_jobs[job->baj_Index] == job)
+        bsd_aam_jobs[job->baj_Index] = NULL;
+    job->baj_Done = TRUE;
+    orphan = job->baj_Orphan;
+    if (!orphan)
+        bsd_aam_reply(aam, result);
+    Permit();
+
+    return orphan;
 }
 
 static VOID bsd_aam_store_lease(struct AddressAllocationMessage *aam,
@@ -555,24 +603,19 @@ static VOID bsd_aam_worker(VOID)
         }
     }
 
-    /*
-     * The job leaves the table before the message is replied. After the reply
-     * the message is the caller's again and can already be deleted, so nothing
-     * must point at it and AbortInterfaceConfig() must no longer find it.
-     */
-    Forbid();
-    if (job->baj_Index < (UWORD)AMI_CFG_MAX_ATTACHED &&
-        bsd_aam_jobs[job->baj_Index] == job)
-        bsd_aam_jobs[job->baj_Index] = NULL;
-    job->baj_Done = TRUE;
-    Permit();
-
     /* The slot can be removed again as soon as no worker can touch it. This
        must precede the transient stack release, because that release may be
        the operation that tears the netstack down. */
     netstack_interface_release(job->baj_Index);
 
-    bsd_aam_reply(aam, result);
+    /*
+     * The job leaves the table as the message is replied, in one Forbid().
+     * After the reply the message is the caller's again and can already be
+     * deleted, so nothing must point at it and AbortInterfaceConfig() must no
+     * longer find it; before it, a delete must find the job (F-029).
+     */
+    if (bsd_aam_finish(job, aam, result))
+        ami_free(aam);
 
     ami_free(job);
 
@@ -637,6 +680,7 @@ static VOID bsd_aam_launch(struct AddressAllocationMessage *aam, UWORD index,
     job->baj_Index   = index;
     job->baj_Abort   = FALSE;
     job->baj_Done    = FALSE;
+    job->baj_Orphan  = FALSE;
 
     Forbid();
 
@@ -680,15 +724,18 @@ static VOID bsd_aam_launch(struct AddressAllocationMessage *aam, UWORD index,
 
     if (proc == NULL)
     {
+        netstack_interface_release(index);
+        bsd_stack_transient_release(master);
+
+        /* Published above, so a delete may already have orphaned it. */
+        if (bsd_aam_finish(job, aam, AAMR_NoMemory))
+            ami_free(aam);
+
         Forbid();
-        bsd_aam_jobs[index] = NULL;
         bsd_aam_workers--;
         Permit();
 
         ami_free(job);
-        netstack_interface_release(index);
-        bsd_stack_transient_release(master);
-        bsd_aam_reply(aam, AAMR_NoMemory);
         return;
     }
 

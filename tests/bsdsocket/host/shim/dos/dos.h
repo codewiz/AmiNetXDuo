@@ -41,4 +41,9 @@ struct DateStamp
     LONG ds_Minute;
     LONG ds_Tick;
 };
+/* dos/dos.h: Delay() ticks, fifty to the second (addralloc.c's poll). */
+#ifndef TICKS_PER_SECOND
+#define TICKS_PER_SECOND    50
+#endif
+
 #endif
