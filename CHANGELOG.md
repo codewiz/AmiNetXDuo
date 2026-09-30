@@ -9,6 +9,10 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `httpd` refuses a `PROPFIND` that names more than eight properties, as
+  `PROPPATCH` already does. A 207 answering only about the first eight would
+  read as one about all of them, so the request is answered 400 instead of an
+  incomplete multistatus.
 - `CreateAmiNetXDuoStatusReport` reports `stack.status=too_old` only for a
   library below the version or revision the netstatus query needs. A resident,
   current library whose query open failed reports `unavailable`, and one whose

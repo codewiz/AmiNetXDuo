@@ -2476,6 +2476,16 @@ static VOID httpd_do_propfind(HttpConn *c)
         return;
     }
 
+    /* More names than there is room to report on.  A 207 that answered only
+       about the first eight would read as one about all of them, so the request
+       is refused here as PROPPATCH refuses it. */
+    if (c->xml.props_cut)
+    {
+        httpd_error(c, 400, "that PROPFIND names more properties than this "
+                            "server answers about");
+        return;
+    }
+
     if (c->is_volumes_root)
         is_dir = TRUE;
     else if (!httpd_examine(c, &is_dir, TRUE))
