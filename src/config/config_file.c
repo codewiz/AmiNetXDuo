@@ -391,7 +391,8 @@ static VOID load_resolver(AmiConfig *cfg)
         /* On the heap: it is 800 bytes, and hostname and nslookup run this
            on a Shell's 4K stack. */
         buf   = (char *)ami_cfg_read_file(AMI_CFG_FILE_HOSTS, NULL);
-        extra = (AmiResolverConfig *)ami_alloc(sizeof(*extra));
+        extra = (buf != NULL) ? (AmiResolverConfig *)ami_alloc(sizeof(*extra))
+                              : NULL;
         if (buf != NULL && extra == NULL)
             AMI_ERROR("config: %s: out of memory reading its resolver lines",
                       AMI_CFG_FILE_HOSTS);
