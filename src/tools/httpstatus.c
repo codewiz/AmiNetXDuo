@@ -22,6 +22,7 @@ const char *http_status_reason(unsigned long status)
         case 206: return "Partial Content";
         case 207: return "Multi-Status";
         case 301: return "Moved Permanently";
+        case 304: return "Not Modified";
         case 400: return "Bad Request";
         case 403: return "Forbidden";
         case 404: return "Not Found";
@@ -37,9 +38,11 @@ const char *http_status_reason(unsigned long status)
         case 417: return "Expectation Failed";
         case 423: return "Locked";
         case 424: return "Failed Dependency";
+        case 426: return "Upgrade Required";
         case 431: return "Request Header Fields Too Large";
         case 500: return "Internal Server Error";
         case 501: return "Not Implemented";
+        case 502: return "Bad Gateway";
         case 503: return "Service Unavailable";
         case 507: return "Insufficient Storage";
         default:  return "Unknown";

@@ -7,7 +7,8 @@
  * its own translation unit src/tools/test/test_httpstatus.c can assert every
  * mapped code and the unknown fallback string-for-string, without compiling
  * httpd.c, which reaches proto/dos.h and tx_api.h and builds nowhere but the
- * target.
+ * target. The HTTP status emitters in httpd.c and httphead.c, not this table's
+ * current cases, define which responses the table and its test must cover.
  *
  * SPDX-License-Identifier: MIT
  */

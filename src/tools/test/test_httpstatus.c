@@ -42,6 +42,7 @@ int main(void)
     reason(206, "Partial Content");
     reason(207, "Multi-Status");
     reason(301, "Moved Permanently");
+    reason(304, "Not Modified");
     reason(400, "Bad Request");
     reason(403, "Forbidden");
     reason(404, "Not Found");
@@ -57,9 +58,11 @@ int main(void)
     reason(417, "Expectation Failed");
     reason(423, "Locked");
     reason(424, "Failed Dependency");
+    reason(426, "Upgrade Required");
     reason(431, "Request Header Fields Too Large");
     reason(500, "Internal Server Error");
     reason(501, "Not Implemented");
+    reason(502, "Bad Gateway");
     reason(503, "Service Unavailable");
     reason(507, "Insufficient Storage");
 

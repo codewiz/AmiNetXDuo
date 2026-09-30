@@ -9,6 +9,8 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `httpd` uses the proper reason phrases for 304, 426 and 502 responses
+  instead of printing `Unknown` in those status lines.
 - `telnet` flushes a carriage return held from the previous byte before it
   starts to read an IAC command. A CR followed by an escaped 0xFF (IAC IAC)
   put the 0xFF out first and then dropped the CR when the segment ended; the
