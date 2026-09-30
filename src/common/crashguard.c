@@ -571,9 +571,11 @@ VOID ami_crash_remove_alert_hook(VOID)
     while (ami_alert_inflight != 0)
         Delay(1);
 
-    ami_alert_draining = FALSE;
-
-    /* A Guru's log and file, deferred from where it happened (F-081). */
+    /* A Guru's log and file, deferred from where it happened (F-081).  Still
+       draining while they run: they are this image's code, and a second
+       removal must not return, and its caller unload the image, under them. */
     if (ami_alert_rec.pending)
         ami_alert_flush();
+
+    ami_alert_draining = FALSE;
 }
