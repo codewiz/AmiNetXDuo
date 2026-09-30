@@ -418,6 +418,93 @@ static void test_slice_budget(void)
     CHECK(iperf_slice_budget(0, 1, 64) > 0);
 }
 
+/* Feeds data ids, then the marker as the id it negates (0: no marker). */
+static void seq_run(IperfSeq *s, const long *ids, int n, unsigned long last)
+{
+    int i;
+
+    iperf_seq_init(s);
+    for (i = 0; i < n; i++)
+        iperf_seq_data(s, (unsigned long)ids[i]);
+    if (last != 0)
+        iperf_seq_end(s, last);
+}
+
+#define SEQ(ids, last) seq_run(&s, ids, (int)(sizeof(ids) / sizeof(ids[0])), last)
+
+/* F-165.  The first eight are what iperf 2.2.1's server reported for the same
+   streams, except gap_dup, where it lets the duplicate cancel the loss. */
+static void test_seq(void)
+{
+    IperfSeq s;
+    static const long clean[]    = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+    static const long mid_gap[]  = { 1, 2, 3, 4, 6, 7, 8, 9, 10 };
+    static const long tail_gap[] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+    static const long reorder[]  = { 1, 2, 3, 4, 6, 5, 7, 8, 9, 10 };
+    static const long late_far[] = { 1, 2, 3, 6, 7, 8, 9, 10, 4, 5 };
+    static const long dup[]      = { 1, 2, 3, 3, 4, 5, 6, 7, 8, 9, 10 };
+    static const long dup_old[]  = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 2 };
+    static const long gap_dup[]  = { 1, 2, 4, 4, 5, 6, 7, 8, 9, 10 };
+    static const long late_dup[] = { 1, 2, 4, 3, 3, 5 };
+    static const long first_5[]  = { 5, 6, 2 };
+    static const long zero[]     = { 0, 1 };
+    static const long edge_in[]  = { 1, 33, 2 };
+    static const long edge_out[] = { 1, 34, 2 };
+    static const long top[]      = { 1, 0x7fffffffL };
+
+    SEQ(clean, 11);
+    CHECK(s.lost == 0 && s.outoforder == 0 && iperf_seq_total(&s) == 11);
+    SEQ(mid_gap, 11);
+    CHECK(s.lost == 1 && s.outoforder == 0 && iperf_seq_total(&s) == 11);
+    SEQ(tail_gap, 11);
+    CHECK(s.lost == 2 && s.outoforder == 0 && iperf_seq_total(&s) == 11);
+    SEQ(reorder, 11);
+    CHECK(s.lost == 0 && s.outoforder == 1);
+    SEQ(late_far, 11);
+    CHECK(s.lost == 0 && s.outoforder == 2);
+    SEQ(dup, 11);
+    CHECK(s.lost == 0 && s.outoforder == 1);
+    SEQ(dup_old, 11);
+    CHECK(s.lost == 0 && s.outoforder == 1);
+
+    /* 3 never came.  The second 4 is a copy and gives nothing back. */
+    SEQ(gap_dup, 11);
+    CHECK(s.lost == 1 && s.outoforder == 1);
+
+    /* 3 late takes back its loss once; its copy does not again. */
+    SEQ(late_dup, 0);
+    CHECK(s.lost == 0 && s.outoforder == 2 && iperf_seq_total(&s) == 5);
+
+    /* 1..4 lost before the first datagram; a late 2 is taken back. */
+    SEQ(first_5, 0);
+    CHECK(s.lost == 3 && s.outoforder == 1);
+
+    /* An id before the first is out of order and takes nothing back. */
+    SEQ(zero, 0);
+    CHECK(s.lost == 0 && iperf_seq_total(&s) == 1);
+
+    /* The window: 2 is 31 back from 33 and still counts, 32 back does not. */
+    SEQ(edge_in, 0);
+    CHECK(s.lost == 30 && s.outoforder == 1);
+    SEQ(edge_out, 0);
+    CHECK(s.lost == 32 && s.outoforder == 1);
+
+    /* Early report, no marker: the loss the gaps showed, nothing more. */
+    SEQ(tail_gap, 0);
+    CHECK(s.lost == 0 && iperf_seq_total(&s) == 8);
+
+    /* A marker behind the highest id adds nothing. */
+    SEQ(clean, 5);
+    CHECK(s.lost == 0 && iperf_seq_total(&s) == 10);
+
+    /* The largest ids the wire carries, and a LONG_MIN marker. */
+    SEQ(top, 0x80000000UL);
+    CHECK(s.lost == 0x7ffffffdUL && iperf_seq_total(&s) == 0x80000000UL);
+    SEQ(clean, 0x80000000UL);
+    CHECK(s.lost == 0x80000000UL - 11UL
+          && iperf_seq_total(&s) == 0x80000000UL);
+}
+
 int main(void)
 {
     test_limits();
@@ -430,6 +517,7 @@ int main(void)
     test_add64();
     test_send_cap();
     test_format();
+    test_seq();
 
     printf("%d checks, %d failures\n", checks, failures);
 

@@ -122,6 +122,41 @@ void iperf_report_put(unsigned char *buf, const IperfWireReport *rep);
 int iperf_report_get(const unsigned char *buf, unsigned long len,
                      IperfWireReport *rep);
 
+/* -------------------------------------------------------------- loss - */
+
+/*
+ * A UDP receiver's count of the ids it did not see (F-165).  Ids are taken
+ * unsigned, 32 bits: data ids are 0..0x7fffffff and a marker's negation is at
+ * most 0x80000000, so nothing here can overflow.
+ *
+ * A gap ahead is lost at once.  An id that arrives late takes its loss back
+ * if it is fewer than IPERF_SEQ_WINDOW ids behind the highest; a duplicate,
+ * or one older than that, is only out of order, because it cannot be told
+ * from a copy.
+ * iperf 2 lets a duplicate cancel a real loss; this does not.
+ */
+#define IPERF_SEQ_WINDOW    32
+
+typedef struct IperfSeq
+{
+    unsigned long   next;           /* the id after the highest seen        */
+    unsigned long   seen;           /* bit k: id next-1-k arrived           */
+    unsigned long   lost;
+    unsigned long   outoforder;
+} IperfSeq;
+
+void iperf_seq_init(IperfSeq *s);
+
+/* A data datagram, id >= 0. */
+void iperf_seq_data(IperfSeq *s, unsigned long id);
+
+/* The end marker, given as the id it negates: the one after the last datagram.
+   A gap before it is the tail that was lost. */
+void iperf_seq_end(IperfSeq *s, unsigned long last);
+
+/* The total iperf 2 reports: the highest id seen, marker included. */
+unsigned long iperf_seq_total(const IperfSeq *s);
+
 /* ------------------------------------------------------------ arithmetic - */
 
 /*

@@ -89,6 +89,61 @@ int iperf_dg_get(const unsigned char *buf, unsigned long len, long *id)
     return 0;
 }
 
+/* ------------------------------------------------------------------- loss - */
+
+void iperf_seq_init(IperfSeq *s)
+{
+    s->next       = 1;
+    /* Every id before the first counts as seen, so nothing that was never
+       counted lost can be taken back. */
+    s->seen       = 0xffffffffUL;
+    s->lost       = 0;
+    s->outoforder = 0;
+}
+
+void iperf_seq_data(IperfSeq *s, unsigned long id)
+{
+    unsigned long k;
+
+    id = U32(id);
+
+    if (id >= s->next)
+    {
+        unsigned long step = id - s->next + 1UL;
+
+        s->lost = U32(s->lost + (id - s->next));
+        s->seen = U32((step >= IPERF_SEQ_WINDOW ? 0UL : s->seen << step) | 1UL);
+        s->next = id + 1UL;
+        return;
+    }
+
+    s->outoforder = U32(s->outoforder + 1UL);
+
+    k = s->next - 1UL - id;
+    if (k < IPERF_SEQ_WINDOW && (s->seen & (1UL << k)) == 0)
+    {
+        s->seen |= 1UL << k;
+        if (s->lost != 0)
+            s->lost--;
+    }
+}
+
+void iperf_seq_end(IperfSeq *s, unsigned long last)
+{
+    last = U32(last);
+
+    if (last < s->next)
+        return;
+
+    s->lost = U32(s->lost + (last - s->next));
+    s->next = last + 1UL;
+}
+
+unsigned long iperf_seq_total(const IperfSeq *s)
+{
+    return U32(s->next - 1UL);
+}
+
 /* ----------------------------------------------------------------- report - */
 
 void iperf_report_put(unsigned char *buf, const IperfWireReport *rep)

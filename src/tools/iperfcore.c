@@ -317,7 +317,7 @@ LONG iperf_begin(IperfRun *run, struct Library *sb, const IperfPlan *plan,
     run->lsock = -1;
     run->sock  = -1;
     run->state = ST_IDLE;
-    run->expect = 1;
+    iperf_seq_init(&run->rx);
     run->res.dir = plan->dir;
 
     iperf_buf = buf;
@@ -744,36 +744,19 @@ static VOID iperf_slice_recv(IperfRun *run)
                     /* The end marker.  Its own bytes are counted, which is
                        what iperf 2's server does and what makes the two
                        totals comparable.  It carries the id after the last
-                       datagram, which makes it the highest id the report
-                       gives as the total (F-164). */
-                    unsigned long last = 0UL - (unsigned long)id;
-
-                    /* Wire ids are 32 bits.  A forged -LONG_MAX or LONG_MIN
-                       would push expect past LONG_MAX, and the report
-                       subtracts from it. */
-                    if (last >= (unsigned long)run->expect &&
-                        last < 0x7fffffffUL)
-                        run->expect = (long)(last + 1UL);
-
+                       datagram (F-164), so a gap before it is the tail that
+                       was lost (F-165). */
+                    iperf_seq_end(&run->rx, 0UL - (unsigned long)id);
+                    run->res.lost   = run->rx.lost;
                     run->res.ms     = ami_millis() - run->t_begin;
                     run->state      = ST_REPORT;
                     run->fin_tries  = 0;
                     return;
                 }
 
-                if (id == run->expect)
-                {
-                    run->expect++;
-                }
-                else if (id > run->expect)
-                {
-                    run->res.lost += (ULONG)(id - run->expect);
-                    run->expect    = id + 1;
-                }
-                else
-                {
-                    run->res.outoforder++;
-                }
+                iperf_seq_data(&run->rx, (unsigned long)id);
+                run->res.lost       = run->rx.lost;
+                run->res.outoforder = run->rx.outoforder;
             }
             else
             {
@@ -949,9 +932,8 @@ static VOID iperf_slice_report(IperfRun *run)
     rep.lost        = run->res.lost;
     rep.outoforder  = run->res.outoforder;
     /* The highest id seen, end marker included: iperf 2's total, which its
-       client prints as lost/total (F-164).  Unsigned, so a data id of
-       LONG_MAX that wrapped expect cannot overflow it again here. */
-    rep.datagrams   = (ULONG)run->expect - 1UL;
+       client prints as lost/total (F-164). */
+    rep.datagrams   = iperf_seq_total(&run->rx);
     rep.jitter_sec  = 0;
     rep.jitter_usec = 0;
 

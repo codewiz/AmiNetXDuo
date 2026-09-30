@@ -130,7 +130,7 @@ typedef struct IperfRun
     ULONG           want_bytes_lo;
 
     long            seq;            /* UDP datagram id last sent            */
-    long            expect;         /* UDP datagram id next expected        */
+    IperfSeq        rx;             /* UDP RX: which ids arrived (F-165)    */
 
     ToolSockAddrAny from;
     UBYTE           have_from;
