@@ -91,6 +91,12 @@ BOOL netdev_request_is_pcmcia(NetdevDevice *dev, ULONG unit,
     const NetdevCard *card = NULL;
 
     *wanted = NULL;
+    /* One PCMCIA slot can add only instance zero of a card row.  A later
+       lookup could not find any other instance after claiming that slot. */
+    if ((pin_name != NULL || unit >= ANXNET_UNIT_PIN) &&
+        (unit % ANXNET_UNIT_PIN) != 0)
+        return FALSE;
+
     if (pin_name != NULL)
     {
         card = netdev_card_by_name(pin_name);

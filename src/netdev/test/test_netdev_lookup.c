@@ -265,11 +265,16 @@ static void d_pcmcia_by_name(void)
            "CARD=nonsense is not a slot request");
     expect(wanted == NULL, "an unknown name wants nothing");
 
-    /* The unit number is not consulted when a name is given. */
+    /* A named PCMCIA card can only be the slot's first instance.  Reject an
+       impossible instance before Open() claims and attaches the card. */
     expect(netdev_request_is_pcmcia(&dev, 3, "a2065", &wanted) == FALSE,
            "CARD=a2065 UNIT=count is still not the slot");
-    expect(netdev_request_is_pcmcia(&dev, 7, "pcmcia", &wanted) == TRUE,
-           "CARD=pcmcia UNIT=7 is still the slot");
+    wanted = (const NetdevCard *)1;
+    expect(netdev_request_is_pcmcia(&dev, 7, "pcmcia", &wanted) == FALSE,
+           "CARD=pcmcia UNIT=7 cannot name the only slot instance");
+    expect(wanted == NULL, "rejected named instance wants nothing");
+    expect(netdev_request_is_pcmcia(&dev, ANXNET_UNIT_PIN, "pcmcia", &wanted)
+           == TRUE, "CARD=pcmcia UNIT=100 names instance zero");
 }
 
 static void e_pcmcia_by_pin_number(void)
@@ -283,10 +288,11 @@ static void e_pcmcia_by_pin_number(void)
            "the pcmcia row's pin is a slot request");
     expect(wanted == row("pcmcia"), "and wants that row");
 
+    wanted = (const NetdevCard *)1;
     expect(netdev_request_is_pcmcia(&dev, pin_of(row("3c589"), 1), NULL,
-                                    &wanted) == TRUE,
-           "the 3c589 row's pin, any instance, is a slot request");
-    expect(wanted == row("3c589"), "and wants that row");
+                                    &wanted) == FALSE,
+           "the 3c589 row's second instance cannot be fitted by one slot");
+    expect(wanted == NULL, "rejected pinned instance wants nothing");
 
     wanted = (const NetdevCard *)1;
     expect(netdev_request_is_pcmcia(&dev, pin_of(row("a2065"), 0), NULL,
