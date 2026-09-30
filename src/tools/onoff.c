@@ -88,9 +88,12 @@ static ULONG list_interfaces(char names[][TOOL_NAME_LEN])
  * when UNIT was given, otherwise the driver's only one (onoff_pick()).  The
  * comparison is on the last path component of each.  Returns how many
  * interfaces qualify; name_out and *ifc are the answer only when it is 1.
+ * `report` says so, with the list, when more than one needs a UNIT; the
+ * informational caller asks it not to.
  */
 static int find_by_device(const char *device, BOOL had_unit, ULONG unit,
-                          char *name_out, ULONG name_len, AmiIfConfig *ifc)
+                          char *name_out, ULONG name_len, AmiIfConfig *ifc,
+                          BOOL report)
 {
     static char          names[ONOFF_MAX_FILES][TOOL_NAME_LEN];
     static unsigned long units[ONOFF_MAX_FILES];
@@ -122,7 +125,7 @@ static int find_by_device(const char *device, BOOL had_unit, ULONG unit,
         if (!load_interface(names[which[pick]], ifc, FALSE))
             return 0;
     }
-    else if (matches > 1)
+    else if (matches > 1 && report)
     {
         /* More than one unit of this driver and no UNIT: never a guess. */
         tool_error("%s is used by more than one interface; give UNIT",
@@ -621,7 +624,7 @@ int main(int argc, char **argv)
             static char        othername[TOOL_NAME_LEN];
 
             if (find_by_device(given, TRUE, unit, othername,
-                               sizeof(othername), &other) == 1 &&
+                               sizeof(othername), &other, FALSE) == 1 &&
                 tool_stricmp(othername, name) != 0)
             {
                 tool_printf("%s: taken as the interface name. The interface "
@@ -634,7 +637,7 @@ int main(int argc, char **argv)
     else
     {
         int matches = find_by_device(given, had_unit, unit, resolved,
-                                     sizeof(resolved), &ifc);
+                                     sizeof(resolved), &ifc, TRUE);
 
         if (matches == 1)
         {
