@@ -103,9 +103,11 @@ UBYTE *ugl_GetSalt(UG_A6, UG_REG(struct ug_passwd *user, "a0"),
  * delivers.  A raw CON: sends Ctrl-C as the signal and no byte (RKRM DOS
  * 13.2), so a Read would never return: the wait for each key is a
  * WaitForChar() of UG_GETPASS_POLL_US, and the signals are looked at between
- * waits.  DOSFALSE with IoErr() 0 is the timeout; any other IoErr() is a
- * handler with no ACTION_WAIT_CHAR, which falls back to the blocking Read
- * (RKRM DOS 5.5.3).  The signal is left set for the caller's own break check.
+ * waits, and again after every character, so Ctrl-C with RETURN is still a
+ * break.  DOSFALSE with IoErr() 0 is the timeout; ERROR_ACTION_NOT_KNOWN is a
+ * handler with no ACTION_WAIT_CHAR, which falls back to the blocking Read;
+ * any other IoErr() is the console failing, an empty answer with EIO (RKRM
+ * DOS 5.5.3).  The signal is left set for the caller's own break check.
  */
 #define UG_GETPASS_POLL_US  100000L
 STRPTR ugl_getpass(UG_A6, UG_REG(STRPTR prompt, "a1"))
@@ -118,6 +120,7 @@ STRPTR ugl_getpass(UG_A6, UG_REG(STRPTR prompt, "a1"))
     BOOL  raw = FALSE;
     BOOL  intr = FALSE;
     BOOL  poll = TRUE;
+    BOOL  failed = FALSE;
     ULONG brk = (ULONG)SIGBREAKF_CTRL_C | base->ug_IntrMask;
 
     base->ug_PassBuf[0] = '\0';
@@ -159,8 +162,15 @@ STRPTR ugl_getpass(UG_A6, UG_REG(STRPTR prompt, "a1"))
         }
         if (poll && !WaitForChar(fh, UG_GETPASS_POLL_US))
         {
-            if (IoErr() == 0)
+            LONG err = IoErr();
+
+            if (err == 0)
                 continue;               /* nothing typed yet */
+            if (err != ERROR_ACTION_NOT_KNOWN)
+            {
+                failed = TRUE;
+                break;
+            }
             poll = FALSE;               /* no ACTION_WAIT_CHAR: Read blocks */
         }
         if (Read(fh, &c, 1) != 1)
@@ -168,7 +178,7 @@ STRPTR ugl_getpass(UG_A6, UG_REG(STRPTR prompt, "a1"))
             intr = (BOOL)((SetSignal(0, 0) & brk) != 0);
             break;
         }
-        if (c == 0x03)
+        if (c == 0x03 || (SetSignal(0, 0) & brk) != 0)
         {
             intr = TRUE;
             break;
@@ -187,7 +197,7 @@ STRPTR ugl_getpass(UG_A6, UG_REG(STRPTR prompt, "a1"))
             base->ug_PassBuf[length++] = c;
     }
 
-    if (intr)
+    if (intr || failed)
     {
         while (length > 0)
             base->ug_PassBuf[--length] = '\0';
@@ -200,7 +210,7 @@ STRPTR ugl_getpass(UG_A6, UG_REG(STRPTR prompt, "a1"))
     Write(fh, (APTR)"\n", 1);
     Close(fh);
 
-    ug_set_err(base, intr ? UG_EINTR : 0);
+    ug_set_err(base, intr ? UG_EINTR : failed ? UG_EIO : 0);
 
     return (STRPTR)base->ug_PassBuf;
 }

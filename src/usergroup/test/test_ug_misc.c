@@ -303,6 +303,14 @@ static void press_ctrl_c_when_idle(void)
         shim_signals |= SIGBREAKF_CTRL_C;
 }
 
+/* Ctrl-C in the same instant as RETURN: the signal lands as the newline is
+   read. */
+static void ctrl_c_with_return(char c)
+{
+    if (c == '\n')
+        shim_signals |= SIGBREAKF_CTRL_C;
+}
+
 static void getpass_interrupted(const char *what)
 {
     CHECK_STR((char *)base.ug_PassBuf, "");
@@ -338,6 +346,28 @@ static void test_getpass_break(void)
     pw = ugl_getpass(&base, NULL);
     CHECK_STR((char *)pw, "hunter2");
     CHECK(base.ug_Err == 0);
+
+    /* Ctrl-C with RETURN is a break, not a password. */
+    world_reset();
+    console("pw\n");
+    shim_dos_interactive = 1;
+    shim_dos_on_byte = ctrl_c_with_return;
+    pw = ugl_getpass(&base, NULL);
+    CHECK_STR((char *)pw, "");
+    getpass_interrupted("ctrl-c with return");
+
+    /* A console that fails is an error, not a fall back to a Read that
+       could block for ever: nothing is read, EIO. */
+    world_reset();
+    console("pw\n");
+    shim_dos_interactive = 1;
+    shim_dos_wait_error = ERROR_OBJECT_NOT_FOUND;
+    pw = ugl_getpass(&base, NULL);
+    CHECK_STR((char *)pw, "");
+    CHECK(base.ug_Err == UG_EIO);
+    CHECK(op_first('r') == -1);                 /* never reached Read */
+    CHECK(op_last('0') > op_last('1'));         /* echo back on */
+    CHECK(op_last('c') == shim_dos_oplen - 1);  /* and closed */
 
     /* A handler with no ACTION_WAIT_CHAR: Read blocks, and a break raised
        while it waited is seen when it returns short. */

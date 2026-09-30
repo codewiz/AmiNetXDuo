@@ -92,6 +92,12 @@ extern int   shim_dos_waits;
 extern LONG  shim_dos_ioerr;
 extern void (*shim_dos_idle)(void);
 
+/* Nonzero: WaitForChar() fails with this IoErr(), a console I/O error. */
+extern LONG  shim_dos_wait_error;
+
+/* When set, runs as Read() hands out each byte: a key pressed with it. */
+extern void (*shim_dos_on_byte)(char c);
+
 #define SHIM_DOS_DEFINE_STATE                                                \
     struct ShimDosFile   shim_dos_files[SHIM_DOS_MAX_FILES];                 \
     int                  shim_dos_file_count;                                \
@@ -107,7 +113,9 @@ extern void (*shim_dos_idle)(void);
     int                  shim_dos_interactive;                               \
     int                  shim_dos_waits;                                     \
     LONG                 shim_dos_ioerr;                                     \
-    void               (*shim_dos_idle)(void)
+    void               (*shim_dos_idle)(void);                               \
+    LONG                 shim_dos_wait_error;                                \
+    void               (*shim_dos_on_byte)(char c)
 
 /* Declared by the exec shim; Open() reads pr_WindowPtr through it. */
 extern struct Task *shim_current_task;
@@ -136,6 +144,8 @@ static inline void shim_dos_reset(void)
     shim_dos_waits           = 0;
     shim_dos_ioerr           = 0;
     shim_dos_idle            = NULL;
+    shim_dos_wait_error      = 0;
+    shim_dos_on_byte         = NULL;
 }
 
 static inline void shim_dos_add_file(const char *path, const char *data, long len)
@@ -261,6 +271,13 @@ static inline LONG Read(BPTR fh, APTR buffer, LONG length)
                        + shim_dos_handles[h].pos,
            (size_t)avail);
     shim_dos_handles[h].pos += avail;
+    if (shim_dos_on_byte != NULL)
+    {
+        long i;
+
+        for (i = 0; i < avail; i++)
+            shim_dos_on_byte(((const char *)buffer)[i]);
+    }
 
     return (LONG)avail;
 }
@@ -299,6 +316,11 @@ static inline LONG WaitForChar(BPTR fh, LONG timeout)
     if (!shim_dos_interactive)
     {
         shim_dos_ioerr = ERROR_ACTION_NOT_KNOWN;
+        return DOSFALSE;
+    }
+    if (shim_dos_wait_error != 0)
+    {
+        shim_dos_ioerr = shim_dos_wait_error;
         return DOSFALSE;
     }
     if (++shim_dos_waits > SHIM_DOS_WAIT_CAP)

@@ -117,6 +117,7 @@ struct ug_credentials {
 #define UG_ENOENT        2
 #define UG_ESRCH         3
 #define UG_EINTR         4
+#define UG_EIO           5
 #define UG_ENOMEM       12
 #define UG_EACCES       13
 #define UG_EFAULT       14
