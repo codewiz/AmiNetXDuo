@@ -367,7 +367,9 @@ BOOL ami_cfg_scan_interfaces(AmiConfig *cfg, AmiCfgIfaceSink sink)
 
 /* ----------------------------------------------------------------- pieces */
 
-static VOID load_resolver(AmiConfig *cfg)
+/* noinline: inlined into ami_config_load(), LTO cloned ami_cfg_parse_resolver()
+   and bsdsocket.library grew 932 bytes. */
+static __attribute__((noinline)) VOID load_resolver(AmiConfig *cfg)
 {
     char              *buf;
     AmiResolverConfig *extra;
