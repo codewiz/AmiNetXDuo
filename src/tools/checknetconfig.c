@@ -732,20 +732,39 @@ static VOID check_netdb_file(const NetdbFile *spec)
 
     while (FGets(file, (STRPTR)line, (LONG)sizeof(line)) != NULL)
     {
-        const char *p = line;
-        UWORD       verdict;
+        ULONG len = 0;
+        UWORD verdict;
 
         lineno++;
 
-        while (*p == ' ' || *p == '\t')
-            p++;
+        /*
+         * A line longer than the buffer comes back in pieces, and the loader
+         * reads it whole: the rest is drained, so the next line keeps its
+         * number, and it is said that this one was not looked at rather than
+         * judging a piece.  ';' is not a comment to the loader, so it is not
+         * one here either.
+         */
+        while (line[len] != '\0')
+            len++;
+        if (len == sizeof(line) - 1 && line[len - 1] != '\n')
+        {
+            LONG c;
+            BOOL more = FALSE;
 
-        /* ';' is not a comment to the loader: such a line is data, and only
-           loads if it is shaped like an entry.  Left unreported, as it was. */
-        if (*p == ';')
-            continue;
+            while ((c = FGetC(file)) != -1 && c != '\n')
+                more = TRUE;
 
-        verdict = ami_netdb_line_verdict(spec->kind, p, word, sizeof(word));
+            if (more)
+            {
+                finding(spec->path, lineno, AMI_CFG_PROBLEM_NOTE);
+                say("      this line is longer than %ld characters and was not\n",
+                    (LONG)(sizeof(line) - 1));
+                say("      checked\n");
+                continue;
+            }
+        }
+
+        verdict = ami_netdb_line_verdict(spec->kind, line, word, sizeof(word));
 
         if (verdict == AMI_NETDB_LINE_SHORT)
         {

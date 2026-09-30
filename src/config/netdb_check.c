@@ -16,7 +16,6 @@
 #include "config_internal.h"
 
 #define NETDB_CHECK_LINE    256
-#define NETDB_CHECK_TOKENS  34      /* netdb.c's AMI_NETDB_MAX_TOKENS */
 
 static VOID netdb_check_word(char *word, ULONG wordlen, const char *text)
 {
@@ -61,7 +60,7 @@ UWORD ami_netdb_line_verdict(UWORD kind, const char *text, char *word,
                              ULONG wordlen)
 {
     char   buf[NETDB_CHECK_LINE];
-    char  *tokens[NETDB_CHECK_TOKENS];
+    char  *tokens[AMI_NETDB_MAX_TOKENS];
     char  *line;
     ULONG  count;
     ULONG  value;
@@ -77,7 +76,7 @@ UWORD ami_netdb_line_verdict(UWORD kind, const char *text, char *word,
     if (*line == '\0')
         return AMI_NETDB_LINE_SKIP;
 
-    count = ami_cfg_tokenize(line, tokens, NETDB_CHECK_TOKENS);
+    count = ami_cfg_tokenize(line, tokens, AMI_NETDB_MAX_TOKENS);
 
     if (kind == AMI_NETDB_HOSTS)
     {

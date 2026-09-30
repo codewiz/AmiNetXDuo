@@ -2422,7 +2422,11 @@ netdb_cases[] =
     { AMI_NETDB_SERVICES, "hn 80/\n",            AMI_NETDB_LINE_BAD, "80/" },
     { AMI_NETDB_SERVICES, "domain 53\n",         AMI_NETDB_LINE_BAD, "53" },      /* was skipped */
     { AMI_NETDB_SERVICES, "hostname 101/tcp\n",  AMI_NETDB_LINE_ENTRY, "" },
-    { AMI_NETDB_SERVICES, "# c\n",               AMI_NETDB_LINE_SKIP, "" }
+    { AMI_NETDB_SERVICES, "# c\n",               AMI_NETDB_LINE_SKIP, "" },
+    { AMI_NETDB_SERVICES, "; 80/tcp\n",          AMI_NETDB_LINE_ENTRY, "" },     /* was skipped */
+    { AMI_NETDB_SERVICES, "; a comment\n",       AMI_NETDB_LINE_BAD, "a" },       /* was skipped */
+    { AMI_NETDB_PROTOCOLS, ";x 6\n",             AMI_NETDB_LINE_ENTRY, "" },     /* was skipped */
+    { AMI_NETDB_NETWORKS, "; 10\n",              AMI_NETDB_LINE_ENTRY, "" }      /* was skipped */
 };
 
 /* Did the loader keep the one line of this file? */

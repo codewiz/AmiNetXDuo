@@ -22,8 +22,6 @@
 #include "config_internal.h"
 #include "aminetxduo/compat.h"
 
-#define AMI_NETDB_MAX_TOKENS    34      /* name + value + 32 aliases */
-
 typedef enum
 {
     NETDB_HOSTS = 0,
