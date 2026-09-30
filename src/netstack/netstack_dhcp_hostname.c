@@ -127,7 +127,8 @@ BOOL ami_ns_dhcp_hostname_reconcile(AmiConfig *config,
     }
 
     if (offered == NULL ||
-        config->hostname_source >= (UWORD)AMI_HOSTNAME_DHCP)
+        ami_config_hostname_rank(config->hostname_source) >=
+            (UWORD)AMI_HOSTNAME_DHCP)
         return FALSE;
 
     ami_ns_hostname_copy(state->fallback, config->hostname);

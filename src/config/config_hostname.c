@@ -140,6 +140,7 @@ const char *ami_config_hostname_source_text(UWORD source)
     names[] =
     {
         { (UWORD)AMI_HOSTNAME_NAMERES,   "name_resolution" },
+        { (UWORD)AMI_HOSTNAME_HOSTS,     "hosts"           },
         { (UWORD)AMI_HOSTNAME_DHCP,      "DHCP"            },
         { (UWORD)AMI_HOSTNAME_INTERFACE, "interface ID"    },
         { (UWORD)AMI_HOSTNAME_ENV,       "ENV:HOSTNAME"    },
@@ -156,6 +157,16 @@ const char *ami_config_hostname_source_text(UWORD source)
     return NULL;
 }
 
+UWORD ami_config_hostname_rank(UWORD source)
+{
+    /* The hosts file's HOSTNAME= is read only when name_resolution named
+       nothing, and holds the place name_resolution would have. */
+    if (source == (UWORD)AMI_HOSTNAME_HOSTS)
+        return (UWORD)AMI_HOSTNAME_NAMERES;
+
+    return source;
+}
+
 /* TRUE for a source whose text was never required to be a host name. */
 static BOOL source_is_checked(UWORD source)
 {
@@ -167,7 +178,9 @@ BOOL ami_config_hostname_offer(AmiConfig *cfg, UWORD source, const char *name)
 {
     if (cfg == NULL || name == NULL || name[0] == '\0')
         return FALSE;
-    if (source == (UWORD)AMI_HOSTNAME_NONE || source < cfg->hostname_source)
+    if (source == (UWORD)AMI_HOSTNAME_NONE ||
+        ami_config_hostname_rank(source) <
+            ami_config_hostname_rank(cfg->hostname_source))
         return FALSE;
     if (source_is_checked(source) && !ami_config_hostname_valid(name))
         return FALSE;

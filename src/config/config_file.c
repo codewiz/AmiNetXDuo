@@ -379,6 +379,10 @@ static VOID load_resolver(AmiConfig *cfg)
         ami_free(buf);
     }
 
+    /* The strongest host-name source; nothing later can displace it. */
+    if (cfg->hostname[0] != '\0')
+        cfg->hostname_source = (UWORD)AMI_HOSTNAME_NAMERES;
+
     /* AmiTCP keeps NAMESERVER/DOMAIN/HOST in the netdb file; read only to
        fill gaps -- a real name_resolution file always wins. */
     if (cfg->resolver.nameserver_count == 0 || cfg->hostname[0] == '\0')
@@ -412,6 +416,12 @@ static VOID load_resolver(AmiConfig *cfg)
                 ami_cfg_copy_string(cfg->resolver.domain,
                                     sizeof(cfg->resolver.domain), extra.domain);
 
+            /* A name only the hosts file gave: the same rank, its own name
+               (F-088). */
+            if (cfg->hostname_source == (UWORD)AMI_HOSTNAME_NONE &&
+                cfg->hostname[0] != '\0')
+                cfg->hostname_source = (UWORD)AMI_HOSTNAME_HOSTS;
+
             ami_free(buf);
         }
     }
@@ -419,10 +429,6 @@ static VOID load_resolver(AmiConfig *cfg)
     /* And last, the interface files: AmiTCP_NG's installer writes NAMESERVER
        and DOMAIN there, and nothing here read them. */
     ami_config_resolver_from_interfaces(cfg);
-
-    /* The strongest host-name source; nothing later can displace it. */
-    if (cfg->hostname[0] != '\0')
-        cfg->hostname_source = (UWORD)AMI_HOSTNAME_NAMERES;
 }
 
 static VOID load_gateway(AmiConfig *cfg)

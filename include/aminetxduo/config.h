@@ -349,8 +349,12 @@ typedef struct AmiSdService {
 } AmiSdService;
 
 /*
- * Where hostname came from. The value is a rank: a source with a higher number
- * outranks every lower one and replaces the name it set.
+ * Where hostname came from.  The value names the source; its rank is
+ * ami_config_hostname_rank().  Up to AMI_HOSTNAME_NAMERES the two are the same
+ * number, as they always were: a source with a higher rank outranks every
+ * lower one and replaces the name it set.  A source added since ranks with one
+ * of those and has a number of its own after them, so a reader that predates
+ * it sees an unknown source rather than the wrong one (F-088).
  *
  * No RFC settles this order; it is an OS convention. name_resolution is the
  * file whose only job is naming this machine, so it wins. DHCP option 12 comes
@@ -368,7 +372,9 @@ typedef enum {
     AMI_HOSTNAME_INTERFACE,     /* an interface file's ID=                   */
     AMI_HOSTNAME_ENV,           /* ENV:HOSTNAME                              */
     AMI_HOSTNAME_DHCP,          /* DHCP option 12, RFC 2132 3.14             */
-    AMI_HOSTNAME_NAMERES        /* DEVS:Internet/name_resolution             */
+    AMI_HOSTNAME_NAMERES,       /* DEVS:Internet/name_resolution             */
+    AMI_HOSTNAME_HOSTS          /* DEVS:Internet/hosts HOSTNAME=, the AmiTCP
+                                   fallback; ranks with name_resolution      */
 } AmiHostnameSource;
 
 /* One persistent IPv4 route from DEVS:Internet/routes.  The ceiling matches
@@ -576,6 +582,8 @@ BOOL ami_config_hostname_from_hwaddr(const UBYTE *hw, ULONG hwlen,
 /* Short name for a source, for a report that says where the name came from.
    NULL for AMI_HOSTNAME_NONE, which is not a source. */
 const char *ami_config_hostname_source_text(UWORD source);
+/* The rank of an AmiHostnameSource: which sources it outranks (F-088). */
+UWORD       ami_config_hostname_rank(UWORD source);
 
 /*
  * The suffixes a name with no dot is tried under, in the order they are tried,

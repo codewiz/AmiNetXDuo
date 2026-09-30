@@ -1761,6 +1761,31 @@ static void test_hostname_offer(void)
 
     printf("host name: offers and ranks\n");
 
+    /* F-088: identity and rank.  0..4 are their own rank; hosts ranks with
+       name_resolution but is named for itself. */
+    {
+        UWORD s;
+
+        for (s = (UWORD)AMI_HOSTNAME_NONE; s <= (UWORD)AMI_HOSTNAME_NAMERES; s++)
+            CHECK(ami_config_hostname_rank(s) == s);
+        CHECK(AMI_HOSTNAME_HOSTS == 5);
+        CHECK(ami_config_hostname_rank(AMI_HOSTNAME_HOSTS) ==
+              AMI_HOSTNAME_NAMERES);
+        CHECK_STR(ami_config_hostname_source_text(AMI_HOSTNAME_HOSTS), "hosts");
+        CHECK_STR(ami_config_hostname_source_text(AMI_HOSTNAME_NAMERES),
+                  "name_resolution");
+    }
+
+    cfg_reset(&cfg, 0U);
+    CHECK(ami_config_hostname_offer(&cfg, AMI_HOSTNAME_HOSTS, "fromhosts"));
+    CHECK(!ami_config_hostname_offer(&cfg, AMI_HOSTNAME_DHCP, "leased"));
+    CHECK(!ami_config_hostname_offer(&cfg, AMI_HOSTNAME_ENV, "a3000"));
+    CHECK(!ami_config_hostname_offer(&cfg, AMI_HOSTNAME_INTERFACE, "a1200"));
+    CHECK_STR(cfg.hostname, "fromhosts");
+    CHECK(cfg.hostname_source == AMI_HOSTNAME_HOSTS);
+    CHECK(ami_config_hostname_offer(&cfg, AMI_HOSTNAME_NAMERES, "workshop"));
+    CHECK(cfg.hostname_source == AMI_HOSTNAME_NAMERES);
+
     CHECK(AMI_HOSTNAME_NONE      < AMI_HOSTNAME_INTERFACE);
     CHECK(AMI_HOSTNAME_INTERFACE < AMI_HOSTNAME_ENV);
     CHECK(AMI_HOSTNAME_ENV       < AMI_HOSTNAME_DHCP);

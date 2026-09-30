@@ -119,6 +119,18 @@ int main(void)
             dhcp.owner[0] == '\0',
             "name_resolution remains authoritative over DHCP");
 
+    /* F-088: the hosts file's HOSTNAME= has name_resolution's rank. */
+    memset(&cfg, 0, sizeof(cfg));
+    memset(&dhcp, 0, sizeof(dhcp));
+    h_set(cfg.hostname, "from-hosts", sizeof(cfg.hostname));
+    cfg.hostname_source = AMI_HOSTNAME_HOSTS;
+    ami_ns_dhcp_hostname_update(&dhcp, 0U, "from-dhcp");
+    h_check(!ami_ns_dhcp_hostname_reconcile(&cfg, &dhcp) &&
+            strcmp(cfg.hostname, "from-hosts") == 0 &&
+            cfg.hostname_source == AMI_HOSTNAME_HOSTS &&
+            dhcp.owner[0] == '\0',
+            "a hosts-file name is not displaced by DHCP either");
+
     memset(&cfg, 0, sizeof(cfg));
     memset(&dhcp, 0, sizeof(dhcp));
     h_set(cfg.hostname, "fallback", sizeof(cfg.hostname));
