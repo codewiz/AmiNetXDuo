@@ -74,10 +74,11 @@ extern "C" {
  */
 APTR ami_cfg_read_file(const char *path, ULONG *size_out);
 
-/* ami_cfg_read_file() writes this to *size_out when the file was read but its
-   buffer could not be allocated.  A real size is at most AMI_CFG_FILE_MAX, so
-   this is unambiguous, and it is what lets a caller tell an out-of-memory read
-   from a file that is simply not there. */
+/* ami_cfg_read_file() writes this to *size_out when the read could not be
+   completed for lack of memory: either the file's own buffer, or (for a DEVS:
+   path) the redirect-name buffer, could not be allocated.  A real size is at
+   most AMI_CFG_FILE_MAX, so this is unambiguous, and it is what lets a caller
+   tell an out-of-memory read from a file that is simply not there. */
 #define AMI_CFG_READ_NOMEM      ((ULONG)AMI_CFG_ERR_NOMEM)
 
 /*

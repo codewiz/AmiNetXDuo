@@ -71,13 +71,19 @@ static BOOL own_devs_exists(VOID)
     return exists_quietly(AMI_CFG_OWN_DEVS);
 }
 
-const char *ami_cfg_resolve(const char *path, char *buf, ULONG buflen)
+/*
+ * Case-insensitive match of the DEVS: prefix.  A redirect is possible only for
+ * a DEVS: path; every other name (ENV:HOSTNAME, ENV:ANXDLOGLEVEL, a bare
+ * relative name) is used as given and must not spend a buffer allocation on
+ * redirection it can never need.
+ */
+static BOOL ami_cfg_has_devs_prefix(const char *path)
 {
     static const char prefix[] = AMI_CFG_DEVS_PREFIX;
     ULONG i;
 
-    if (path == NULL || buf == NULL || buflen == 0)
-        return path;
+    if (path == NULL)
+        return FALSE;
 
     for (i = 0; prefix[i] != '\0'; i++)
     {
@@ -86,8 +92,22 @@ const char *ami_cfg_resolve(const char *path, char *buf, ULONG buflen)
         if (c >= 'a' && c <= 'z')
             c = (char)(c - 'a' + 'A');
         if (c != prefix[i])
-            return path;
+            return FALSE;
     }
+    return TRUE;
+}
+
+const char *ami_cfg_resolve(const char *path, char *buf, ULONG buflen)
+{
+    ULONG i;
+
+    if (path == NULL || buf == NULL || buflen == 0)
+        return path;
+
+    if (!ami_cfg_has_devs_prefix(path))
+        return path;
+
+    i = sizeof(AMI_CFG_DEVS_PREFIX) - 1;    /* length of "DEVS:" */
 
     if (!own_devs_exists())
         return path;
@@ -119,11 +139,20 @@ const char *ami_cfg_resolve(const char *path, char *buf, ULONG buflen)
  * NOT fall back to the name as given on OOM: on a machine that also runs
  * Roadshow, the name as given is that stack's file, the very thing the
  * redirect exists to avoid.
+ *
+ * A non-DEVS: path (ENV:HOSTNAME, ...) is not redirected at all, so no buffer
+ * is allocated for it and it cannot be the source of an OOM: it returns NULL
+ * with *oom clear before touching the pool.  Only a DEVS: path can need the
+ * redirect buffer, and only its allocation failure sets *oom.
  */
 static char *resolved_path(const char *path, BOOL *oom)
 {
-    char *where = (char *)ami_alloc((ULONG)AMI_CFG_PATH_LEN);
+    char *where;
 
+    if (!ami_cfg_has_devs_prefix(path))
+        return NULL;
+
+    where = (char *)ami_alloc((ULONG)AMI_CFG_PATH_LEN);
     if (where == NULL)
     {
         if (oom != NULL)
