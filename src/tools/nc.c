@@ -576,10 +576,79 @@ static LONG nc_listen(struct Library *sb, const NcOptions *opt,
 
 /* ----------------------------------------------------------------- scan --- */
 
+/* How long a UDP probe waits when no -w was given: a silent port has no end
+   of its own to wait for. */
+#define NC_UDP_PROBE_SECS   2UL
+
+#define NC_UDP_ANSWERED     1       /* a datagram came back: open           */
+#define NC_UDP_REFUSED      0       /* ICMP port unreachable: closed        */
+#define NC_UDP_SILENT      (-1)     /* nothing: open, or filtered           */
+#define NC_UDP_FAILED      (-2)     /* the socket itself failed; *why       */
+#define NC_UDP_BROKEN      (-3)     /* Ctrl-C                               */
+
+/*
+ * A UDP port has no handshake, so connect() succeeds whether anything is
+ * there or not and cannot be the test (F-184).  Send one datagram, as
+ * OpenBSD nc -zu does, and see what comes back: a datagram, the ICMP port
+ * unreachable the stack turns into ECONNREFUSED on a connected socket, or
+ * nothing -- which is open to a service that does not reply as much as
+ * filtered, and is reported as neither.
+ */
+static LONG nc_udp_probe(struct Library *sb, LONG sock, ULONG secs, LONG *why)
+{
+    static const UBYTE probe = 'X';
+    UBYTE              reply[1];
+    ULONG              started = ami_millis();
+    LONG               n;
+
+    if (tool_sock_send(sb, sock, &probe, 1) < 0)
+    {
+        *why = tool_sock_errno(sb);
+        return (*why == TOOL_ECONNREFUSED) ? NC_UDP_REFUSED : NC_UDP_FAILED;
+    }
+
+    for (;;)
+    {
+        ToolFdSet   readfds;
+        ToolTimeval tv;
+        LONG        ready;
+
+        if (tool_break())
+            return NC_UDP_BROKEN;
+
+        tool_fd_zero(&readfds);
+        tool_fd_add(&readfds, sock);
+        tv.tv_secs  = 0;
+        tv.tv_micro = 200000;
+
+        ready = tool_sock_select(sb, sock + 1, &readfds, NULL, &tv);
+        if (ready < 0 && tool_sock_errno(sb) != TOOL_EINTR)
+        {
+            *why = tool_sock_errno(sb);
+            return NC_UDP_FAILED;
+        }
+
+        if (ready > 0)
+        {
+            n = tool_sock_recv(sb, sock, reply, (LONG)sizeof(reply));
+            if (n >= 0)
+                return NC_UDP_ANSWERED;
+
+            *why = tool_sock_errno(sb);
+            return (*why == TOOL_ECONNREFUSED) ? NC_UDP_REFUSED
+                                               : NC_UDP_FAILED;
+        }
+
+        if ((ami_millis() - started) / 1000UL >= secs)
+            return NC_UDP_SILENT;
+    }
+}
+
 static LONG nc_scan(struct Library *sb, const NcOptions *opt,
                     const ToolAddr *address, UWORD lo, UWORD hi)
 {
     ULONG open_ports = 0;
+    ULONG silent = 0;
     ULONG tried = 0;
     ULONG port;
     LONG  why = 0;
@@ -615,7 +684,39 @@ static LONG nc_scan(struct Library *sb, const NcOptions *opt,
 
         result = tool_sock_connect_timed(sb, sock, &sa, opt->timeout, &why);
 
-        if (result == 0)
+        if (result == 0 && opt->udp)
+        {
+            LONG probe = nc_udp_probe(sb, sock,
+                                      (opt->timeout != 0) ? opt->timeout
+                                                          : NC_UDP_PROBE_SECS,
+                                      &why);
+
+            if (probe == NC_UDP_BROKEN)
+            {
+                (VOID)tool_sock_close(sb, sock);
+                tool_fault(ERROR_BREAK);
+                return RETURN_WARN;
+            }
+
+            if (probe == NC_UDP_ANSWERED)
+            {
+                open_ports++;
+                tool_printf("%s port %lu open\n", (LONG)dotted, port);
+            }
+            else if (probe == NC_UDP_SILENT)
+            {
+                silent++;
+                if (opt->verbose)
+                    tool_printf("%s port %lu no answer: open, or filtered\n",
+                                (LONG)dotted, port);
+            }
+            else if (opt->verbose)
+            {
+                tool_printf("%s port %lu %s\n", (LONG)dotted, port,
+                            (LONG)tool_sock_errstr(why));
+            }
+        }
+        else if (result == 0)
         {
             open_ports++;
             tool_printf("%s port %lu open\n", (LONG)dotted, port);
@@ -630,6 +731,14 @@ static LONG nc_scan(struct Library *sb, const NcOptions *opt,
         }
 
         (VOID)tool_sock_close(sb, sock);
+    }
+
+    if (open_ports == 0 && silent != 0)
+    {
+        tool_error("no UDP port on %s answered; %lu gave no answer at all, "
+                   "which UDP cannot tell apart from filtered",
+                   (LONG)dotted, silent);
+        return RETURN_WARN;
     }
 
     if (open_ports == 0)
