@@ -2306,8 +2306,19 @@ LONG bsd_NetStackControl(register ULONG magic __asm("d0"),
 
         case NETCTRL_ROUTE_DELETE:
 #ifdef NX_ENABLE_IP_STATIC_ROUTING
-            status = nx_ip_static_route_delete(ip, ctl->nsc_Destination,
-                                               ctl->nsc_NetMask);
+            /* NetX answers "no such route" with NX_NOT_SUCCESSFUL, and an
+               empty table with NX_SUCCESS though nothing was deleted.  Both
+               are ENOENT, which is what AddNetRoute's own lookup says; the
+               default mapping made the first EINVAL (F-135). */
+            if (ip->nx_ip_routing_table_entry_count == 0)
+                status = NX_ENTRY_NOT_FOUND;
+            else
+            {
+                status = nx_ip_static_route_delete(ip, ctl->nsc_Destination,
+                                                   ctl->nsc_NetMask);
+                if (status == NX_NOT_SUCCESSFUL)
+                    status = NX_ENTRY_NOT_FOUND;
+            }
             if (status == NX_SUCCESS)
                 netstack_config_route_deleted(ctl->nsc_Destination,
                                               ctl->nsc_NetMask);
@@ -2359,6 +2370,10 @@ LONG bsd_NetStackControl(register ULONG magic __asm("d0"),
             status = netstack_ipv6_route_delete(ctl->nsc_Destination6,
                                                 ctl->nsc_PrefixLength,
                                                 ctl->nsc_Gateway6);
+            /* A default route that is not there is NX_NOT_FOUND from
+               nxd_ipv6_default_router_delete(): ENOENT, as a prefix's is. */
+            if (status == NX_NOT_FOUND)
+                status = NX_ENTRY_NOT_FOUND;
             rc = ns_map_status(SocketBase, status);
 #else
             rc = bsd_fail(SocketBase, AMI_ENOSYS);

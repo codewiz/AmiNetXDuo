@@ -171,7 +171,7 @@ ULONG ami_event_snapshot(NetStatusEvent *out, ULONG room, ULONG *held)
 
 LONG bsd_nx_enter(struct AmiSocketBase *b)  { (VOID)b; return 0; }
 VOID bsd_nx_leave(struct AmiSocketBase *b)  { (VOID)b; }
-LONG bsd_fail(struct AmiSocketBase *b, LONG code) { (VOID)b; (VOID)code; return -1; }
+LONG bsd_fail(struct AmiSocketBase *b, LONG code) { b->sb_Errno = code; return -1; }
 
 VOID tx_amiga_tick_stats(TX_AMIGA_TICK_STATS *s) { memset(s, 0, sizeof(*s)); }
 VOID tx_amiga_green_stats(TX_AMIGA_GREEN_STATS *s) { memset(s, 0, sizeof(*s)); }
@@ -280,9 +280,10 @@ BOOL netstack_ipv6_address_origin(UWORD i, UWORD slot, ULONG *origin)
 UINT netstack_ipv6_route_add(const ULONG d[4], ULONG len, const ULONG nh[4], UWORD i)
 { (VOID)d; (VOID)len; (VOID)nh; (VOID)i;
   h_unreachable("netstack_ipv6_route_add"); return 1; }
+static UINT h_route6_delete_status;
+
 UINT netstack_ipv6_route_delete(const ULONG d[4], ULONG len, const ULONG nh[4])
-{ (VOID)d; (VOID)len; (VOID)nh;
-  h_unreachable("netstack_ipv6_route_delete"); return 1; }
+{ (VOID)d; (VOID)len; (VOID)nh; return h_route6_delete_status; }
 VOID netstack_pool_sample(VOID) { h_unreachable("netstack_pool_sample"); }
 
 AmiMemStats *ami_mem_stats(VOID) { h_unreachable("ami_mem_stats"); return NULL; }
@@ -322,9 +323,13 @@ UINT _nxe_ip_gateway_address_clear(NX_IP *ip)
 UINT _nxe_ip_static_route_add(NX_IP *ip, ULONG n, ULONG m, ULONG h)
 { (VOID)ip; (VOID)n; (VOID)m; (VOID)h;
   h_unreachable("nx_ip_static_route_add"); return 1; }
+/* F-135: what NetX answers a route delete with, and whether it was asked. */
+static UINT h_route_delete_status;
+static UINT h_route_delete_calls;
+
 UINT _nxe_ip_static_route_delete(NX_IP *ip, ULONG n, ULONG m)
 { (VOID)ip; (VOID)n; (VOID)m;
-  h_unreachable("nx_ip_static_route_delete"); return 1; }
+  h_route_delete_calls++; return h_route_delete_status; }
 UINT _nxe_arp_static_entry_create(NX_IP *ip, ULONG a, ULONG msw, ULONG lsw)
 { (VOID)ip; (VOID)a; (VOID)msw; (VOID)lsw;
   h_unreachable("nx_arp_static_entry_create"); return 1; }
@@ -486,6 +491,62 @@ static VOID t_stats_wait_revalidates_interface(VOID)
           "the retired SANA-II pointer was not read after removal");
 }
 
+/*
+ * F-135: deleting a route that is not there is ENOENT, whatever NetX calls
+ * it, and a real failure is still not ENOENT.
+ */
+static LONG h_route_delete(ULONG op)
+{
+    NetStatusControl ctl;
+
+    memset(&ctl, 0, sizeof(ctl));
+    ctl.nsc_Magic   = AMI_NETSTATUS_MAGIC;
+    ctl.nsc_Version = (UWORD)AMI_NETSTATUS_VERSION;
+    ctl.nsc_Destination = 0x0A000000UL;
+    ctl.nsc_NetMask     = 0xFF000000UL;
+    h_base.sb_Errno = 0;
+    return bsd_NetStackControl(AMI_NETSTATUS_MAGIC, op, &ctl, sizeof(ctl),
+                               &h_base);
+}
+
+static void t_route_delete_errno(void)
+{
+    h_reset();
+
+    h_ip.nx_ip_routing_table_entry_count = 1;
+    h_route_delete_status = NX_NOT_SUCCESSFUL;
+    CHECK(h_route_delete(NETCTRL_ROUTE_DELETE) == -1 &&
+          h_base.sb_Errno == AMI_ENOENT,
+          "a route NetX has no match for is ENOENT, not EINVAL");
+
+    h_ip.nx_ip_routing_table_entry_count = 0;
+    h_route_delete_calls = 0;
+    h_route_delete_status = NX_SUCCESS;
+    CHECK(h_route_delete(NETCTRL_ROUTE_DELETE) == -1 &&
+          h_base.sb_Errno == AMI_ENOENT,
+          "an empty table is ENOENT, not a delete that did nothing");
+
+    h_ip.nx_ip_routing_table_entry_count = 1;
+    h_route_delete_status = NX_SUCCESS;
+    CHECK(h_route_delete(NETCTRL_ROUTE_DELETE) == 0,
+          "a route that is there is deleted");
+
+    h_route_delete_status = NX_PTR_ERROR;
+    CHECK(h_route_delete(NETCTRL_ROUTE_DELETE) == -1 &&
+          h_base.sb_Errno == AMI_EINVAL,
+          "any other refusal is still EINVAL");
+
+    h_route6_delete_status = NX_NOT_FOUND;
+    CHECK(h_route_delete(NETCTRL_ROUTE6_DELETE) == -1 &&
+          h_base.sb_Errno == AMI_ENOENT,
+          "an IPv6 default route that is not there is ENOENT");
+
+    h_route6_delete_status = NX_ENTRY_NOT_FOUND;
+    CHECK(h_route_delete(NETCTRL_ROUTE6_DELETE) == -1 &&
+          h_base.sb_Errno == AMI_ENOENT,
+          "an IPv6 prefix that is not there is ENOENT, as before");
+}
+
 int main(void)
 {
     printf("NETSTATUS host tests\n");
@@ -497,6 +558,7 @@ int main(void)
     t_no_routers_at_all();
     t_invalid_slots_are_skipped();
     t_stats_wait_revalidates_interface();
+    t_route_delete_errno();
 
     printf("netstatus checks=%lu failures=%lu\n", h_checks, h_failures);
     return h_failures == 0 ? 0 : 1;
