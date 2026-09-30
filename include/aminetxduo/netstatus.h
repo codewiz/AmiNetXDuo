@@ -697,8 +697,8 @@ typedef struct NetStatusOpener
 /* --- bring-up ----------------------------------------------------------- */
 /* nse_Index on the next two is the configuration slot rather than an interface
    index: a device that never opens never becomes an interface. */
-#define NETEVENT_DEVICE_OPEN    10  /* OpenDevice() refused; value = its
-                                       error code                            */
+#define NETEVENT_DEVICE_OPEN    10  /* OpenDevice() refused; value = the
+                                       AMI_NET_ERR_*                         */
 #define NETEVENT_DEVICE_REFUSED 11  /* it opened and then refused a SANA-II
                                        command; value = the AMI_NET_ERR_*    */
 #define NETEVENT_ATTACH_FAILED  12  /* nx_ip_interface_attach() refused;

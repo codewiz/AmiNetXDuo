@@ -9,6 +9,9 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `ShowNetStatus` EVENTS labels the value of a device-open failure as the
+  library's status code, not an OpenDevice error. The number is an
+  AMI_NET_ERR_* value, so the label named a quantity no emitter supplies.
 - A command that cannot find an interface by name no longer lists the
   interfaces whose card never opened. The lookup skips a cleared slot, so the
   list under "no such interface" no longer offers a name the search refused.

@@ -1642,8 +1642,8 @@ static VOID show_events(VOID)
         {
             const char *detail = tool_event_detail(e->nse_Code);
 
-            /* Signed: an OpenDevice error is negative and a count is small and
-               positive, so one form reads correctly for both. */
+            /* Signed: a status is negative or a small positive count, so one
+               form reads correctly for both. */
             if (detail != NULL)
                 tool_printf(", %s %ld", (LONG)detail, (LONG)e->nse_Value);
         }

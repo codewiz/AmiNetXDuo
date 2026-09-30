@@ -39,7 +39,7 @@ static const ToolEventRow tool_event_rows[] =
 
     { NETEVENT_DEVICE_OPEN,
       "the SANA-II device did not open",
-      "OpenDevice error" },
+      "error" },
     { NETEVENT_DEVICE_REFUSED,
       "the SANA-II device opened and then refused a command",
       "error" },
