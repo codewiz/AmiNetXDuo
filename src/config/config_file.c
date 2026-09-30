@@ -272,9 +272,9 @@ BOOL ami_cfg_scan_interfaces(AmiConfig *cfg, AmiCfgIfaceSink sink)
         AMI_ERROR("config: %s: out of memory reading interface drawer",
                   AMI_CFG_DIR_NETINTERFACES);
         ami_cfg_problem_file(AMI_CFG_DIR_NETINTERFACES);
-        ami_cfg_problem(0, AMI_CFG_PROBLEM_ERROR,
-                        "there was not enough memory to read the interface drawer",
-                        AMI_CFG_ADVICE_THIS_IS_MEMORY_NOT);
+        ami_cfg_problem_code(0, AMI_CFG_PROBLEM_ERROR,
+                             AMI_CFG_SAYS_INTERFACE_DRAWER_OUT_OF_MEMORY,
+                             AMI_CFG_ADVICE_THIS_IS_MEMORY_NOT);
         ami_cfg_problem_file(NULL);
         return FALSE;
     }

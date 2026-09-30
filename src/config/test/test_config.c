@@ -10,6 +10,7 @@
 
 #include "../config_internal.h"
 #include "aminetxduo/compat.h"
+#include "aminetxduo/config_advice.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -3047,6 +3048,8 @@ int main(int argc, char **argv)
     test_netdb_garbage();
     test_service_discovery();
     test_env_number();
+    CHECK_STR(ami_cfg_advice(AMI_CFG_SAYS_INTERFACE_DRAWER_OUT_OF_MEMORY),
+              "there was not enough memory to read the interface drawer");
 
     printf("\n%d checks, %d failure(s)\n", checks, failures);
 

@@ -130,6 +130,7 @@ static const char *const ami_cfg_advice_text[] =
     "before requesting an ACK, 1 to 65535. Leave it out for the "
     "device default; smaller values send more ACKs.",
     "TCPGROWRTT is milliseconds, 1 to 65535. Leave it out for 10.",
+    "there was not enough memory to read the interface drawer",
 };
 
 const char *ami_cfg_advice(UWORD code)
