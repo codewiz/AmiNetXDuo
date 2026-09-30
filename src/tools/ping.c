@@ -222,6 +222,17 @@ static BOOL ping_is_reply(BOOL v6, const UBYTE *buf, ULONG len, UWORD ident,
  * not free here: libnix drags in about 7.7 KB of malloc and stdio machinery
  * nothing in this command calls.
  */
+/* INTERVAL seconds, a second at a time: in ticks, anything over 85899345
+   seconds wrapped to a pause of a few ticks (F-209).  TRUE on a break. */
+static BOOL ping_pause(ULONG seconds)
+{
+    while (seconds-- > 0)
+        if (tool_delay_ticks((ULONG)TICKS_PER_SECOND))
+            return TRUE;
+
+    return FALSE;
+}
+
 static int ping_main(int argc, char **argv);
 
 int main(int argc, char **argv)
@@ -579,7 +590,7 @@ static int ping_main(int argc, char **argv)
         if (i + 1 < preload)
             continue;
 
-        if (tool_delay_ticks(interval * (ULONG)TICKS_PER_SECOND))
+        if (ping_pause(interval))
         {
             interrupted = TRUE;
             break;
