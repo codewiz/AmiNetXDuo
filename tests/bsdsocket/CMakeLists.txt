@@ -678,10 +678,11 @@ if(NOT CMAKE_CROSSCOMPILING AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
 
     # netstatus.c once more, for NETSTATUS_HOSTSOURCE beside nss_HostSource
     # (F-088): the source itself on the new selector, the rank on the old
-    # field.  config_hostname.c for the rank.
+    # field.  config_hostname.c for the rank, config_text.c under it.
     add_executable(test_hostsource host/test_hostsource_host.c
                                    "${CMAKE_SOURCE_DIR}/src/bsdsocket/netstatus.c"
-                                   "${CMAKE_SOURCE_DIR}/src/config/config_hostname.c")
+                                   "${CMAKE_SOURCE_DIR}/src/config/config_hostname.c"
+                                   "${CMAKE_SOURCE_DIR}/src/config/config_text.c")
 
     target_include_directories(test_hostsource PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/host/shim-netstatus"
