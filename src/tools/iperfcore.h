@@ -134,8 +134,7 @@ typedef struct IperfRun
 
     ToolSockAddrAny from;
     UBYTE           have_from;
-    UBYTE           got_marker;     /* UDP RX: the end marker arrived (F-166) */
-    UBYTE           pad3[2];
+    UBYTE           pad3[3];
 } IperfRun;
 
 /*

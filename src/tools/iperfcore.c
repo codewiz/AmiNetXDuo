@@ -743,11 +743,17 @@ static VOID iperf_slice_recv(IperfRun *run)
                 {
                     /* The end marker.  Its own bytes are counted, which is
                        what iperf 2's server does and what makes the two
-                       totals comparable. */
+                       totals comparable.  It carries the id after the last
+                       datagram, which makes it the highest id the report
+                       gives as the total (F-164). */
+                    unsigned long last = 0UL - (unsigned long)id;
+
+                    if (last >= (unsigned long)run->expect)
+                        run->expect = (long)(last + 1UL);
+
                     run->res.ms     = ami_millis() - run->t_begin;
                     run->state      = ST_REPORT;
                     run->fin_tries  = 0;
-                    run->got_marker = 1;
                     return;
                 }
 
@@ -860,7 +866,10 @@ static VOID iperf_slice_fin(IperfRun *run)
     {
         LONG sent;
 
-        iperf_dg_put(iperf_buf, -run->seq, now / 1000UL,
+        /* The id after the last datagram, as iperf 2 numbers it.  Reusing
+           the last one read as a duplicate on the far end: one out of order
+           and one loss hidden, every run (F-164). */
+        iperf_dg_put(iperf_buf, -(run->seq + 1), now / 1000UL,
                      (now % 1000UL) * 1000UL);
         sent = tool_sock_send(run->sb, run->sock, iperf_buf,
                               (LONG)run->plan.buflen);
@@ -935,10 +944,9 @@ static VOID iperf_slice_report(IperfRun *run)
     rep.stop_usec   = (ms % 1000UL) * 1000UL;
     rep.lost        = run->res.lost;
     rep.outoforder  = run->res.outoforder;
-    /* The end marker is not one of the datagrams the test moved.  A report
-       sent because this side's target was met has none to take off (F-166). */
-    rep.datagrams   = (run->got_marker && run->res.packets > 0)
-                          ? (run->res.packets - 1) : run->res.packets;
+    /* The highest id seen, end marker included: iperf 2's total, which its
+       client prints as lost/total (F-164). */
+    rep.datagrams   = (ULONG)(run->expect - 1);
     rep.jitter_sec  = 0;
     rep.jitter_usec = 0;
 
