@@ -991,6 +991,10 @@ VOID       bsd_close_all(struct AmiSocketBase *base);
 /* bpf.c, release the capture channels this base opened. A no-op in a build
    without AMINETXDUO_BPF. Never blocks; bsd_child_destroy() calls it. */
 VOID       bsd_bpf_close_all(struct AmiSocketBase *base);
+/* bpf.c: the capture timestamps' Locale zone, read on the stack's own
+   Process at bring-up, so an open from a plain Task, which cannot read it,
+   does not stamp local time as UTC (F-219). */
+VOID       bsd_bpf_zone_read(VOID);
 
 /* socket.c, the receive window this machine can afford right now. */
 ULONG      ami_bsd_tcp_window(struct AmiSocketBase *base);

@@ -110,9 +110,10 @@ extern struct Device *TimerBase;
  * Minutes west of Greenwich, read on every open, on the opener's Process and
  * outside the channel lock (ami_bpf_open()), never on a reader and never per
  * frame: locale.library may load its preferences through DOS.  A plain Task
- * cannot, so an open from one keeps the offset the last Process read; with
- * no locale.library at all it stays 0 and bh_tstamp is the clock as it is
- * (F-219).  One LONG, so a reader sees the old value or the new one.  It is
+ * cannot, so an open from one keeps the offset the last Process read -- and
+ * the stack's own Process reads it at bring-up (library.c), so that is never
+ * the 0 of no read at all.  With no locale.library it stays 0 and bh_tstamp
+ * is the clock as it is (F-219).  One LONG, so a reader sees the old value or the new one.  It is
  * the Locale zone, not a DST-adjusted one; see ami_bpf_utc_secs().
  */
 static LONG ami_bpf_gmt_west;

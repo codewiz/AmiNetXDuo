@@ -351,6 +351,10 @@ LONG ami_bpf_close(APTR owner, LONG channel);
    channel lock; it does not block. */
 VOID ami_bpf_close_owner(APTR owner);
 
+/* Open timer.device and read the Locale zone the timestamps are converted
+   with.  On a Process only; a call from a plain Task changes nothing. */
+VOID ami_bpf_time_init(VOID);
+
 /*
  * Copy out whole capture records; returns bytes copied. Non-blocking, 0 when
  * nothing is buffered. Only complete records are returned; a buffer too small

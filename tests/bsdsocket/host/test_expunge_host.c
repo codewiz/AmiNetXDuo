@@ -408,6 +408,8 @@ LONG ami_netdb_load(VOID)
 BYTE ami_signal_alloc(VOID) { h_unreachable("ami_signal_alloc"); return -1; }
 VOID ami_signal_free(BYTE s) { (VOID)s; }
 VOID bsd_bpf_close_all(struct AmiSocketBase *b) { (VOID)b; }
+/* Reached only from the stack job, which this harness never runs (F-219). */
+VOID bsd_bpf_zone_read(VOID) { }
 /* A base with no table, or the kernel down: bsd_close_all() does nothing. */
 static LONG h_close_alls;
 VOID bsd_close_all(struct AmiSocketBase *b) { (VOID)b; h_close_alls++; }

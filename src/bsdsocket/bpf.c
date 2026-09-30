@@ -56,6 +56,11 @@ VOID bsd_bpf_close_all(struct AmiSocketBase *SocketBase)
     ami_bpf_close_owner((APTR)SocketBase);
 }
 
+VOID bsd_bpf_zone_read(VOID)
+{
+    ami_bpf_time_init();
+}
+
 LONG bsd_bpf_open(register LONG channel __asm("d0"),
                   register struct AmiSocketBase *SocketBase __asm("a6"))
 {
@@ -201,6 +206,10 @@ LONG bsd_bpf_data_waiting(register LONG channel __asm("d0"),
 VOID bsd_bpf_close_all(struct AmiSocketBase *SocketBase)
 {
     (VOID)SocketBase;
+}
+
+VOID bsd_bpf_zone_read(VOID)
+{
 }
 
 #endif /* AMINETXDUO_BPF */

@@ -736,6 +736,8 @@ static VOID bsd_netstack_boot_main(VOID)
             /* A stack that went down some other way leaves nothing for this
                one's sweeps to reach (F-059). */
             bsd_orphans_reclaim();
+            /* This is a Process, which a BPF opener may not be (F-219). */
+            bsd_bpf_zone_read();
             b->nb_Result = netstack_startup_loopback();
             if (b->nb_Result != AMI_NET_OK)
                 netstack_shutdown();
