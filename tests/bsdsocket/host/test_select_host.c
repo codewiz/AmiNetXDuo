@@ -73,6 +73,7 @@ static struct
        Wait(), because nothing else can change the fixture mid-call. */
     AmiSocket   *wait_establishes;
     LONG         wait_nx_enter_result; /* value installed by the next Wait */
+    ULONG        wait_post_signal;     /* a signal arriving right after Wait */
 
     ULONG        opens;             /* OpenDevice()                          */
     BYTE         open_result;
@@ -217,6 +218,15 @@ ULONG Wait(ULONG signalSet)
 
     if (h.wait_nx_enter_result != 0)
         h.nx_enter_result = h.wait_nx_enter_result;
+
+    /* A signal that arrives after Wait() returns, in the window before the
+       caller's next SetSignal() read -- the pending-break case at the loop
+       top.  One-shot, like wait_establishes. */
+    if (h.wait_post_signal != 0)
+    {
+        h.signals |= h.wait_post_signal;
+        h.wait_post_signal = 0;
+    }
 
     return arrived;
 }
@@ -1059,6 +1069,278 @@ static void t_waitselect_timeout(void)
           "a timer.device that will not open is ENOMEM");
 }
 
+/*
+ * F-066: a large accepted timeout re-arms the remainder from ticks.  The old
+ * `left * BSD_TICK_US` is 32-bit and wraps once the remainder passes ~214748
+ * ticks (about 71 minutes), so a multi-hour wait came back hours early.
+ */
+static void t_waitselect_rearm_overflow(void)
+{
+    HSets s;
+    LONG  n;
+    struct timeval long_wait = { 100000, 0 };   /* 27.8 hours, accepted */
+
+    printf("WaitSelect(): a large timeout re-arms the true remainder\n");
+
+    h_reset();
+    (void)h_tcp(0, NX_TCP_SYN_SENT);
+    h_sock[0].as_Flags = ASF_TCP | ASF_CONNECTING;
+    h.wait_plan[0]     = H_TIMER_SIG;           /* the kept request fires early */
+    h.wait_planned     = 1;
+    h.wait_establishes = &h_sock[0];            /* ends the wait after the re-arm */
+    h.tick_jump        = TX_TIMER_TICKS_PER_SECOND / 2;   /* half a second */
+    memset(&s, 0, sizeof(s));
+    h_set(s.write, 0);
+
+    n = bsd_WaitSelect(1, NULL, s.write, NULL, &long_wait, NULL, &h_base);
+    CHECK(n == 1, "a connect completing after the re-arm ends the wait");
+    CHECK(h_base.sb_TimerReq.tr_time.tv_secs == 99999UL &&
+          h_base.sb_TimerReq.tr_time.tv_micro == 500000UL,
+          "and the re-armed remainder is 99999.5 seconds, not a wrapped "
+          "32-bit fraction");
+}
+
+/*
+ * F-066 (tick total past LONG_MAX): the deadline is kept in 32-bit *signed*
+ * ticks, so a timeout whose tick total exceeds LONG_MAX cannot drive the
+ * (wanted_due - now) re-arm or the keep/cancel comparison.  The documented
+ * 100,000,000 s maximum saturates the tick count; select.c gives such a
+ * timeout the terminal path instead -- cancel any kept request, arm the full
+ * timeval, and let its reply be the timeout -- rather than reading the
+ * remainder back negative and returning early.
+ */
+static void t_waitselect_terminal(void)
+{
+    struct timeval big = { 100000000UL, 0 };   /* the autodoc maximum */
+    struct timeval one_second = { 1, 0 };
+    HSets s;
+    LONG  n;
+
+    printf("WaitSelect(): a tick total past LONG_MAX is terminal, not early\n");
+
+    /* The documented maximum is accepted and expires to 0, never EINVAL.  It
+       arms the full timeval once and does not re-arm (no signed remainder). */
+    h_reset();
+    (void)h_tcp(0, NX_TCP_SYN_SENT);
+    h_sock[0].as_Flags = ASF_TCP | ASF_CONNECTING;
+    h.wait_plan[0]     = H_TIMER_SIG;
+    h.wait_planned     = 1;
+    h.tick_jump        = TX_TIMER_TICKS_PER_SECOND / 2;
+    memset(&s, 0, sizeof(s));
+    h_set(s.read, 0);
+
+    n = bsd_WaitSelect(1, s.read, NULL, NULL, &big, NULL, &h_base);
+    CHECK(n == 0, "100000000 seconds is accepted and expires to 0, not EINVAL");
+    CHECK(h.sendios == 1, "the full timeval is armed exactly once");
+    CHECK(h_base.sb_TimerReq.tr_time.tv_secs == 100000000UL &&
+          h_base.sb_TimerReq.tr_time.tv_micro == 0,
+          "and it carried the caller's 100000000-second timeout");
+    CHECK(h.waitios == 1 && h.abortios == 0,
+          "the completed reply is collected, not aborted, and not re-armed");
+
+    /* A large wait that ends on data takes its request back instead of
+       leaving a wrapped due time the next wait's keep/cancel cannot judge. */
+    h_reset();
+    (void)h_tcp(0, NX_TCP_SYN_SENT);
+    h_sock[0].as_Flags = ASF_TCP | ASF_CONNECTING;
+    h.wait_plan[0]     = H_EVENT_SIG;
+    h.wait_planned     = 1;
+    h.wait_establishes = &h_sock[0];
+    memset(&s, 0, sizeof(s));
+    h_set(s.write, 0);
+
+    n = bsd_WaitSelect(1, NULL, s.write, NULL, &big, NULL, &h_base);
+    CHECK(n == 1, "a large wait that ends on data returns the ready count");
+    CHECK(h.abortios == 1 && !h_base.sb_TimerArmed,
+          "and takes its request back, leaving no wrapped due time");
+
+    /* The next short wait then arms its own request, not the leftover one. */
+    h_sock[0].as_Nx.tcp.nx_tcp_socket_state = NX_TCP_SYN_SENT;
+    h.wait_plan[0]     = H_TIMER_SIG;
+    h.wait_planned     = 1;
+    h.wait_calls       = 0;
+    h.tick_jump        = TX_TIMER_TICKS_PER_SECOND;
+    h.signals          = 0;      /* clear the reposted break, if any */
+    h.nx_enter_result  = 0;      /* clear the transient poll failure */
+    h.wait_nx_enter_result = 0;
+    h.sendios = h.abortios = h.waitios = 0;
+    memset(&s, 0, sizeof(s));
+    h_set(s.read, 0);
+
+    n = bsd_WaitSelect(1, s.read, NULL, NULL, &one_second, NULL, &h_base);
+    CHECK(n == 0 && h.sendios == 1,
+          "a later short wait arms its own request, not the large one");
+    CHECK(h_base.sb_TimerReq.tr_time.tv_secs == 1 &&
+          h_base.sb_TimerReq.tr_time.tv_micro == 0,
+          "for one second, not the leftover 100000000");
+
+    /* The boundary is want == LONG_MAX ticks: one second under the largest
+       whole-second tick-path timeout re-arms the remainder; one second over
+       is terminal and does not. */
+    {
+        const ULONG max_tick_secs =
+            0x7FFFFFFFUL / (ULONG)TX_TIMER_TICKS_PER_SECOND;
+        struct timeval under = { max_tick_secs, 0 };
+        struct timeval over  = { max_tick_secs + 1UL, 0 };
+
+        h_reset();
+        (void)h_tcp(0, NX_TCP_SYN_SENT);
+        h_sock[0].as_Flags = ASF_TCP | ASF_CONNECTING;
+        h.wait_plan[0]     = H_TIMER_SIG;
+        h.wait_planned     = 1;
+        h.wait_establishes = &h_sock[0];
+        h.tick_jump        = TX_TIMER_TICKS_PER_SECOND / 2;
+        memset(&s, 0, sizeof(s));
+        h_set(s.write, 0);
+
+        n = bsd_WaitSelect(1, NULL, s.write, NULL, &under, NULL, &h_base);
+        CHECK(n == 1 &&
+              h_base.sb_TimerReq.tr_time.tv_secs == max_tick_secs - 1UL &&
+              h_base.sb_TimerReq.tr_time.tv_micro == 500000UL,
+              "one second under the boundary re-arms the true remainder");
+
+        h_reset();
+        (void)h_tcp(0, NX_TCP_SYN_SENT);
+        h_sock[0].as_Flags = ASF_TCP | ASF_CONNECTING;
+        h.wait_plan[0]     = H_TIMER_SIG;
+        h.wait_planned     = 1;
+        h.tick_jump        = TX_TIMER_TICKS_PER_SECOND / 2;
+        memset(&s, 0, sizeof(s));
+        h_set(s.read, 0);
+
+        n = bsd_WaitSelect(1, s.read, NULL, NULL, &over, NULL, &h_base);
+        CHECK(n == 0 && h.sendios == 1,
+              "one second over the boundary is terminal, not re-armed");
+    }
+
+    /* The tick total saturates, but its own addition can still wrap: the
+       largest whole-second product plus a rounded-microsecond count carries
+       past ULONG_MAX to a near-zero deadline (F-066).  The saturating total
+       must hold the terminal path so the full timeval is armed, not an
+       immediate fire. */
+    {
+        const ULONG sat_secs = 0xFFFFFFFFUL / (ULONG)TX_TIMER_TICKS_PER_SECOND;
+        struct timeval wrap = { sat_secs, 999999UL };
+
+        h_reset();
+        (void)h_tcp(0, NX_TCP_SYN_SENT);
+        h_sock[0].as_Flags = ASF_TCP | ASF_CONNECTING;
+        h.wait_plan[0]     = H_TIMER_SIG;
+        h.wait_planned     = 1;
+        h.tick_jump        = TX_TIMER_TICKS_PER_SECOND / 2;
+        memset(&s, 0, sizeof(s));
+        h_set(s.read, 0);
+
+        n = bsd_WaitSelect(1, s.read, NULL, NULL, &wrap, NULL, &h_base);
+        CHECK(n == 0, "a timeout whose rounded ticks wrap ULONG_MAX is "
+                      "terminal, not an early fire");
+        CHECK(h.sendios == 1 &&
+              h_base.sb_TimerReq.tr_time.tv_secs == sat_secs &&
+              h_base.sb_TimerReq.tr_time.tv_micro == 999999UL,
+              "the full timeval is armed, not a wrapped 32-bit remainder");
+        CHECK(h_base.sb_TimerDue == 0,
+              "and it carries no signed deadline, not the wrapped near-zero "
+              "tick");
+        CHECK(h.waitios == 1 && h.abortios == 0,
+              "the completed reply is collected, not re-armed");
+    }
+
+    /* A break (Ctrl-C) landing while the terminal request is out must not
+       leave it behind: it has no signed due time, so the next wait could not
+       judge a zero sb_TimerDue.  It is taken back on the way to EINTR, and
+       nothing is re-armed. */
+    h_reset();
+    (void)h_tcp(0, NX_TCP_SYN_SENT);
+    h_sock[0].as_Flags = ASF_TCP | ASF_CONNECTING;
+    h.wait_plan[0]     = H_BREAK_SIG;
+    h.wait_planned     = 1;
+    memset(&s, 0, sizeof(s));
+    h_set(s.read, 0);
+
+    n = bsd_WaitSelect(1, s.read, NULL, NULL, &big, NULL, &h_base);
+    CHECK(n == -1 && h_base.sb_Errno == AMI_EINTR,
+          "a break during a terminal wait is EINTR, not an early timeout");
+    CHECK(h.sendios == 1, "the full timeval was armed once, nothing re-armed");
+    CHECK(h.abortios == 1 && !h_base.sb_TimerArmed,
+          "and its request is taken back on the break, not left out");
+
+    /* An event wake with no ready descriptor sends the wait around the loop
+       once more; if the stack is gone by the loop-top readiness poll the
+       terminal request must not be left out on the ENETDOWN return. */
+    h_reset();
+    (void)h_tcp(0, NX_TCP_SYN_SENT);
+    h_sock[0].as_Flags = ASF_TCP | ASF_CONNECTING;
+    h.wait_plan[0]     = H_EVENT_SIG;
+    h.wait_planned     = 1;
+    h.wait_nx_enter_result = -1;          /* the next poll cannot enter */
+    memset(&s, 0, sizeof(s));
+    h_set(s.read, 0);
+
+    n = bsd_WaitSelect(1, s.read, NULL, NULL, &big, NULL, &h_base);
+    CHECK(n == -1 && h_base.sb_Errno == AMI_ENETDOWN,
+          "a terminal wait whose post-wakeup poll fails is ENETDOWN");
+    CHECK(h.abortios == 1 && !h_base.sb_TimerArmed,
+          "and takes its request back on the poll failure, not leaving it out");
+
+    /* The next short wait then arms its own request, not the leftover one. */
+    h_sock[0].as_Nx.tcp.nx_tcp_socket_state = NX_TCP_SYN_SENT;
+    h.wait_plan[0]     = H_TIMER_SIG;
+    h.wait_planned     = 1;
+    h.wait_calls       = 0;
+    h.tick_jump        = TX_TIMER_TICKS_PER_SECOND;
+    h.signals          = 0;      /* clear the reposted break, if any */
+    h.nx_enter_result  = 0;      /* clear the transient poll failure */
+    h.wait_nx_enter_result = 0;
+    h.sendios = h.abortios = h.waitios = 0;
+    memset(&s, 0, sizeof(s));
+    h_set(s.read, 0);
+
+    n = bsd_WaitSelect(1, s.read, NULL, NULL, &one_second, NULL, &h_base);
+    CHECK(n == 0 && h.sendios == 1,
+          "a later short wait arms its own request, not the large one");
+    CHECK(h_base.sb_TimerReq.tr_time.tv_secs == 1 &&
+          h_base.sb_TimerReq.tr_time.tv_micro == 0,
+          "for one second, not the leftover 100000000");
+
+    /* A break that lands in the window before the loop-top re-check -- pending
+       at the SetSignal read rather than delivered by Wait -- must also take
+       the terminal request back. */
+    h_reset();
+    (void)h_tcp(0, NX_TCP_SYN_SENT);
+    h_sock[0].as_Flags = ASF_TCP | ASF_CONNECTING;
+    h.wait_plan[0]     = H_EVENT_SIG;
+    h.wait_planned     = 1;
+    h.wait_post_signal = H_BREAK_SIG;     /* after the wake, before the re-check */
+    memset(&s, 0, sizeof(s));
+    h_set(s.read, 0);
+
+    n = bsd_WaitSelect(1, s.read, NULL, NULL, &big, NULL, &h_base);
+    CHECK(n == -1 && h_base.sb_Errno == AMI_EINTR,
+          "a break pending at the loop-top re-check is EINTR");
+    CHECK(h.abortios == 1 && !h_base.sb_TimerArmed,
+          "and takes its request back, not leaving it out");
+
+    /* The next short wait then arms its own request, not the leftover one. */
+    h_sock[0].as_Nx.tcp.nx_tcp_socket_state = NX_TCP_SYN_SENT;
+    h.wait_plan[0]     = H_TIMER_SIG;
+    h.wait_planned     = 1;
+    h.wait_calls       = 0;
+    h.tick_jump        = TX_TIMER_TICKS_PER_SECOND;
+    h.signals          = 0;      /* clear the reposted break, if any */
+    h.nx_enter_result  = 0;      /* clear the transient poll failure */
+    h.wait_nx_enter_result = 0;
+    h.sendios = h.abortios = h.waitios = 0;
+    memset(&s, 0, sizeof(s));
+    h_set(s.read, 0);
+
+    n = bsd_WaitSelect(1, s.read, NULL, NULL, &one_second, NULL, &h_base);
+    CHECK(n == 0 && h.sendios == 1,
+          "a later short wait arms its own request, not the large one");
+    CHECK(h_base.sb_TimerReq.tr_time.tv_secs == 1 &&
+          h_base.sb_TimerReq.tr_time.tv_micro == 0,
+          "for one second, not the leftover 100000000");
+}
+
 static void t_events(void)
 {
     AmiSocket *s;
@@ -1135,6 +1417,8 @@ int main(void)
     t_waitselect_foreign_task();
     t_waitselect_signals();
     t_waitselect_timeout();
+    t_waitselect_rearm_overflow();
+    t_waitselect_terminal();
     t_events();
 
     printf("%lu checks, %lu failures\n", h_checks, h_failures);
