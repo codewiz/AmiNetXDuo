@@ -154,6 +154,10 @@ VOID bsd_stack_transient_release(struct AmiSocketBase *base) { (void)base; }
 /* A message as CreateAddrAllocMessageA() leaves it, and a job running it. */
 static void h_start(void)
 {
+    /* ami_free() keeps the poisoned message alive for post-delete checks.
+       The previous scenario is finished now; release its backing allocation. */
+    free(h_aam);
+    h_aam = NULL;
     h_aam_size = (ULONG)sizeof(*h_aam);
     h_aam = (struct AddressAllocationMessage *)calloc(1, h_aam_size);
     h_aam->aam_Reserved = BSD_AAM_COOKIE;
@@ -213,5 +217,6 @@ int main(void)
     CHECK(h_forbid == 3, "Forbid balanced but for the three workers' exits");
 
     printf("aam_delete: %lu checks, %lu failures\n", h_checks, h_failures);
+    free(h_aam);
     return (h_failures != 0) ? 1 : 0;
 }

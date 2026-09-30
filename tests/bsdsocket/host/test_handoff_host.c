@@ -126,6 +126,12 @@ VOID bsd_nx_leave(struct AmiSocketBase *base) { (VOID)base; }
 
 static VOID reset_fixture(AmiSocket *sock)
 {
+    /* A previous case may have intentionally left a handoff parked.  Its
+       socket was stack-owned by that case, so discard only the registry
+       entries before replacing the fixture; never dereference that socket. */
+    while (bsd_handoff_pending(&master_base))
+        ami_free(RemHead((struct List *)&master_base.sb_Handoffs));
+
     memset(tables, 0, sizeof(tables));
     memset(&master_base, 0, sizeof(master_base));
     memset(&source_base, 0, sizeof(source_base));
