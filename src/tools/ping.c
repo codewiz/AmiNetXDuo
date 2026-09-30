@@ -233,6 +233,16 @@ static BOOL ping_pause(ULONG seconds)
     return FALSE;
 }
 
+/* The pause, cut to what TIMEOUT has left, in the whole seconds the check at
+   the top of the loop uses; that check then ends the run on time rather
+   than a whole INTERVAL late. */
+static ULONG ping_pause_cap(ULONG interval, ULONG timeout, ULONG elapsed)
+{
+    ULONG left = (elapsed >= timeout) ? 0UL : timeout - elapsed;
+
+    return (interval < left) ? interval : left;
+}
+
 static int ping_main(int argc, char **argv);
 
 int main(int argc, char **argv)
@@ -256,6 +266,7 @@ static int ping_main(int argc, char **argv)
     ToolAddr        target;
     ULONG           count;
     ULONG           interval;
+    ULONG           pause;
     ULONG           preload;
     ULONG           size;
     ULONG           timeout;
@@ -590,7 +601,12 @@ static int ping_main(int argc, char **argv)
         if (i + 1 < preload)
             continue;
 
-        if (ping_pause(interval))
+        pause = interval;
+        if (timeout != 0)
+            pause = ping_pause_cap(interval, timeout,
+                                   (ami_millis() - started) / 1000UL);
+
+        if (ping_pause(pause))
         {
             interrupted = TRUE;
             break;
