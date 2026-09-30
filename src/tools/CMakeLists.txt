@@ -1024,6 +1024,17 @@ if(NOT CMAKE_CROSSCOMPILING)
     target_compile_options(test_leasesurface PRIVATE -Wall -Wextra)
     set_target_properties(test_leasesurface PROPERTIES C_STANDARD 11)
 
+    # tool_routes6 keeps a failed NETSTATUS_ROUTES6 selector apart from an
+    # empty table, so arp does not assert off-link without route data (F-202).
+    add_executable(test_netstatus_selectors
+        test/test_netstatus_selectors.c)
+
+    target_compile_definitions(test_netstatus_selectors PRIVATE
+        AMINETXDUO_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+
+    target_compile_options(test_netstatus_selectors PRIVATE -Wall -Wextra)
+    set_target_properties(test_netstatus_selectors PROPERTIES C_STANDARD 11)
+
     add_executable(test_toolpcap
         test/test_toolpcap.c
         toolpcap.c)
@@ -1114,6 +1125,7 @@ if(NOT CMAKE_CROSSCOMPILING)
     add_test(NAME toolpcap_file_format COMMAND test_toolpcap)
     add_test(NAME bpffilter_programs COMMAND test_bpffilter)
     add_test(NAME tool_counter_surface COMMAND test_leasesurface)
+    add_test(NAME netstatus_selector  COMMAND test_netstatus_selectors)
     add_test(NAME tools_arg_templates COMMAND test_argtemplates enums)
     add_test(NAME tools_arg_contract  COMMAND test_argtemplates contract)
     add_test(NAME tools_arg_usage     COMMAND test_argtemplates usage)

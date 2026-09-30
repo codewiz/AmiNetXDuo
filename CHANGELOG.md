@@ -9,6 +9,12 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `arp` no longer reports an IPv6 address as off-link when the routing table
+  could not be read. `tool_routes6()` returned success for both a genuine empty
+  table and a `NETSTATUS_ROUTES6` selector the library does not know, so `arp`
+  read "no on-link prefix" as fact and asserted the address goes to a router
+  with no route data behind it; a failed query now returns failure, and `arp`
+  says it cannot tell.
 - `CheckNetConfig` names the line each `ADDRESS6` finding was read from, not
   always the first `ADDRESS6` line. An interface may carry two addresses, and
   a fault in the second was reported against the first address's line, which

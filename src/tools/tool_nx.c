@@ -1016,12 +1016,21 @@ LONG tool_routes6(ToolRoutes6 *out)
         return -1;
 
     /*
-     * A library without IPv6 answers with no entries and one too old to know
-     * the selector answers -1. Both mean this machine has no IPv6 route to
-     * report, which prints nothing and is not a failure.
+     * A library without IPv6 answers with no entries (0, a genuine empty
+     * table).  One too old to know the selector answers -1, and so does a
+     * half-installed pair; that is a failed query, not an empty table, and the
+     * caller must be able to tell the two apart (F-202): arp reads this return
+     * as "the routes are known", and a failed query must not let it assert an
+     * address is off-link without evidence.
      */
     n = tool_netstatus_query(base, NETSTATUS_ROUTES6, &nx_answer,
                              sizeof(nx_answer.route6), sizeof(NetStatusRoute6));
+    if (n < 0)
+    {
+        tool_netstatus_close(base);
+        return -1;
+    }
+
     if (n > 0)
     {
         if (nx_answer.route6.hdr.nsh_Available > nx_answer.route6.hdr.nsh_Count)
