@@ -464,6 +464,11 @@ VOID ami_crash_remove_alert_hook(VOID)
     if (stub == NULL)
     {
         Enable();
+
+        /* Another removal is draining.  Wait for it too, so this caller
+           does not unload the image under a Guru still in it. */
+        while (ami_alert_draining)
+            Delay(1);
         return;
     }
     ami_alert_stub     = NULL;
