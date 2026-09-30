@@ -173,6 +173,12 @@ LONG bsd_setsockopt_ipv6(struct AmiSocketBase *base, AmiSocket *sock,
     if (owned <= 0)
         return owned;
 
+    /* ICMPv6 options are solely handled by bsd_cmsg_option().  In a build
+       without CMSG it returns "not ours", so do not interpret a colliding
+       option number as an IPPROTO_IPV6 setting. */
+    if (level != IPPROTO_IPV6)
+        return bsd_fail(base, AMI_ENOPROTOOPT);
+
 #ifdef AMINETXDUO_MULTICAST
     if (level == IPPROTO_IPV6 && bsd_mcast6_is_option(sock, optname))
         return bsd_mcast6_setopt(base, sock, optname, optval, optlen);
@@ -267,6 +273,9 @@ LONG bsd_getsockopt_ipv6(struct AmiSocketBase *base, AmiSocket *sock,
     owned = bsd_cmsg_option(base, sock, level, optname, optval, optlen, FALSE);
     if (owned <= 0)
         return owned;
+
+    if (level != IPPROTO_IPV6)
+        return bsd_fail(base, AMI_ENOPROTOOPT);
 
 #ifdef AMINETXDUO_MULTICAST
     if (level == IPPROTO_IPV6 && bsd_mcast6_is_option(sock, optname))

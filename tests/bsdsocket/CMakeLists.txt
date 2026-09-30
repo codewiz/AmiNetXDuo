@@ -86,6 +86,27 @@ if(NOT CMAKE_CROSSCOMPILING AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
     target_link_options(test_scope_epoch PRIVATE -Wl,--gc-sections)
     add_test(NAME scope_slot_epoch COMMAND test_scope_epoch)
 
+    if(AMINETXDUO_IPV6 AND NOT AMINETXDUO_CMSG)
+        add_executable(test_in6_option_level
+            host/test_in6_option_level_host.c)
+        target_include_directories(test_in6_option_level PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/host/shim"
+            "${CMAKE_SOURCE_DIR}/src/bsdsocket"
+            "${CMAKE_SOURCE_DIR}/include"
+            "${AMINETXDUO_THREADX}/common/inc"
+            "${AMINETXDUO_THREADX}/ports/linux/gnu/inc"
+            "${AMINETXDUO_NETXDUO}/common/inc"
+            "${AMINETXDUO_NETXDUO}/ports/linux/gnu/inc"
+            "${CMAKE_SOURCE_DIR}/port/netxduo-amiga/inc")
+        target_compile_options(test_in6_option_level PRIVATE
+            -include "${CMAKE_CURRENT_SOURCE_DIR}/host/shim/host_prelude.h"
+            -ffunction-sections -fdata-sections)
+        target_compile_definitions(test_in6_option_level PRIVATE
+            AMINETXDUO_IPV6 NX_INCLUDE_USER_DEFINE_FILE)
+        target_link_options(test_in6_option_level PRIVATE -Wl,--gc-sections)
+        add_test(NAME in6_option_level COMMAND test_in6_option_level)
+    endif()
+
     # addralloc.c: a message deleted while its worker still owns it is freed
     # by the worker, not under it (F-029).
     add_executable(test_aam_delete host/test_aam_delete_host.c)
