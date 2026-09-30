@@ -69,6 +69,16 @@ int http_frame_field_name(const char *line, unsigned long len,
  */
 int http_frame_etag_listed(const char *list, const char *etag, int weak);
 
+/*
+ * Whether a file's entity-tag is only weak, from now minus its modification
+ * time as DOS DateStamp deltas.  The tag is size and date, so two writes of
+ * the same length inside one filesystem tick (1/50 s on FFS, two seconds on
+ * others) would share a strong tag and a stale If-Match would pass (F-211).
+ * Within two seconds either way of now it is W/, which If-Match never
+ * accepts; after that nothing can land in the same tick and it is strong.
+ */
+int http_frame_etag_fresh(long days, long minutes, long ticks);
+
 typedef enum HttpFrameVersion
 {
     HTTP_VERSION_BAD = 0,

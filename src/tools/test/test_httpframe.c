@@ -148,6 +148,25 @@ static void test_etags(void)
     CHECK(http_frame_etag_listed("W/\"1-2\"", "\"1-2\"", 1));
     CHECK(http_frame_etag_listed("\"1-2\"", "W/\"1-2\"", 1));
     CHECK(!http_frame_etag_listed(NULL, "\"1-2\"", 1));
+
+    /* F-211: a tag made within two seconds of the write is weak, and a strong
+       If-Match never accepts it, so a same-length write in the same tick
+       cannot pass a stale precondition. */
+    CHECK(http_frame_etag_fresh(0, 0, 0));
+    CHECK(http_frame_etag_fresh(0, 0, 99));
+    CHECK(!http_frame_etag_fresh(0, 0, 100));
+    CHECK(!http_frame_etag_fresh(0, 1, 0));
+    CHECK(http_frame_etag_fresh(1, -1440, 50));     /* across midnight, 1 s */
+    CHECK(http_frame_etag_fresh(0, 0, -50));        /* a date just ahead    */
+    CHECK(!http_frame_etag_fresh(0, 0, -100));
+    CHECK(!http_frame_etag_fresh(2, 0, 0));
+    CHECK(!http_frame_etag_fresh(-3, 0, 0));
+    CHECK(!http_frame_etag_listed("\"10-17000-600-5\"",
+                                  "W/\"10-17000-600-5\"", 0));   /* If-Match */
+    CHECK(!http_frame_etag_listed("W/\"10-17000-600-5\"",
+                                  "W/\"10-17000-600-5\"", 0));
+    CHECK(http_frame_etag_listed("W/\"10-17000-600-5\"",
+                                 "W/\"10-17000-600-5\"", 1));    /* If-None- */
 }
 
 static void test_versions(void)

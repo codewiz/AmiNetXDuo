@@ -193,6 +193,20 @@ static int hf_is_weak(const char *start, const char *end)
             start[1] == '/') ? 1 : 0;
 }
 
+int http_frame_etag_fresh(long days, long minutes, long ticks)
+{
+    long t;
+
+    /* A day or more either way is plainly settled (or a clock set a long way
+       off, where no same-tick write can be meant). */
+    if (days > 1L || days < -1L)
+        return 0;
+
+    t = days * 4320000L + minutes * 3000L + ticks;          /* in ticks */
+
+    return (t < 100L && t > -100L) ? 1 : 0;                 /* two seconds */
+}
+
 int http_frame_etag_listed(const char *list, const char *etag, int weak)
 {
     const char *etag_end;

@@ -8,6 +8,7 @@
 #include "tools.h"
 #include "httpfs.h"
 #include "httpstr.h"
+#include "httpframe.h"
 
 /* An AmigaDOS error as an HTTP status.  One table, so every write method gives
    the same answer to the same failure. */
@@ -124,8 +125,20 @@ VOID http_fs_etag(ULONG size, const struct DateStamp *ds,
     ULONG used = 0;
     BOOL  ok;
 
+    struct DateStamp now;
+
     out[0] = '\0';
-    ok = hs_append(out, outlen, &used, "\"");
+
+    /* W/ while the date is too close to now to tell two writes apart (F-211):
+       httpframe.c's http_frame_etag_fresh() has the rule. */
+    DateStamp(&now);
+    ok = TRUE;
+    if (http_frame_etag_fresh((long)(now.ds_Days - ds->ds_Days),
+                              (long)(now.ds_Minute - ds->ds_Minute),
+                              (long)(now.ds_Tick - ds->ds_Tick)))
+        ok = hs_append(out, outlen, &used, "W/");
+
+    ok = ok && hs_append(out, outlen, &used, "\"");
     ok = ok && hs_append_num(out, outlen, &used, size);
     ok = ok && hs_append(out, outlen, &used, "-");
     ok = ok && hs_append_num(out, outlen, &used, (ULONG)ds->ds_Days);
