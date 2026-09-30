@@ -39,4 +39,12 @@ VOID ami_ns_dns_dhcp_default_reconcile(
     const char ra_applied[AMI_CFG_MAX_SEARCH][AMI_CFG_NAME_LEN],
     UWORD ra_applied_count);
 
+/*
+ * The order the DNS client asks its servers in, for PREFER (F-093): order[]
+ * gets the slots 0..count-1, the preferred kind first, each kind in the order
+ * it had.  is_static[i] says whether slot i is a name_resolution server.
+ */
+VOID ami_ns_dns_prefer_order(const BOOL *is_static, UWORD count,
+                             BOOL dynamic_first, UWORD *order);
+
 #endif /* AMINETXDUO_NETSTACK_DNS_DOMAIN_H */

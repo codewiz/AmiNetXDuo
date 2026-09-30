@@ -1241,8 +1241,14 @@ VOID ami_cfg_parse_resolver(char *buf, AmiResolverConfig *out,
         }
         else if (ami_cfg_stricmp(key, "prefer") == 0)
         {
-            /* static|dynamic: whether DHCP servers override these entries. */
-            AMI_DEBUG("config: name_resolution: PREFER=%s", value);
+            /* static|dynamic: which servers are asked first (F-093). */
+            if (ami_cfg_stricmp(value, "static") == 0)
+                out->prefer = AMI_CFG_PREFER_STATIC;
+            else if (ami_cfg_stricmp(value, "dynamic") == 0)
+                out->prefer = AMI_CFG_PREFER_DYNAMIC;
+            else
+                AMI_WARN("config: name_resolution: PREFER=%s is neither "
+                         "static nor dynamic, ignored", value);
         }
         else if (ami_cfg_stricmp(key, "host") == 0)
         {

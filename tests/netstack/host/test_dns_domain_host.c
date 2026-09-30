@@ -36,6 +36,34 @@ static void h_set(char *dst, const char *src, size_t size)
 }
 
 
+/* F-093: the order the DNS client's slots are put in for PREFER. */
+static void t_prefer_order(void)
+{
+    static const BOOL mixed[5] = { TRUE, FALSE, TRUE, FALSE, FALSE };
+    static const BOOL odd[3]   = { 7, 0, 7 };      /* a true that is not 1 */
+    UWORD order[5];
+    UWORD i;
+
+    ami_ns_dns_prefer_order(mixed, 5U, TRUE, order);
+    h_check(order[0] == 1 && order[1] == 3 && order[2] == 4 &&
+            order[3] == 0 && order[4] == 2,
+            "dynamic first: the lease servers, then the file's, each in order");
+
+    ami_ns_dns_prefer_order(mixed, 5U, FALSE, order);
+    h_check(order[0] == 0 && order[1] == 2 && order[2] == 1 &&
+            order[3] == 3 && order[4] == 4,
+            "static first: the file's, then the lease servers, each in order");
+
+    ami_ns_dns_prefer_order(odd, 3U, 5, order);
+    h_check(order[0] == 1 && order[1] == 0 && order[2] == 2,
+            "any true value counts, for both arguments");
+
+    for (i = 0; i < 5; i++)
+        order[i] = 99;
+    ami_ns_dns_prefer_order(mixed, 0U, TRUE, order);
+    h_check(order[0] == 99, "an empty list writes nothing");
+}
+
 int main(void)
 {
     AmiResolverConfig resolver;
@@ -47,6 +75,8 @@ int main(void)
     char underscored_domain[AMI_CFG_DOMAIN_LEN];
     char malformed_domain[AMI_CFG_DOMAIN_LEN];
     size_t i;
+
+    t_prefer_order();
 
     memset(&resolver, 0, sizeof(resolver));
     memset(&dhcp, 0, sizeof(dhcp));

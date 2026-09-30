@@ -1847,6 +1847,30 @@ static void test_resolver(void)
     CHECK_STR(res.search[0], "local");
     CHECK_STR(res.search[1], "example.com");
     CHECK_STR(res.search[2], "test.invalid");
+    CHECK(res.prefer == AMI_CFG_PREFER_STATIC);     /* F-093 */
+
+    /* PREFER: Roadshow's keyword, either form, either case; anything else
+       and no line at all leave it unset. */
+    {
+        static const struct { const char *text; UWORD prefer; } p[] =
+        {
+            { "prefer dynamic\n",  AMI_CFG_PREFER_DYNAMIC },
+            { "PREFER=Static\n",   AMI_CFG_PREFER_STATIC },
+            { "Prefer DYNAMIC\n",  AMI_CFG_PREFER_DYNAMIC },
+            { "prefer both\n",     AMI_CFG_PREFER_UNSET },
+            { "nameserver 1.1.1.1\n", AMI_CFG_PREFER_UNSET },
+        };
+        unsigned k;
+
+        for (k = 0; k < sizeof(p) / sizeof(p[0]); k++)
+        {
+            memset(&res, 0, sizeof(res));
+            buf = dup_text(p[k].text);
+            ami_cfg_parse_resolver(buf, &res, NULL, 0);
+            free(buf);
+            CHECK(res.prefer == p[k].prefer);
+        }
+    }
 
     /* '=' form, and the AmiTCP netdb-myhost shape in the same routine. */
     memset(&res, 0, sizeof(res));

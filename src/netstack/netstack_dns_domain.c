@@ -267,3 +267,22 @@ VOID ami_ns_dns_dhcp_default_reconcile(
                        (UWORD)sizeof(resolver->domain));
     ami_ns_domain_copy(dhcp->owner, offered, (UWORD)AMI_CFG_DOMAIN_LEN);
 }
+
+VOID ami_ns_dns_prefer_order(const BOOL *is_static, UWORD count,
+                             BOOL dynamic_first, UWORD *order)
+{
+    BOOL  statics_first = dynamic_first ? FALSE : TRUE;
+    UWORD pass;
+    UWORD i;
+    UWORD n = 0;
+
+    for (pass = 0; pass < 2; pass++)
+    {
+        /* The first pass takes the preferred kind. */
+        BOOL want_static = (pass == 0) ? statics_first : (BOOL)!statics_first;
+
+        for (i = 0; i < count; i++)
+            if ((is_static[i] ? TRUE : FALSE) == want_static)
+                order[n++] = i;
+    }
+}

@@ -193,6 +193,92 @@ static BOOL ami_ns_search_array_has(
     const char domain[AMI_CFG_MAX_SEARCH][AMI_CFG_NAME_LEN], UWORD count,
     const char *value);
 
+/*
+ * PREFER in name_resolution (F-093).  The DNS client asks its servers in slot
+ * order and only ever appends, so after every add the slots are put back in
+ * the order asked for: the file's first, or the dynamic ones first, each kind
+ * in the order it came.  In place and under the client's own mutex, which a
+ * query holds for its whole run, so no query sees a list half reordered or
+ * short of a server.  A server is the file's while its use count is negative.
+ */
+static BOOL ami_ns_dns_slot_static(const AmiResolverConfig *r,
+                                   const NXD_ADDRESS *a)
+{
+    UWORD i;
+
+    if (a->nxd_ip_version == NX_IP_VERSION_V4)
+    {
+        for (i = 0; i < r->nameserver_count; i++)
+            if (r->nameserver[i] == a->nxd_ip_address.v4)
+                return (BOOL)(r->nameserver_use[i] < 0);
+        return FALSE;
+    }
+
+#ifdef AMINETXDUO_IPV6
+    for (i = 0; i < r->nameserver6_count; i++)
+        if (r->nameserver6[i][0] == a->nxd_ip_address.v6[0] &&
+            r->nameserver6[i][1] == a->nxd_ip_address.v6[1] &&
+            r->nameserver6[i][2] == a->nxd_ip_address.v6[2] &&
+            r->nameserver6[i][3] == a->nxd_ip_address.v6[3])
+            return (BOOL)(r->nameserver6_use[i] < 0);
+#endif
+
+    return FALSE;
+}
+
+static VOID ami_ns_dns_prefer_apply(AmiNetStack *ns)
+{
+    AmiResolverConfig *r    = &ns->ns_Config.resolver;
+    NXD_ADDRESS       *slot = ns->ns_Dns.nx_dns_server_ip_array;
+    NXD_ADDRESS        copy[NX_DNS_MAX_SERVERS];
+    BOOL               is_static[NX_DNS_MAX_SERVERS];
+    UWORD              order[NX_DNS_MAX_SERVERS];
+    UWORD              n;
+    UWORD              i;
+
+    if (r->prefer == AMI_CFG_PREFER_UNSET)
+        return;
+
+    if (tx_mutex_get(&ns->ns_Dns.nx_dns_mutex, TX_WAIT_FOREVER) != TX_SUCCESS)
+        return;
+
+    ami_ns_resolver_forbid();
+    for (n = 0; n < NX_DNS_MAX_SERVERS && slot[n].nxd_ip_version != 0; n++)
+    {
+        copy[n]      = slot[n];
+        is_static[n] = ami_ns_dns_slot_static(r, &copy[n]);
+    }
+    ami_ns_resolver_permit();
+
+    ami_ns_dns_prefer_order(is_static, n,
+                            (BOOL)(r->prefer == AMI_CFG_PREFER_DYNAMIC), order);
+    for (i = 0; i < n; i++)
+        slot[i] = copy[order[i]];
+
+    (VOID)tx_mutex_put(&ns->ns_Dns.nx_dns_mutex);
+}
+
+/* Every server the DNS client is given comes through one of these two. */
+static UINT ami_ns_dns_add4(AmiNetStack *ns, ULONG server)
+{
+    UINT status = nx_dns_server_add(&ns->ns_Dns, server);
+
+    if (status == NX_SUCCESS)
+        ami_ns_dns_prefer_apply(ns);
+    return status;
+}
+
+#ifdef AMINETXDUO_IPV6
+static UINT ami_ns_dns_add6(AmiNetStack *ns, NXD_ADDRESS *server)
+{
+    UINT status = nxd_dns_server_add(&ns->ns_Dns, server);
+
+    if (status == NX_SUCCESS)
+        ami_ns_dns_prefer_apply(ns);
+    return status;
+}
+#endif
+
 #ifdef AMINETXDUO_IPV6
 
 /*
@@ -255,7 +341,7 @@ static BOOL ami_ns_dns6_reference_add(AmiNetStack *ns,
 
     ami_ns6_nxd(&address, server);
 
-    status = nxd_dns_server_add(&ns->ns_Dns, &address);
+    status = ami_ns_dns_add6(ns, &address);
     if (nx_status != NULL)
         *nx_status = status;
     if (status != NX_SUCCESS && status != NX_DNS_DUPLICATE_ENTRY)
@@ -536,7 +622,7 @@ static VOID ami_ns_dns_absorb_dhcpv6(AmiNetStack *ns, AmiNsDns6Scratch *sc)
         NXD_ADDRESS server = offered[index];
         UINT        status;
 
-        status = nxd_dns_server_add(&ns->ns_Dns, &server);
+        status = ami_ns_dns_add6(ns, &server);
 
         ami_config_format_ip6(server.nxd_ip_address.v6, text,
                               sizeof(sc->text));
@@ -719,7 +805,7 @@ static VOID ami_ns_dns_absorb_rdnss(AmiNetStack *ns, AmiNsDns6Scratch *sc)
          */
         for (i = 0; i < ra->rdnss_count; i++)
         {
-            UINT status = nxd_dns_server_add(&ns->ns_Dns, &ra->rdnss[i]);
+            UINT status = ami_ns_dns_add6(ns, &ra->rdnss[i]);
 
             ami_config_format_ip6(ra->rdnss[i].nxd_ip_address.v6, text,
                                   sizeof(sc->text));
@@ -931,7 +1017,7 @@ static BOOL ami_ns_dns_reference_add(AmiNetStack *ns, ULONG server)
     if (r->nameserver_count >= AMI_CFG_MAX_NAMESERVERS)
         return FALSE;
 
-    status = nx_dns_server_add(&ns->ns_Dns, server);
+    status = ami_ns_dns_add4(ns, server);
     if (status != NX_SUCCESS && status != NX_DNS_DUPLICATE_ENTRY)
         return FALSE;
 
@@ -1377,7 +1463,7 @@ LONG ami_netstack_dns_start(AmiNetStack *ns)
         if (server == 0UL)
             continue;
 
-        status = nx_dns_server_add(&ns->ns_Dns, server);
+        status = ami_ns_dns_add4(ns, server);
         if (status != NX_SUCCESS)
             AMI_WARN("netstack: DNS server %lu.%lu.%lu.%lu rejected (%ld)",
                      (unsigned long)((server >> 24) & 0xFFUL),
@@ -1402,6 +1488,8 @@ LONG ami_netstack_dns_start(AmiNetStack *ns)
             if (!ami_netstack_dns_dhcp_reconcile(ns, iface))
                 ami_ns_dns_pending_mark(&ns->ns_DhcpDnsPending, iface);
     }
+
+    ami_ns_dns_prefer_apply(ns);
 
     return AMI_NET_OK;
 }
@@ -2041,7 +2129,7 @@ LONG netstack_dns_server_add(ULONG address)
         goto out;
     }
 
-    status = nx_dns_server_add(&ns->ns_Dns, address);
+    status = ami_ns_dns_add4(ns, address);
 
     if (status != NX_SUCCESS)
     {

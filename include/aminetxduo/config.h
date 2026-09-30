@@ -322,7 +322,18 @@ typedef struct AmiResolverConfig {
     UWORD   search_use[AMI_CFG_MAX_SEARCH];
     UWORD   search_count;
     UWORD   search_static;
+    UWORD   prefer;                 /* AMI_CFG_PREFER_*, name_resolution PREFER */
 } AmiResolverConfig;
+
+/*
+ * PREFER in name_resolution, Roadshow's keyword: which servers are asked
+ * first, the file's (static) or those a lease, an advertisement or
+ * AddDomainNameServer() brought (dynamic).  Unset keeps the order they were
+ * added in, which puts the file's first.
+ */
+#define AMI_CFG_PREFER_UNSET    0
+#define AMI_CFG_PREFER_STATIC   1
+#define AMI_CFG_PREFER_DYNAMIC  2
 
 /*
  * One service the user says is listening on this machine. AmiNetXDuo ships no
