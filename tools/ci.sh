@@ -377,7 +377,9 @@ host_test_targets() { # builddir
 #      478 with nslookup_txt: a TXT record past 255 bytes says so (F-171)
 #      479 with onoff_pick: a driver name without UNIT finds its only
 #      interface, whatever the unit (F-172)
-HOST_TESTS_EXPECTED=479
+#      480 with route_match: DeleteNetRoute finds a static /0 by 0.0.0.0 and
+#      an explicit mask only by an exact static row (F-133)
+HOST_TESTS_EXPECTED=480
 case "$(uname -m)" in
     x86_64|amd64) ;;
     # test_inet, test_route, test_expunge, test_expunge_cork, test_select,

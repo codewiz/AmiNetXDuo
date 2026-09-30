@@ -6,6 +6,7 @@
  */
 
 #include "tools.h"
+#include "routematch.h"
 
 
 #ifdef TOOL_DELETE
@@ -423,7 +424,8 @@ static ULONG current_gateway(struct Library *base, BOOL *routing_out)
  * rather than by equality, so naming either the network (192.168.77.0) or a
  * machine on it (192.168.77.5) finds the route that carries it.
  */
-static LONG find_route(struct Library *base, ULONG dest, ULONG *mask_out)
+static LONG find_route(struct Library *base, ULONG dest, ULONG mask,
+                       BOOL have_mask, ULONG *mask_out)
 {
     LONG n;
     LONG i;
@@ -433,26 +435,11 @@ static LONG find_route(struct Library *base, ULONG dest, ULONG *mask_out)
     if (n <= 0)
         return -1;
 
-    for (i = 0; i < n; i++)
-    {
-        const NetStatusRoute *r = &nr_answer.route.e[i];
+    i = route_match_static(nr_answer.route.e, n, dest, mask, have_mask);
+    if (i >= 0 && mask_out != NULL)
+        *mask_out = nr_answer.route.e[i].nsr_NetMask;
 
-        if (r->nsr_NetMask == 0)
-            continue;               /* the default route: DEFAULT deletes it */
-
-        if (!(r->nsr_Flags & NETSTATUS_RT_STATIC))
-            continue;
-
-        if ((dest & r->nsr_NetMask) != r->nsr_Destination)
-            continue;
-
-        if (mask_out != NULL)
-            *mask_out = r->nsr_NetMask;
-
-        return i;
-    }
-
-    return -1;
+    return i;
 }
 
 #ifndef TOOL_DELETE
@@ -1296,7 +1283,7 @@ static int addnetroute_main(int argc, char **argv)
     }
 
 #ifdef TOOL_DELETE
-    if (!have_mask && find_route(base, dest, &mask) < 0)
+    if (find_route(base, dest, mask, have_mask, &mask) < 0)
     {
         ami_config_format_ip(dest, text, sizeof(text));
         tool_error("no route to %s was added by hand, so there is none to "
@@ -1345,7 +1332,7 @@ static int addnetroute_main(int argc, char **argv)
 
         /* A refusal with no error number, and the route already there, is the
            table saying so. Anything else needs explain(). */
-        if (err != 0 || find_route(base, dest, NULL) < 0)
+        if (err != 0 || find_route(base, dest, mask, FALSE, NULL) < 0)
             explain(err, gateway);
 
         tool_netstatus_close(base);

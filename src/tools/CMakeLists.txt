@@ -950,6 +950,15 @@ if(NOT CMAKE_CROSSCOMPILING)
     target_compile_options(test_onoffpick PRIVATE -Wall -Wextra)
     add_test(NAME onoff_pick COMMAND test_onoffpick)
 
+    # DeleteNetRoute finds a static /0 by 0.0.0.0, and an explicit mask only
+    # by an exact static row (F-133).
+    add_executable(test_routematch test/test_routematch.c)
+    target_include_directories(test_routematch PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_SOURCE_DIR}/include"
+        "${CMAKE_SOURCE_DIR}/src/config/test/shim")
+    target_compile_options(test_routematch PRIVATE -Wall -Wextra)
+    add_test(NAME route_match COMMAND test_routematch)
+
     # nslookup's TIMEOUT split into 200 ms slices over three attempts (F-170).
     add_executable(test_nslbudget test/test_nslbudget.c)
     target_include_directories(test_nslbudget PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
