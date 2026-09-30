@@ -697,6 +697,20 @@ static void test_enable_unwinds_on_a_failed_reader(void)
     h_check(iface.admin_up == FALSE,
             "online refusal clears the stale administrative flag");
 
+    /* A refused repeat S2_ONLINE must not hide a still-working wire. */
+    fixture_init(AMI_ETH_ADDR_SIZE);
+    ami_sana2_attach(&iface, &ip, 0);
+    iface.online = TRUE;
+    interface_obj.nx_interface_link_up = NX_TRUE;
+    iface.admin_up = TRUE;
+    h_online_result = -1;
+
+    drive(NX_LINK_ENABLE);
+    h_check(interface_obj.nx_interface_link_up == NX_TRUE,
+            "a refused repeat enable retains a live link-up flag");
+    h_check(iface.admin_up == TRUE,
+            "a refused repeat enable retains live administrative up");
+
     ami_sana2_unbind(&iface);
 }
 

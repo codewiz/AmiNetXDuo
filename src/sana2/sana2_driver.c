@@ -322,8 +322,14 @@ VOID ami_sana2_driver_entry(NX_IP_DRIVER *driver_req)
     case NX_LINK_ENABLE:
         if (ami_sana2_online(iface) != 0)
         {
-            interface_ptr->nx_interface_link_up = NX_FALSE;
-            iface->admin_up = FALSE;
+            /* A refused repeat S2_ONLINE can leave an already-online wire
+               and its readers intact.  Clear stale flags only when the
+               device is actually offline. */
+            if (!iface->online)
+            {
+                interface_ptr->nx_interface_link_up = NX_FALSE;
+                iface->admin_up = FALSE;
+            }
             driver_req->nx_ip_driver_status = NX_NOT_SUCCESSFUL;
             break;
         }
