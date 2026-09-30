@@ -302,28 +302,38 @@ struct FetchState
     BOOL        failed;
 };
 
+/* The destination, opened (and a TO file truncated) once.  FALSE when it
+   will not open; the failure is reported and recorded. */
+static BOOL fetch_open_out(struct FetchState *st)
+{
+    if (st->out != (BPTR)0)
+        return TRUE;
+
+    if (st->to != NULL)
+    {
+        st->out = Open((CONST_STRPTR)st->to, MODE_NEWFILE);
+        if (st->out == (BPTR)0)
+        {
+            tool_fault(IoErr());
+            st->failed = TRUE;
+            return FALSE;
+        }
+    }
+    else
+    {
+        st->out = Output();
+    }
+
+    return TRUE;
+}
+
 static BOOL emit(struct FetchState *st, const UBYTE *data, LONG len)
 {
     if (len <= 0)
         return TRUE;
 
-    if (st->out == (BPTR)0)
-    {
-        if (st->to != NULL)
-        {
-            st->out = Open((CONST_STRPTR)st->to, MODE_NEWFILE);
-            if (st->out == (BPTR)0)
-            {
-                tool_fault(IoErr());
-                st->failed = TRUE;
-                return FALSE;
-            }
-        }
-        else
-        {
-            st->out = Output();
-        }
-    }
+    if (!fetch_open_out(st))
+        return FALSE;
 
     if (Write(st->out, (APTR)data, len) != len)
     {
@@ -677,6 +687,19 @@ static LONG fetch_run(VOID)
                                        (LONG)status,
                                        (LONG)(sizeof(fetch_next) - 1));
                         rc = RETURN_ERROR;
+                        goto hop_done;
+                    }
+
+                    /*
+                     * A final 2xx is the answer the file is for, so TO is
+                     * opened now, before any body: a 200 or 204 with no body
+                     * leaves an empty file, not the old contents reported as
+                     * a 0-byte fetch (F-179).  A 4xx/5xx still opens it only
+                     * with its first body byte, as before.
+                     */
+                    if (status < 300 && st.to != NULL && !fetch_open_out(&st))
+                    {
+                        rc = RETURN_FAIL;
                         goto hop_done;
                     }
 
