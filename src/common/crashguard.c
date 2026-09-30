@@ -256,7 +256,10 @@ const AmiCrashInfo *ami_crash_info(VOID)
  * tests and tools under the emulator, and always remove it before exit.
  */
 
-/* The ONLY reference to this is the `move.l _ami_alert_old' in the top-level
+/* Where the trampoline leaves: the exit sequence in the resident stub (see
+   WHO OWNS THE VECTOR below).  Set by the install and never cleared, so a
+   Guru already in the trampoline when the hook comes out still has one.  The
+   ONLY reference to it is the `move.l _ami_alert_exit' in the top-level
    asm() below, which the compiler does not parse.
 
    NOT static, and `used' is not enough on its own -- that combination was
@@ -267,7 +270,15 @@ const AmiCrashInfo *ami_crash_info(VOID)
    lets it cross. It needs multiple translation units AND partitioning to show
    up, which is why a single-file reduction of the same pattern links fine and
    why -flto-partition=none also hides it. */
-APTR ami_alert_old __attribute__((used));
+APTR ami_alert_exit __attribute__((used));
+
+/* Gurus on their way through this image's trampoline, the report included,
+   which calls DOS and can Wait() (F-080).  Counted in by the stub before it
+   enters this image and out by the stub's exit after the Guru has left it,
+   one instruction each, so no interrupt splits them.  Nothing in this image
+   touches it: ami_crash_remove_alert_hook() waits for zero, after which the
+   image can be unloaded under nobody. */
+volatile ULONG ami_alert_inflight __attribute__((used));
 
 VOID ami_alert_report(ULONG num);
 VOID ami_alert_trampoline(VOID);
@@ -281,8 +292,8 @@ __asm__(
 "       jsr     _ami_alert_report               \n"
 "       addq.l  #4,%sp                          \n"
 "       movem.l (%sp)+,%d0-%d1/%a0-%a1          \n"
-"       move.l  _ami_alert_old,-(%sp)           \n"  /* tail-jump to the     */
-"       rts                                     \n"  /* original Alert()     */
+"       move.l  _ami_alert_exit,-(%sp)          \n"  /* leave through the    */
+"       rts                                     \n"  /* stub, not from here  */
 );
 
 const char *ami_crash_alert_name(ULONG num)
@@ -348,19 +359,26 @@ VOID ami_alert_report(ULONG num)
  *
  * So the vector points at a stub in public memory that outlives the image,
  *
- *     move.l  target(pc),-(sp)
- *     rts
- *     target: this image's trampoline while the hook is in, `old' after
- *     old:    what the vector held before
+ *     +0   addq.l  #1,ami_alert_inflight      counted before it enters
+ *     +6   move.l  target(pc),-(sp)
+ *     +10  rts
+ *     +12  target: this image's trampoline while the hook is in, `old' after
+ *     +16  old:    what the vector held before
+ *     +20  subq.l  #1,ami_alert_inflight      the trampoline's way out, so
+ *     +26  move.l  old(pc),-(sp)              nothing runs in this image
+ *     +30  rts                                once the count is down
  *
+ * Taking the hook out also turns the first instruction into bra.s +4, one
+ * word, so a pass-through is not counted.
  * and taking the hook out turns the stub into a pure pass-through to `old',
  * whoever still calls it.  The vector is put back only if it still points at
  * the stub; under Disable(), so nothing can Alert() while it is briefly
  * `old'.  The stub is never freed: another image may hold its address.
  */
-#define AMI_ALERT_STUB_BYTES    14
-#define AMI_ALERT_STUB_TARGET   6       /* byte offsets of the two addresses */
-#define AMI_ALERT_STUB_OLD      10
+#define AMI_ALERT_STUB_BYTES    32
+#define AMI_ALERT_STUB_TARGET   12      /* byte offsets of the two addresses */
+#define AMI_ALERT_STUB_OLD      16
+#define AMI_ALERT_STUB_EXIT     20
 
 static UWORD *ami_alert_stub;
 
@@ -382,12 +400,20 @@ BOOL ami_crash_install_alert_hook(VOID)
     if (stub == NULL)
         return FALSE;
 
-    stub[0] = 0x2F3A;                   /* move.l (d16,pc),-(sp)             */
-    stub[1] = AMI_ALERT_STUB_TARGET - 2; /* from the extension word          */
-    stub[2] = 0x4E75;                   /* rts                               */
+    stub[0]  = 0x52B9;                  /* addq.l #1,(abs).l                 */
+    *ami_alert_stub_cell(stub, 2) = (APTR)&ami_alert_inflight;
+    stub[3]  = 0x2F3A;                  /* move.l (d16,pc),-(sp): target     */
+    stub[4]  = AMI_ALERT_STUB_TARGET - 8; /* from its extension word, +8    */
+    stub[5]  = 0x4E75;                  /* rts                               */
     *ami_alert_stub_cell(stub, AMI_ALERT_STUB_TARGET) =
         (APTR)ami_alert_trampoline;
     *ami_alert_stub_cell(stub, AMI_ALERT_STUB_OLD) = NULL;
+    stub[10] = 0x53B9;                  /* subq.l #1,(abs).l                 */
+    *ami_alert_stub_cell(stub, AMI_ALERT_STUB_EXIT + 2) =
+        (APTR)&ami_alert_inflight;
+    stub[13] = 0x2F3A;                  /* move.l (d16,pc),-(sp): old        */
+    stub[14] = (UWORD)(AMI_ALERT_STUB_OLD - (AMI_ALERT_STUB_EXIT + 8));
+    stub[15] = 0x4E75;                  /* rts                               */
     CacheClearU();
 
     /* The check, the patch and the publishing are one step, so a second
@@ -401,7 +427,7 @@ BOOL ami_crash_install_alert_hook(VOID)
     }
     old = SetFunction((struct Library *)SysBase, -108, (APTR)stub);
     *ami_alert_stub_cell(stub, AMI_ALERT_STUB_OLD) = old;
-    ami_alert_old  = old;
+    ami_alert_exit = (UBYTE *)stub + AMI_ALERT_STUB_EXIT;
     ami_alert_stub = stub;
     Enable();
 
@@ -415,8 +441,8 @@ VOID ami_crash_remove_alert_hook(VOID)
     APTR   was;
 
     /* Taking the stub, restoring the vector and making the stub a pass-through
-       are one step.  ami_alert_old is left as it was: a Guru already inside
-       the trampoline still goes on to the right place. */
+       are one step.  ami_alert_exit is left as it was: a Guru already inside
+       the trampoline still leaves through the stub. */
     Disable();
     stub = ami_alert_stub;
     if (stub == NULL)
@@ -431,5 +457,14 @@ VOID ami_crash_remove_alert_hook(VOID)
     if (was != (APTR)stub)
         (VOID)SetFunction((struct Library *)SysBase, -108, was);
     *ami_alert_stub_cell(stub, AMI_ALERT_STUB_TARGET) = old;
+    stub[0] = 0x6004;                   /* bra.s +4: a pass-through is not
+                                           counted                           */
+    CacheClearU();
     Enable();
+
+    /* No Guru enters now; one already in, perhaps in the report and waiting
+       in DOS, finishes before this returns and the image can be unloaded.
+       Callers are Processes, as the report's own DOS calls require. */
+    while (ami_alert_inflight != 0)
+        Delay(1);
 }
