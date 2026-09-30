@@ -234,7 +234,9 @@ static BOOL ping_pause(ULONG seconds)
 }
 
 /* Milliseconds TIMEOUT has left.  Seconds are compared first so that the
-   product fits: past 4294966 seconds the clock itself cannot count it. */
+   product fits: past 4294966 seconds the clock itself cannot count it.
+   ami_millis() wraps every 49.7 days, so elapsed does too: a TIMEOUT longer
+   than that is never reached. */
 static ULONG ping_left_ms(ULONG timeout, ULONG elapsed_ms)
 {
     ULONG secs = elapsed_ms / 1000UL;
