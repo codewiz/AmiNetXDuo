@@ -746,21 +746,23 @@ static VOID check_netdb_file(const NetdbFile *spec)
 
         /*
          * The loader reads a long line whole, so it is said that this one was
-         * not looked at rather than judging a piece.  ';' is not a comment to
-         * the loader, so it is not one here either.
+         * not looked at rather than judging a piece; it counts towards the
+         * five like any other finding.  ';' is not a comment to the loader,
+         * so it is not one here either.
          */
+        verdict = cut ? AMI_NETDB_LINE_SKIP
+                      : ami_netdb_line_verdict(spec->kind, line, word,
+                                               sizeof(word));
+
         if (cut)
         {
             finding(spec->path, lineno, AMI_CFG_PROBLEM_NOTE);
             say("      this line is longer than %ld characters and was not\n",
                 (LONG)(sizeof(line) - 1));
             say("      checked\n");
-            continue;
+            said++;
         }
-
-        verdict = ami_netdb_line_verdict(spec->kind, line, word, sizeof(word));
-
-        if (verdict == AMI_NETDB_LINE_SHORT)
+        else if (verdict == AMI_NETDB_LINE_SHORT)
         {
             finding(spec->path, lineno, AMI_CFG_PROBLEM_WARN);
             say("      this line has too few columns, so it is ignored\n");
