@@ -126,6 +126,21 @@ BOOL netstack_ipv6_source_find(const ULONG dest[4], LONG interface_index,
     return FALSE;
 }
 
+/* raw.c's HDRINCL branch is linked here even though this fixture sends IPv4.
+   Match in6.c, as the sibling IPv6 HDRINCL fixture does. */
+BOOL bsd_addr_is_v4mapped(const NXD_ADDRESS *addr, ULONG *v4)
+{
+    if (addr->nxd_ip_version != NX_IP_VERSION_V6)
+        return FALSE;
+    if (addr->nxd_ip_address.v6[0] != 0UL ||
+        addr->nxd_ip_address.v6[1] != 0UL ||
+        addr->nxd_ip_address.v6[2] != 0x0000FFFFUL)
+        return FALSE;
+    if (v4 != NULL)
+        *v4 = addr->nxd_ip_address.v6[3];
+    return TRUE;
+}
+
 LONG bsd_errno_from_nx(UINT status)
 {
     return (LONG)status;
