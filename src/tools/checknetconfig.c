@@ -728,7 +728,7 @@ static LONG cnc_netdb_line(BPTR file, char *buf, ULONG size, BOOL *cut)
 static VOID check_netdb_file(const NetdbFile *spec)
 {
     char  line[CNC_LINE_MAX];
-    char  word[64];
+    char  word[CNC_LINE_MAX];       /* a column is never longer than its line */
     BPTR  file;
     ULONG lineno = 0;
     UWORD said   = 0;
