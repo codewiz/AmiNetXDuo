@@ -17,7 +17,7 @@
  * position before the seek: ug_db.c's file sizing depends on it.
  *
  *   cc -std=c99 -Wall -Wextra -I../../../include -I.. \
- *      -I../../config/test/shim test_ug_db.c ../ug_db.c ../ug_parse.c \
+ *      -I../../config/test/shim test_ug_db.c ../ug_db.c ../ug_parse.c ../ug_str.c \
  *      -o test_ug_db
  *
  * SPDX-License-Identifier: MIT

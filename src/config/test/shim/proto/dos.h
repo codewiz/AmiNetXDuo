@@ -76,6 +76,8 @@ extern int  shim_dos_writelen;
 
 /* Set to make SetMode() fail, the case where raw mode is refused. */
 extern int  shim_dos_setmode_fails;
+/* Count attempts, including those the shim refuses before changing mode. */
+extern int  shim_dos_setmode_calls;
 
 /*
  * WaitForChar().  0: the handler has no ACTION_WAIT_CHAR, as a file system:
@@ -110,6 +112,7 @@ extern void (*shim_dos_on_byte)(char c);
     char                 shim_dos_written[SHIM_DOS_WRITELOG];                \
     int                  shim_dos_writelen;                                  \
     int                  shim_dos_setmode_fails;                             \
+    int                  shim_dos_setmode_calls;                             \
     int                  shim_dos_interactive;                               \
     int                  shim_dos_waits;                                     \
     LONG                 shim_dos_ioerr;                                     \
@@ -140,6 +143,7 @@ static inline void shim_dos_reset(void)
     shim_dos_oplen           = 0;
     shim_dos_writelen        = 0;
     shim_dos_setmode_fails   = 0;
+    shim_dos_setmode_calls   = 0;
     shim_dos_interactive     = 0;
     shim_dos_waits           = 0;
     shim_dos_ioerr           = 0;
@@ -348,6 +352,7 @@ static inline LONG SetMode(BPTR fh, LONG mode)
     if (h < 0 || h >= SHIM_DOS_MAX_OPEN || !shim_dos_handles[h].used)
         return DOSFALSE;
 
+    shim_dos_setmode_calls++;
     if (shim_dos_setmode_fails)
         return DOSFALSE;
 

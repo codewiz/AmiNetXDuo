@@ -316,11 +316,20 @@ static void e_an_unattached_request_still_dispatches(void)
     seen_op      = &opener;
     fill(&io, (ULONG)S2_ONEVENT, S2EVENT_ERROR, 0);
     io.ios2_Req.io_Unit = (struct Unit *)-1;
+    io.ios2_BufferManagement = &opener;
     netdev_begin_io(&fake_device, &io);
     expect(seen_perform == 1 && seen_op == NULL,
            "io_Unit == -1 dispatches with no opener");
     expect_u32("and its S2_ONEVENT mask survived", seen_wire_error,
                (unsigned long)S2EVENT_ERROR);
+
+    seen_perform = 0;
+    seen_op      = &opener;
+    fill(&io, CMD_READ, 0UL, 1);
+    io.ios2_BufferManagement = NULL;
+    netdev_begin_io(&fake_device, &io);
+    expect(seen_perform == 1 && seen_op == NULL,
+           "a valid unit without a cookie dispatches with no opener");
 }
 
 
@@ -381,6 +390,23 @@ static void g_abort_io(void)
     (VOID)netdev_abort_io(&fake_device, &io);
     expect(seen_abort == 1 && seen_op == NULL,
            "AbortIO on an unattached request carries no opener");
+
+    seen_abort = 0;
+    seen_op    = &opener;
+    fill(&io, CMD_READ, 0UL, 0);
+    io.ios2_Req.io_Unit = (struct Unit *)-1;
+    io.ios2_BufferManagement = &opener;
+    (VOID)netdev_abort_io(&fake_device, &io);
+    expect(seen_abort == 1 && seen_op == NULL,
+           "AbortIO on a -1 unit ignores a non-NULL cookie");
+
+    seen_abort = 0;
+    seen_op    = &opener;
+    fill(&io, CMD_READ, 0UL, 1);
+    io.ios2_BufferManagement = NULL;
+    (VOID)netdev_abort_io(&fake_device, &io);
+    expect(seen_abort == 1 && seen_op == NULL,
+           "AbortIO on a valid unit without a cookie carries no opener");
 }
 
 

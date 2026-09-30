@@ -281,6 +281,7 @@ static void test_getpass_setmode_refused(void)
     pw = ugl_getpass(&base, NULL);
 
     CHECK_STR((char *)pw, "abc");               /* still reads */
+    CHECK(shim_dos_setmode_calls == 1);          /* only the refused attempt */
     CHECK(op_first('1') == -1);                 /* never went raw */
     CHECK(op_first('0') == -1);                 /* and did not restore */
     CHECK(op_last('c') == shim_dos_oplen - 1);
