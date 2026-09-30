@@ -9,6 +9,10 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `sntp` watches for its reply with the same 256-descriptor `ToolFdSet` the
+  other commands use, not a single `ULONG` shifted by the descriptor number.
+  A socket the library may number at 32 or above is now seen in the set
+  instead of silently omitted.
 - `httpd` refuses a `PROPFIND` that names more than eight properties, as
   `PROPPATCH` already does. A 207 answering only about the first eight would
   read as one about all of them, so the request is answered 400 instead of an

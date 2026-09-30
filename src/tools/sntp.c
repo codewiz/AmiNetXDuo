@@ -57,12 +57,6 @@ enum
  * global SocketBase. Offsets from docs/RESEARCH.md 3.2.
  */
 
-struct SntpTimeval
-{
-    LONG    tv_secs;
-    LONG    tv_micro;
-};
-
 #define SNTP_SOCK_DGRAM     2
 
 static LONG sock_socket(struct Library *base, LONG domain, LONG type, LONG proto)
@@ -144,29 +138,6 @@ static LONG sock_close(struct Library *base, LONG s)
                       : "=r" (res)
                       : "r" (a6), "r" (d0)
                       : "d1", "a0", "a1", "cc", "memory");
-    return res;
-}
-
-static LONG sock_waitselect(struct Library *base, LONG nfds, APTR readfds,
-                            struct SntpTimeval *tv)
-{
-    register struct Library    *a6  __asm("a6") = base;
-    register LONG               d0  __asm("d0") = nfds;
-    register APTR               a0  __asm("a0") = readfds;
-    register APTR               a1  __asm("a1") = NULL;
-    register APTR               a2  __asm("a2") = NULL;
-    register struct SntpTimeval *a3 __asm("a3") = tv;
-    register ULONG             *d1  __asm("d1") = NULL;
-    register LONG               res __asm("d0");
-    register LONG _clob_d1 __asm("d1");
-    register LONG _clob_a0 __asm("a0");
-    register LONG _clob_a1 __asm("a1");
-
-    __asm __volatile ("jsr a6@(-126:W)"
-                      : "=r" (res), "=r" (_clob_d1), "=r" (_clob_a0), "=r" (_clob_a1)
-                      : "r" (a6), "r" (d0), "r" (a0), "r" (a1), "r" (a2),
-                        "r" (a3), "r" (d1)
-                      : "cc", "memory");
     return res;
 }
 
@@ -501,14 +472,17 @@ static BOOL sntp_exchange(struct Library *sbase, LONG sock, ULONG timeout,
          */
         while (waited < per_attempt)
         {
-            struct SntpTimeval tv;
-            ULONG              fds = 1UL << (ULONG)sock;
-            LONG               ready;
+            ToolFdSet   readfds;
+            ToolTimeval tv;
+            LONG        ready;
 
             tv.tv_secs  = 1;
             tv.tv_micro = 0;
 
-            ready = sock_waitselect(sbase, sock + 1, &fds, &tv);
+            tool_fd_zero(&readfds);
+            tool_fd_add(&readfds, sock);
+
+            ready = tool_sock_select(sbase, sock + 1, &readfds, NULL, &tv);
 
             if (tool_break())
                 return FALSE;
