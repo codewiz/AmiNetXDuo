@@ -598,6 +598,20 @@ int main(int argc, char **argv)
     }
 
     /*
+     * The IPv4 ARP cache is one table, not one per interface: the static-ARP
+     * call takes no interface and derives it from the address's route, so a
+     * UNIT on an IPv4 SET would be read nowhere.  Refuse it rather than drop
+     * it.  The IPv6 path is per-interface and its add reads the index.
+     */
+    if (args[ARG_SET] != 0 && !want_one6 && args[ARG_UNIT] != 0)
+    {
+        tool_error("the IPv4 ARP cache is one table for the whole machine, "
+                   "so UNIT cannot choose an interface");
+        FreeArgs(rda);
+        return RETURN_ERROR;
+    }
+
+    /*
      * The interface table, for the name column and for deciding whether ARP can
      * ever have an answer about an address. A failure here only costs detail.
      */

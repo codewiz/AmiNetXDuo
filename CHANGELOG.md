@@ -9,6 +9,11 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `arp` refuses `UNIT` on an IPv4 `SET`. The IPv4 ARP cache is one table for
+  the whole machine, not one per interface, so a `UNIT` named no interface
+  and the entry was added without it. The command answers an error instead of
+  silently dropping the request, and an IPv6 `SET` still honors `UNIT` for its
+  per-interface neighbour cache.
 - `sntp` watches for its reply with the same 256-descriptor `ToolFdSet` the
   other commands use, not a single `ULONG` shifted by the descriptor number.
   A socket the library may number at 32 or above is now seen in the set

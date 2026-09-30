@@ -907,7 +907,7 @@ typedef struct NetStatusRxBudget
    table size. */
 #define NETCTRL_ROUTE_ADD       5   /* nsc_Destination/NetMask/Gateway       */
 #define NETCTRL_ROUTE_DELETE    6   /* nsc_Destination/NetMask               */
-#define NETCTRL_ARP_ADD         7   /* nsc_Destination, nsc_HwAddress, Index */
+#define NETCTRL_ARP_ADD         7   /* nsc_Destination, nsc_HwAddress        */
 #define NETCTRL_ARP_DELETE      8   /* nsc_Destination                       */
 #define NETCTRL_ARP_FLUSH       9   /*,                                    */
 
