@@ -88,6 +88,9 @@ static const char *cnd_why(ULONG why)
         return "the data port works: a 32-byte pattern went through it and "
                "came back. A full pass over the 16 KB packet buffer did not, "
                "so the buffer RAM behind it is bad";
+    case ANXDIAG_WHY_ED_MEM:
+        return "the mapped packet buffer did not read back the pattern "
+               "written to it, so the RAM behind the window is bad";
     case ANXDIAG_WHY_ADDRESS:
         return "the card offered no usable station address";
     case ANXDIAG_WHY_REGS:

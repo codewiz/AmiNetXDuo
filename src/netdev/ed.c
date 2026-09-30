@@ -405,7 +405,10 @@ static LONG ed_attach(NetdevNic *nic)
     NIC_PUT(nic, ED_P0_RCR, ED_RCR_MON);
 
     if (!ed_test_mem(nic))
+    {
+        nic->diag_why = (UBYTE)ANXDIAG_WHY_ED_MEM;
         return -1;
+    }
 
     dp8390_halt(nic);
 

@@ -26,8 +26,17 @@
  * The core is pulled in whole rather than linked: read_hdr, ring_copy and
  * write_buf are static, and exposing them for a test would be the test
  * changing the code it tests.
+ *
+ * The mapped buffer has no data-port seam the way ne2000's does: ed_copy_in()
+ * and ed_copy_out() reach nic->board directly, and the one bulk path into it
+ * is n68k_copy_longs().  Rename that symbol for this translation unit so the
+ * test can stand in for it (see mock_n68k_copy_longs below) and model a
+ * window that does not round-trip -- the failure ed_test_mem() exists to
+ * catch, and the one attach used to report as "did not say why".
  */
+#define n68k_copy_longs mock_n68k_copy_longs
 #include "ed.c"
+#undef n68k_copy_longs
 
 /* The chip half, which this file does not exercise. */
 VOID dp8390_config(NetdevNic *nic) { (VOID)nic; }
@@ -38,6 +47,37 @@ VOID dp8390_setfilter(NetdevNic *nic) { (VOID)nic; }
 LONG dp8390_tx(NetdevNic *nic, const UBYTE *f, UWORD l)
 { (VOID)nic; (VOID)f; (VOID)l; return 0; }
 BOOL dp8390_intr(NetdevNic *nic) { (VOID)nic; return 0; }
+
+/* -------------------------------------------------- the mapped-buffer seam -- */
+
+/*
+ * n68k_copy_longs() is the only bulk path ed_copy_in()/ed_copy_out() use, so
+ * it is the one place a fault can be stood in front of the mapped buffer
+ * without editing the core.  Faithful by default; with the flag set it models
+ * a window that ignores writes -- every read comes back zero -- which is the
+ * first of the two failure modes ed_test_mem()'s comment names.  A read of
+ * zero is enough to trip the per-page pattern pass and prove attach records
+ * the reason; the second mode (too few address lines) needs the same seam and
+ * is already proved detectable by test_mem_seed_distinct().
+ */
+static int mock_readback_fault;
+
+VOID mock_n68k_copy_longs(volatile void *to, const volatile void *from,
+                          ULONG longs)
+{
+    if (mock_readback_fault)
+    {
+        volatile ULONG *d = (volatile ULONG *)to;
+        ULONG i;
+
+        for (i = 0; i < longs; i++)
+            d[i] = 0;
+        (VOID)from;
+        return;
+    }
+
+    memcpy((void *)to, (const void *)from, (size_t)longs * 4u);
+}
 
 static int failures;
 
@@ -442,6 +482,31 @@ static void test_attach_station_address(void)
                (unsigned long)(ed_attach(&nic) != 0), 1);
 }
 
+/*
+ * The memory probe runs last in attach, after the register and address gates,
+ * and before the fix it was the one refusal that left no reason: ed_test_mem()
+ * returned FALSE and attach returned -1 with diag_why still zero, which the
+ * probe record renders as "the chip core refused it and did not say why".  A
+ * window that ignores writes -- every read back zero -- is the first failure
+ * mode ed_test_mem() names, and it is what the mock above models.  Attach
+ * must refuse it with the mapped-buffer reason, not UNKNOWN.
+ */
+static void test_attach_mem_probe(void)
+{
+    static const UBYTE good[6] = { 0x00, 0x80, 0x10, 0x12, 0x34, 0x56 };
+
+    board_reset(MEM_SIZE);
+    plant_prom(good);
+    mock_readback_fault = 1;
+
+    expect_u32("attach refuses a window that ignores writes",
+               (unsigned long)(ed_attach(&nic) != 0), 1);
+    expect_u32("attach records the mapped-buffer probe",
+               (unsigned long)nic.diag_why, (unsigned long)ANXDIAG_WHY_ED_MEM);
+
+    mock_readback_fault = 0;
+}
+
 int main(void)
 {
     test_read_hdr();
@@ -450,6 +515,7 @@ int main(void)
     test_write_buf();
     test_mem_seed_distinct();
     test_attach_station_address();
+    test_attach_mem_probe();
 
     if (failures != 0)
     {

@@ -9,6 +9,9 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `CheckNetDevice` reports the mapped packet buffer when the Hydra or LAN
+  Rover's buffer RAM fails its read-back probe, instead of "the chip core
+  refused it and did not say why".
 - The dead-task sweep clears a log hook (`SBTC_LOG_HOOK`) installed by a
   program that exited without closing the library. Deliveries after the sweep
   cannot use that hook; an already in-flight callback is not affected.
