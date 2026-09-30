@@ -100,12 +100,6 @@
 #define EL3_W0_PRODUCT_ID       0x02
 #define EL3_W0_CONFIG_CTRL      0x04
 
-/*
- * The board-activate bit in CONFIG_CTRL, in this driver's swap-compensated
- * view.  Linux's 3c589 driver writes 0x0001 through unswapped byte lanes;
- * through this card's measured half-exchange the same bit is 0x0100 here.
- */
-#define EL3_CC_ACTIVATE         0x0100
 #define EL3_W0_ADDR_CFG         0x06
 #define EL3_W0_RESOURCE_CFG     0x08
 #define EL3_W0_EEPROM_CMD       0x0a

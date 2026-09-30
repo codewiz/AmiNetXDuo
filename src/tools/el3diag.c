@@ -138,12 +138,12 @@ int main(void)
 
         Disable();
         REG(CMD) = swp(cmd_word(1, 0));
-        REG(0x04) = swp((UWORD)(before | 0x0100u));
+        REG(0x04) = swp((UWORD)(before | 0x0001u));
         REG(CMD) = swp(cmd_word(1, 1));
         Enable();
 
         Printf((STRPTR)"activate: cfg $%04lx -> wrote $%04lx -> reads $%04lx\n",
-               (ULONG)before, (ULONG)(before | 0x0100u),
+               (ULONG)before, (ULONG)(before | 0x0001u),
                (ULONG)swp(peek(0, 0x04)));
     }
 

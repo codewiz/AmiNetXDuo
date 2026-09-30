@@ -435,7 +435,7 @@ LONG el3_init(NetdevNic *nic)
      */
     el3_window(nic, 0);
     el3_put(nic, EL3_W0_CONFIG_CTRL,
-            (UWORD)(el3_get(nic, EL3_W0_CONFIG_CTRL) | EL3_CC_ACTIVATE));
+            (UWORD)(el3_get(nic, EL3_W0_CONFIG_CTRL) | EL3_CC_ENABLE));
 
     /* The station address, three words, low octet first. */
     el3_window(nic, 2);

@@ -586,6 +586,13 @@ static void test_byte_order(void)
                    (unsigned long)((const volatile unsigned char *)nic.bus.asic -
                                    (const volatile unsigned char *)board),
                    (unsigned long)(card.reg_off + EL3_W1_FIFO));
+
+        memcpy(nic.mac, nic.factory, 6);
+        snprintf(what, sizeof(what), "init with swapped=%d", swapped);
+        expect_u32(what, (unsigned long)el3_init(&nic), 0);
+        snprintf(what, sizeof(what), "activate bit on chip, swapped=%d", swapped);
+        expect_u32(what, (unsigned long)(mock_win[0][EL3_W0_CONFIG_CTRL / 2] & 0x0101u),
+                   0x0001u);
     }
 
     /* A card that answers with neither order is refused, and says why. */
