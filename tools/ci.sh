@@ -375,7 +375,9 @@ host_test_targets() { # builddir
 #      476 with nslookup_budget: TIMEOUT as exactly secs * 5 slices (F-170)
 #      477 with paysum_verdict: a receive with LEN moves exactly LEN (F-174)
 #      478 with nslookup_txt: a TXT record past 255 bytes says so (F-171)
-HOST_TESTS_EXPECTED=478
+#      479 with onoff_pick: a driver name without UNIT finds its only
+#      interface, whatever the unit (F-172)
+HOST_TESTS_EXPECTED=479
 case "$(uname -m)" in
     x86_64|amd64) ;;
     # test_inet, test_route, test_expunge, test_expunge_cork, test_select,

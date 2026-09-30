@@ -10,6 +10,7 @@
  */
 
 #include "tools.h"
+#include "onoffpick.h"
 
 #ifdef TOOL_OFFLINE
 const char *const tool_name = "Offline";
@@ -83,15 +84,22 @@ static ULONG list_interfaces(char names[][TOOL_NAME_LEN])
 }
 
 /*
- * Find the configured interface that uses SANA-II driver `device` on `unit`.
- * The comparison is on the last path component of each.
+ * Find the configured interface that uses SANA-II driver `device`: on `unit`
+ * when UNIT was given, otherwise the driver's only one (onoff_pick()).  The
+ * comparison is on the last path component of each.  Returns how many
+ * interfaces qualify; name_out and *ifc are the answer only when it is 1.
  */
-static BOOL find_by_device(const char *device, ULONG unit, char *name_out,
-                           ULONG name_len, AmiIfConfig *ifc)
+static int find_by_device(const char *device, BOOL had_unit, ULONG unit,
+                          char *name_out, ULONG name_len, AmiIfConfig *ifc)
 {
-    static char names[ONOFF_MAX_FILES][TOOL_NAME_LEN];
-    ULONG       count = list_interfaces(names);
-    ULONG       i;
+    static char          names[ONOFF_MAX_FILES][TOOL_NAME_LEN];
+    static unsigned long units[ONOFF_MAX_FILES];
+    static UWORD         which[ONOFF_MAX_FILES];
+    ULONG                count = list_interfaces(names);
+    ULONG                i;
+    int                  n = 0;
+    int                  pick;
+    int                  matches;
 
     for (i = 0; i < count; i++)
     {
@@ -100,14 +108,31 @@ static BOOL find_by_device(const char *device, ULONG unit, char *name_out,
 
         if (tool_stricmp(tool_basename(ifc->device), tool_basename(device)) != 0)
             continue;
-        if (ifc->unit != unit)
-            continue;
 
-        tool_copy_string(name_out, name_len, names[i]);
-        return TRUE;
+        units[n] = (unsigned long)ifc->unit;
+        which[n] = (UWORD)i;
+        n++;
     }
 
-    return FALSE;
+    matches = onoff_pick(had_unit ? 1 : 0, (unsigned long)unit, units, n, &pick);
+
+    if (matches == 1)
+    {
+        tool_copy_string(name_out, name_len, names[which[pick]]);
+        if (!load_interface(names[which[pick]], ifc, FALSE))
+            return 0;
+    }
+    else if (matches > 1)
+    {
+        /* More than one unit of this driver and no UNIT: never a guess. */
+        tool_error("%s is used by more than one interface; give UNIT",
+                   (LONG)tool_basename(device));
+        for (i = 0; i < (ULONG)n; i++)
+            tool_printf("      %-15s unit %lu\n", (LONG)names[which[i]],
+                        (ULONG)units[i]);
+    }
+
+    return matches;
 }
 
 /* Report an unresolvable name, with the list of interfaces that do exist. */
@@ -595,8 +620,8 @@ int main(int argc, char **argv)
             static AmiIfConfig other;
             static char        othername[TOOL_NAME_LEN];
 
-            if (find_by_device(given, unit, othername, sizeof(othername),
-                               &other) &&
+            if (find_by_device(given, TRUE, unit, othername,
+                               sizeof(othername), &other) == 1 &&
                 tool_stricmp(othername, name) != 0)
             {
                 tool_printf("%s: taken as the interface name. The interface "
@@ -606,17 +631,24 @@ int main(int argc, char **argv)
             }
         }
     }
-    else if (find_by_device(given, unit, resolved, sizeof(resolved), &ifc))
-    {
-        name = resolved;
-        tool_printf("%s unit %lu is interface %s.\n", (LONG)given, unit,
-                    (LONG)name);
-    }
     else
     {
-        explain_unknown_name(given, unit, had_unit);
-        FreeArgs(rda);
-        return RETURN_FAIL;
+        int matches = find_by_device(given, had_unit, unit, resolved,
+                                     sizeof(resolved), &ifc);
+
+        if (matches == 1)
+        {
+            name = resolved;
+            tool_printf("%s unit %lu is interface %s.\n", (LONG)given,
+                        (ULONG)ifc.unit, (LONG)name);
+        }
+        else
+        {
+            if (matches == 0)
+                explain_unknown_name(given, unit, had_unit);
+            FreeArgs(rda);
+            return (matches == 0) ? RETURN_FAIL : RETURN_ERROR;
+        }
     }
 
 #ifndef TOOL_OFFLINE

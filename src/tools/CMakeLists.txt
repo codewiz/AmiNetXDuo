@@ -944,6 +944,12 @@ if(NOT CMAKE_CROSSCOMPILING)
     target_compile_options(test_nsltxt PRIVATE -Wall -Wextra)
     add_test(NAME nslookup_txt COMMAND test_nsltxt)
 
+    # Online/Offline: a driver name without UNIT finds its only interface (F-172).
+    add_executable(test_onoffpick test/test_onoffpick.c)
+    target_include_directories(test_onoffpick PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_compile_options(test_onoffpick PRIVATE -Wall -Wextra)
+    add_test(NAME onoff_pick COMMAND test_onoffpick)
+
     # nslookup's TIMEOUT split into 200 ms slices over three attempts (F-170).
     add_executable(test_nslbudget test/test_nslbudget.c)
     target_include_directories(test_nslbudget PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
