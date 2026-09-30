@@ -243,7 +243,11 @@ static VOID ns_fill_system(NX_IP *ip, NetStatusSystem *out)
     /* The running stack's, not the disk's: DHCP can rename the machine after
        the files are read. */
     if (cfg != NULL)
-        out->nss_HostSource = (ULONG)cfg->hostname_source;
+        /* The rank, not the source: 0..4 is all a caller built before
+           AMI_HOSTNAME_HOSTS knows, and a hosts-file name has
+           name_resolution's rank (F-088). */
+        out->nss_HostSource =
+            (ULONG)ami_config_hostname_rank(cfg->hostname_source);
 
 #ifdef AMINETXDUO_IPV6
     out->nss_Flags |= NETSTATUS_SYS_IPV6;

@@ -137,8 +137,10 @@ typedef struct NetStatusSystem
     /* What this machine calls itself on the local network, with the ".local".
        Empty unless NETSTATUS_SYS_MDNS. */
     char    nss_MdnsName[NETSTATUS_NAME_LEN];
-    /* AmiHostnameSource (aminetxduo/config.h).  Zero is AMI_HOSTNAME_NONE and
-       is also what a library predating the field answers. */
+    /* AmiHostnameSource (aminetxduo/config.h), as its rank: always 0..4, so
+       a caller built against any version can read it.  A name from the hosts
+       file reports name_resolution's.  Zero is AMI_HOSTNAME_NONE and is also
+       what a library predating the field answers. */
     ULONG   nss_HostSource;
     /* Programs holding the library open, and the library's own open count.
        They differ by the reference NETCTRL_STACK_HOLD took. */
