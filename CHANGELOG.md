@@ -9,6 +9,10 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `CreateAmiNetXDuoStatusReport` reports `stack.status=too_old` only for a
+  library below the version or revision the netstatus query needs. A resident,
+  current library whose query open failed reports `unavailable`, and one whose
+  `AMITCP` port went away during the report reports `not_running`.
 - `httpd` falls back to its host console encoder if the ZZ9000 replies to a
   band request with an unrelated opcode or a truncated payload, instead of
   treating those bytes as a completed frame.

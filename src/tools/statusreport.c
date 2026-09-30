@@ -559,8 +559,21 @@ static VOID sr_stack(VOID)
                 why = "not_resident";
             else if (!sr_lib.ours)
                 why = "foreign";
-            else
+            /*
+             * "too_old" is a comparison, not a residue: it is the word for a
+             * resident, ours library below the version/revision the opener
+             * needs.  A resident, ours library that passes those and still
+             * fails to open is "unavailable" -- the open raced a NetShutdown
+             * or lost its IdString check -- and one whose port is now gone is
+             * "not_running".
+             */
+            else if (sr_lib.version < 4 ||
+                     sr_lib.revision < (UWORD)AMI_NETSTATUS_MIN_REVISION)
                 why = "too_old";
+            else if (tool_stack_library_running())
+                why = SR_UNAVAILABLE;
+            else
+                why = "not_running";
         }
         sr_str(&sr_out, "stack.status", why);
         sr_str(&sr_out, "stack.up", NULL);
