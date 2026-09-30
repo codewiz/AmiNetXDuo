@@ -10,6 +10,7 @@
 
 #include "config_internal.h"
 #include "aminetxduo/compat.h"
+#include "aminetxduo/anxnet.h"
 
 /*
  * The 1-based line of `buf` whose first word is `keyword` -- case aside, and
@@ -482,6 +483,235 @@ ULONG ami_cfg_interface_netmask_line_file(const char *path, ULONG want)
         return 0;
 
     found = ami_cfg_interface_netmask_line(buf, want);
+    ami_free(buf);
+
+    return found;
+}
+
+/*
+ * TRUE when `value` is a CARD name the interface parser accepts.  Mirrors
+ * cfg_card_known()/cfg_card_names[] in config_parse.c, which read the same
+ * ANXNET_CARD_NAMES list (include/aminetxduo/anxnet.h).  An unknown CARD
+ * refuses the whole interface, so an accepted interface only ever names known
+ * cards, but the helper replays the parser and skips what it would refuse
+ * (F-158).
+ */
+static BOOL is_known_card(const char *value)
+{
+    static const char *const names[] = ANXNET_CARD_NAMES;
+    ULONG i;
+
+    for (i = 0; i < (ULONG)(sizeof(names) / sizeof(names[0])); i++)
+        if (ami_cfg_stricmp(value, names[i]) == 0)
+            return TRUE;
+
+    return FALSE;
+}
+
+/*
+ * The line of `buf` whose DEVICE the interface parser keeps as `want`, or 0.
+ * Mirrors ami_cfg_parse_interface()'s IF_KEY_DEVICE case: an empty value is
+ * reported and not taken, every other DEVICE overwrites out->device, so the
+ * LAST non-empty value wins.  A keyword search would name the first DEVICE
+ * line, which may be empty or an earlier value a later line overwrote
+ * (F-158).  The kept value is the last non-empty one, so when that is not
+ * `want` (the file changed between load and diagnosis) the answer is 0, not
+ * the line of an overwritten earlier value.  `buf` is split in place, like
+ * every caller of ami_cfg_next_line().
+ */
+ULONG ami_cfg_interface_device_line(char *buf, const char *want)
+{
+    char  *cursor = buf;
+    char  *line;
+    ULONG  lineno = 0;
+    ULONG  accepted_line = 0;
+    char   accepted_val[AMI_CFG_PATH_LEN];
+    BOOL   have_accepted = FALSE;
+
+    if (buf == NULL || want == NULL)
+        return 0;
+
+    accepted_val[0] = '\0';
+
+    while ((line = ami_cfg_next_line(&cursor)) != NULL)
+    {
+        char *pos;
+        char *key;
+        char *value;
+
+        lineno++;
+
+        ami_cfg_strip_comment(line, "#;");
+        line = ami_cfg_trim(line);
+        if (*line == '\0')
+            continue;
+
+        pos = line;
+        while (ami_cfg_next_pair(&pos, &key, &value))
+        {
+            if (ami_cfg_stricmp(key, "device") != 0)
+                continue;
+
+            if (*value == '\0')
+                continue;               /* empty: reported, not taken */
+
+            ami_cfg_copy_string(accepted_val, sizeof(accepted_val), value);
+            accepted_line = lineno;     /* last non-empty wins, as IF_KEY_DEVICE */
+            have_accepted = TRUE;
+        }
+    }
+
+    return (have_accepted && ami_cfg_stricmp(accepted_val, want) == 0)
+               ? accepted_line : 0;
+}
+
+ULONG ami_cfg_interface_device_line_file(const char *path, const char *want)
+{
+    char  *buf = (char *)ami_cfg_read_file(path, NULL);
+    ULONG  found;
+
+    if (buf == NULL)
+        return 0;
+
+    found = ami_cfg_interface_device_line(buf, want);
+    ami_free(buf);
+
+    return found;
+}
+
+/*
+ * The line of `buf` whose CARD the interface parser keeps as `want`, or 0.
+ * Mirrors ami_cfg_parse_interface()'s IF_KEY_CARD case: an unknown name
+ * refuses the whole interface, a known one overwrites out->card, so the LAST
+ * known value wins.  A keyword search would name the first CARD line, which
+ * may be an earlier value a later line overwrote (F-158).  The kept value is
+ * the last known one, so when that is not `want` the answer is 0.  `buf` is
+ * split in place, like every caller of ami_cfg_next_line().
+ */
+ULONG ami_cfg_interface_card_line(char *buf, const char *want)
+{
+    char  *cursor = buf;
+    char  *line;
+    ULONG  lineno = 0;
+    ULONG  accepted_line = 0;
+    char   accepted_val[AMI_CFG_NAME_LEN];
+    BOOL   have_accepted = FALSE;
+
+    if (buf == NULL || want == NULL)
+        return 0;
+
+    accepted_val[0] = '\0';
+
+    while ((line = ami_cfg_next_line(&cursor)) != NULL)
+    {
+        char *pos;
+        char *key;
+        char *value;
+
+        lineno++;
+
+        ami_cfg_strip_comment(line, "#;");
+        line = ami_cfg_trim(line);
+        if (*line == '\0')
+            continue;
+
+        pos = line;
+        while (ami_cfg_next_pair(&pos, &key, &value))
+        {
+            if (ami_cfg_stricmp(key, "card") != 0)
+                continue;
+
+            if (!is_known_card(value))
+                continue;               /* refuses the interface: not taken */
+
+            ami_cfg_copy_string(accepted_val, sizeof(accepted_val), value);
+            accepted_line = lineno;     /* last known wins, as IF_KEY_CARD */
+            have_accepted = TRUE;
+        }
+    }
+
+    return (have_accepted && ami_cfg_stricmp(accepted_val, want) == 0)
+               ? accepted_line : 0;
+}
+
+ULONG ami_cfg_interface_card_line_file(const char *path, const char *want)
+{
+    char  *buf = (char *)ami_cfg_read_file(path, NULL);
+    ULONG  found;
+
+    if (buf == NULL)
+        return 0;
+
+    found = ami_cfg_interface_card_line(buf, want);
+    ami_free(buf);
+
+    return found;
+}
+
+/*
+ * The line of `buf` whose UNIT the interface parser keeps as `want`, or 0.
+ * Mirrors ami_cfg_parse_interface()'s IF_KEY_UNIT case: a value that does not
+ * parse as a number is reported and leaves out->unit alone, every parseable
+ * UNIT overwrites it, so the LAST parseable value wins.  A keyword search
+ * would name the first UNIT line, which may be a bad value or an earlier
+ * value a later line overwrote (F-158).  The kept value is the last parseable
+ * one, so when that is not `want` the answer is 0.  `buf` is split in place,
+ * like every caller of ami_cfg_next_line().
+ */
+ULONG ami_cfg_interface_unit_line(char *buf, ULONG want)
+{
+    char  *cursor = buf;
+    char  *line;
+    ULONG  lineno = 0;
+    ULONG  accepted_line = 0;
+    ULONG  accepted_val  = 0;
+    BOOL   have_accepted = FALSE;
+
+    if (buf == NULL)
+        return 0;
+
+    while ((line = ami_cfg_next_line(&cursor)) != NULL)
+    {
+        char *pos;
+        char *key;
+        char *value;
+
+        lineno++;
+
+        ami_cfg_strip_comment(line, "#;");
+        line = ami_cfg_trim(line);
+        if (*line == '\0')
+            continue;
+
+        pos = line;
+        while (ami_cfg_next_pair(&pos, &key, &value))
+        {
+            ULONG n;
+
+            if (ami_cfg_stricmp(key, "unit") != 0)
+                continue;
+
+            if (!ami_cfg_parse_ulong(value, &n))
+                continue;               /* bad value: not taken */
+
+            accepted_line = lineno;     /* last parseable wins, as IF_KEY_UNIT */
+            accepted_val  = n;
+            have_accepted = TRUE;
+        }
+    }
+
+    return (have_accepted && accepted_val == want) ? accepted_line : 0;
+}
+
+ULONG ami_cfg_interface_unit_line_file(const char *path, ULONG want)
+{
+    char  *buf = (char *)ami_cfg_read_file(path, NULL);
+    ULONG  found;
+
+    if (buf == NULL)
+        return 0;
+
+    found = ami_cfg_interface_unit_line(buf, want);
     ami_free(buf);
 
     return found;

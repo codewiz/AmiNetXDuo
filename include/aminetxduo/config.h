@@ -845,6 +845,24 @@ ULONG ami_cfg_interface_netmask_line(char *buf, ULONG want);
    read. */
 ULONG ami_cfg_interface_netmask_line_file(const char *path, ULONG want);
 
+/* The same for DEVICE, mirroring IF_KEY_DEVICE (an empty value is not taken,
+   every other DEVICE overwrites, last non-empty wins).  `want` is the name
+   the loader kept; 0 when the last non-empty value is not it. */
+ULONG ami_cfg_interface_device_line(char *buf, const char *want);
+ULONG ami_cfg_interface_device_line_file(const char *path, const char *want);
+
+/* The same for CARD, mirroring IF_KEY_CARD (an unknown name refuses the whole
+   interface, a known one overwrites, last known wins).  `want` is the name the
+   loader kept; 0 when the last known value is not it. */
+ULONG ami_cfg_interface_card_line(char *buf, const char *want);
+ULONG ami_cfg_interface_card_line_file(const char *path, const char *want);
+
+/* The same for UNIT, mirroring IF_KEY_UNIT (a value that does not parse is
+   reported and not taken, last parseable wins).  0 when the last parseable
+   value is not `want`. */
+ULONG ami_cfg_interface_unit_line(char *buf, ULONG want);
+ULONG ami_cfg_interface_unit_line_file(const char *path, ULONG want);
+
 /* The 1-based line of the `occur`-th (0-based) NAMESERVER whose value the
    resolver parser keeps as `want`, counted as the parser counts lines, or 0.
    Mirrors ami_cfg_parse_resolver()'s NAMESERVER case (first key=value pair

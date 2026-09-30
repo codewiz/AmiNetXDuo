@@ -218,18 +218,6 @@ static const char *cnc_where(const char *path)
 }
 
 /*
- * The 1-based line of `path` whose first word is `keyword`, or 0.  Read whole
- * and counted by the parser's own line splitter, so the number a finding
- * gives is the one the parser meant: FGets() in a fixed buffer counted a long
- * line as two and a lone CR as none (F-159).  ami_cfg_read_file() resolves the
- * DEVS: name as cnc_where() does.
- */
-static ULONG keyword_line(const char *path, const char *keyword)
-{
-    return ami_cfg_keyword_line_file(path, keyword);
-}
-
-/*
  * A netmask is a run of ones followed by a run of zeroes and nothing else.
  * 0.0.0.0 and 255.255.255.255 both satisfy that. Both are rejected elsewhere
  * for being useless rather than for being malformed.
@@ -300,21 +288,33 @@ static BOOL any_static_address(const AmiConfig *cfg)
 
 static VOID check_device(const char *path, const AmiIfConfig *ifc)
 {
-    const char *where;
+    const char *where;              /* where the device lives, or NULL */
+    const char *src;                /* the file/drawer a finding names */
+    BOOL        truncated;
     ULONG       line;
 
     if (ifc->device[0] == '\0')
         return;                     /* the parser has already said so */
 
+    /* The loader truncates an interface name at AMI_CFG_IFNAME_MAX, so a name
+       at that ceiling may not be the file's real name; the reconstructed path
+       then names a different or nonexistent file.  The drawer is the truthful
+       source then, at line 0 (F-158, as check_gateway() does). */
+    truncated = ami_cfg_ifname_may_be_truncated(ifc->name);
+    src       = truncated ? CNC_DIR_INTERFACES : path;
+
     where = tool_device_where(ifc->device);
-    line  = keyword_line(path, "DEVICE");
 
     if (where != NULL && tool_stack_library_running())
         return;
 
     if (where == NULL)
     {
-        finding(path, line, AMI_CFG_PROBLEM_ERROR);
+        /* Name the DEVICE the parser kept, not the first DEVICE keyword line:
+           that may be empty or an earlier value a later line overwrote. */
+        line = truncated ? 0 : ami_cfg_interface_device_line_file(path, ifc->device);
+
+        finding(src, line, AMI_CFG_PROBLEM_ERROR);
         say("      this names %s, and %s cannot come up without it\n",
             (LONG)ifc->device, (LONG)ifc->name);
 
@@ -328,10 +328,14 @@ static VOID check_device(const char *path, const AmiIfConfig *ifc)
         return;                     /* installed, and it opens */
 
     /* The driver is present, so the line to look at is the one that says which
-       board: CARD when the file pins one, UNIT otherwise. */
-    line = keyword_line(path, ifc->card[0] != '\0' ? "CARD" : "UNIT");
+       board: CARD when the file pins one, UNIT otherwise.  Name the value the
+       parser kept, not the first occurrence (F-158). */
+    if (ifc->card[0] != '\0')
+        line = truncated ? 0 : ami_cfg_interface_card_line_file(path, ifc->card);
+    else
+        line = truncated ? 0 : ami_cfg_interface_unit_line_file(path, ifc->unit);
 
-    finding(path, line, AMI_CFG_PROBLEM_ERROR);
+    finding(src, line, AMI_CFG_PROBLEM_ERROR);
     say("      %s will not come up with this configuration\n",
         (LONG)ifc->name);
 

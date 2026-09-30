@@ -3033,7 +3033,12 @@ static void test_interface_address_line(void)
     strcpy(buf, "address=192.168.1.10\n"
                 "address=192.168.1.99\n");
     CHECK(ami_cfg_interface_address_line(buf, b) == 2);
-    CHECK(ami_cfg_interface_address_line(buf, a) == 0);   /* overwritten */
+
+    /* An earlier ADDRESS is overwritten: its value alone does not name a line.
+       (The helper splits buf in place, so each CHECK gets its own copy.) */
+    strcpy(buf, "address=192.168.1.10\n"
+                "address=192.168.1.99\n");
+    CHECK(ami_cfg_interface_address_line(buf, a) == 0);
 
     /* An earlier invalid ADDRESS is skipped, so the valid one's line is named. */
     strcpy(buf, "address=not-an-ip\n"
@@ -3076,7 +3081,12 @@ static void test_interface_netmask_line(void)
     strcpy(buf, "netmask=255.255.0.0\n"
                 "netmask=255.255.255.0\n");
     CHECK(ami_cfg_interface_netmask_line(buf, m) == 2);
-    CHECK(ami_cfg_interface_netmask_line(buf, n) == 0);   /* overwritten */
+
+    /* An earlier NETMASK is overwritten: its value alone does not name a line.
+       (The helper splits buf in place, so each CHECK gets its own copy.) */
+    strcpy(buf, "netmask=255.255.0.0\n"
+                "netmask=255.255.255.0\n");
+    CHECK(ami_cfg_interface_netmask_line(buf, n) == 0);
 
     /* An earlier invalid NETMASK is skipped, so the valid one's line is named. */
     strcpy(buf, "netmask=not-an-ip\n"
@@ -3148,6 +3158,139 @@ static void test_addressing_provenance(void)
         CHECK(ami_cfg_strlen(t.name) == AMI_CFG_IFNAME_MAX);
         CHECK(ami_cfg_ifname_may_be_truncated(t.name));
     }
+}
+
+static void test_interface_device_line(void)
+{
+    char buf[512];
+
+    printf("interface device line\n");
+
+    /* The LAST non-empty DEVICE is the one the parser kept (IF_KEY_DEVICE). */
+    strcpy(buf, "device=a2065.device\n"
+                "device=anxnet.device\n");
+    CHECK(ami_cfg_interface_device_line(buf, "anxnet.device") == 2);
+
+    /* An earlier DEVICE is overwritten: its value alone does not name a line.
+       (The helper splits buf in place, so each CHECK gets its own copy.) */
+    strcpy(buf, "device=a2065.device\n"
+                "device=anxnet.device\n");
+    CHECK(ami_cfg_interface_device_line(buf, "a2065.device") == 0);
+
+    /* An empty DEVICE is reported and not taken, so the next one's line is named. */
+    strcpy(buf, "device=\n"
+                "device=a2065.device\n");
+    CHECK(ami_cfg_interface_device_line(buf, "a2065.device") == 2);
+
+    /* The value is matched case-insensitively, as device names are. */
+    strcpy(buf, "DEVICE=A2065.DEVICE\n");
+    CHECK(ami_cfg_interface_device_line(buf, "a2065.device") == 1);
+
+    /* No DEVICE with the kept value: 0. */
+    strcpy(buf, "device=anxnet.device\n");
+    CHECK(ami_cfg_interface_device_line(buf, "a2065.device") == 0);
+}
+
+static void test_interface_card_line(void)
+{
+    char buf[512];
+
+    printf("interface card line\n");
+
+    /* The LAST known CARD is the one the parser kept (IF_KEY_CARD). */
+    strcpy(buf, "card=3c589\n"
+                "card=xsurf100\n");
+    CHECK(ami_cfg_interface_card_line(buf, "xsurf100") == 2);
+
+    /* An earlier CARD is overwritten: its value alone does not name a line.
+       (The helper splits buf in place, so each CHECK gets its own copy.) */
+    strcpy(buf, "card=3c589\n"
+                "card=xsurf100\n");
+    CHECK(ami_cfg_interface_card_line(buf, "3c589") == 0);
+
+    /* An unknown CARD refuses the whole interface (IF_KEY_CARD): the loader
+       keeps no card from it, so check_device() never reports on such a file.
+       The helper's skip of an unknown value is only defensive. */
+    {
+        AmiIfConfig t;
+        strcpy(buf, "device=a2065.device\n"
+                    "card=not-a-card\n");
+        CHECK(ami_cfg_parse_interface("eth0", buf, &t) == AMI_CFG_ERR_SYNTAX);
+    }
+
+    /* No CARD with the kept value: 0. */
+    strcpy(buf, "card=xsurf100\n");
+    CHECK(ami_cfg_interface_card_line(buf, "3c589") == 0);
+}
+
+static void test_interface_unit_line(void)
+{
+    char buf[512];
+
+    printf("interface unit line\n");
+
+    /* The LAST parseable UNIT is the one the parser kept (IF_KEY_UNIT). */
+    strcpy(buf, "unit=0\n"
+                "unit=1\n");
+    CHECK(ami_cfg_interface_unit_line(buf, 1) == 2);
+
+    /* An earlier UNIT is overwritten: its value alone does not name a line.
+       (The helper splits buf in place, so each CHECK gets its own copy.) */
+    strcpy(buf, "unit=0\n"
+                "unit=1\n");
+    CHECK(ami_cfg_interface_unit_line(buf, 0) == 0);
+
+    /* A bad UNIT is reported and not taken, so the next one's line is named. */
+    strcpy(buf, "unit=not-a-number\n"
+                "unit=1\n");
+    CHECK(ami_cfg_interface_unit_line(buf, 1) == 2);
+
+    /* No UNIT with the kept value: 0. */
+    strcpy(buf, "unit=2\n");
+    CHECK(ami_cfg_interface_unit_line(buf, 1) == 0);
+}
+
+/*
+ * Replay of the loader's DEVICE/CARD/UNIT acceptance, not the CheckNetConfig
+ * print path (check_device() is a static tool function, not linked here): the
+ * interface parser keeps the LAST non-empty DEVICE, the LAST known CARD and the
+ * LAST parseable UNIT, so check_device()'s old keyword_line() named the first
+ * occurrence -- which may be empty, a bad value, or an earlier value a later
+ * line overwrote (F-158).
+ */
+static void test_device_provenance(void)
+{
+    static const char *const text =
+        "device=\n"                   /* line 1: empty, not taken */
+        "device=a2065.device\n"       /* line 2: the kept device */
+        "unit=not-a-number\n"         /* line 3: bad, not taken */
+        "unit=1\n"                    /* line 4: the kept unit */
+        "card=3c589\n"                /* line 5: overwritten below */
+        "card=xsurf100\n";            /* line 6: the kept card */
+
+    AmiIfConfig ifc;
+    char        buf[512];
+    const char *path = "DEVS:NetInterfaces/eth0";
+
+    printf("device provenance (loader replay)\n");
+
+    strcpy(buf, text);
+    CHECK(ami_cfg_parse_interface("eth0", buf, &ifc) == AMI_CFG_OK);
+    CHECK(strcmp(ifc.device, "a2065.device") == 0);
+    CHECK(ifc.unit == 1);
+    CHECK(strcmp(ifc.card, "xsurf100") == 0);
+
+    set_fixture(path, text);
+
+    /* The old keyword search names the FIRST line spelling the keyword. */
+    CHECK(ami_cfg_keyword_line_file(path, "DEVICE") == 1);   /* the empty line */
+    CHECK(ami_cfg_keyword_line_file(path, "UNIT") == 3);     /* the bad line */
+    CHECK(ami_cfg_keyword_line_file(path, "CARD") == 5);     /* the overwritten card */
+
+    /* The new helpers name the line whose value the parser actually kept. */
+    CHECK(ami_cfg_interface_device_line_file(path, ifc.device) == 2);
+    CHECK(ami_cfg_interface_unit_line_file(path, ifc.unit) == 4);
+    CHECK(ami_cfg_interface_card_line_file(path, ifc.card) == 6);
 }
 
 static void test_nameserver_line(void)
@@ -4237,6 +4380,10 @@ int main(int argc, char **argv)
     test_interface_address_line();
     test_interface_netmask_line();
     test_addressing_provenance();
+    test_interface_device_line();
+    test_interface_card_line();
+    test_interface_unit_line();
+    test_device_provenance();
     test_nameserver_line();
     test_nameserver_provenance();
     test_netdb_checker();
