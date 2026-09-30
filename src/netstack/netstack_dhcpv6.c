@@ -348,6 +348,8 @@ static LONG ami_ns6_dhcp_begin(AmiNetStack *ns, BOOL stateful)
         if (status != NX_SUCCESS)
         {
             AMI_ERROR("netstack: nx_dhcpv6_start failed (%ld)", (long)status);
+            /* A transient bind/resume failure may succeed on the next RA. */
+            ns->ns_Dhcpv6Asked = FALSE;
             return AMI_NET_ERR_KERNEL;
         }
 
@@ -370,6 +372,8 @@ static LONG ami_ns6_dhcp_begin(AmiNetStack *ns, BOOL stateful)
     if (status != NX_SUCCESS)
     {
         AMI_WARN("netstack: DHCPv6 request refused (%ld)", (long)status);
+        /* Keep the created client; another RA can retry this request. */
+        ns->ns_Dhcpv6Asked = FALSE;
         return AMI_NET_ERR_KERNEL;
     }
 
