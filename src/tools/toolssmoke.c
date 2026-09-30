@@ -382,8 +382,9 @@ static int line_holds_any(const char *hay, const char *list)
  */
 static int attempt_met(LONG from, const char *needle, const char *stop)
 {
+    /* Static for the Shell's 4K stack, as `script` is. */
+    static char buf[MAX_LINE - 1 + REPORT_CHUNK];
     BPTR fh = Open((CONST_STRPTR)REPORT, MODE_OLDFILE);
-    char buf[MAX_LINE - 1 + REPORT_CHUNK];
     LONG carry     = 0;
     int  has_it    = 0;
     int  has_stop  = 0;

@@ -352,7 +352,24 @@ static BOOL ensure_dir(const char *path)
     return TRUE;
 }
 
-static VOID restore_file(const char *path, BOOL kept_old);
+/* <path>.old, the name an existing file is kept under. */
+static VOID old_name(char *keep, ULONG size, const char *path)
+{
+    ULONG n = 0;
+
+    tool_copy_string(keep, size, path);
+    while (keep[n] != '\0')
+        n++;
+    tool_copy_string(keep + n, size - n, ".old");
+}
+
+/* Put back what write_file() replaced, `keep` being its old_name(). */
+static VOID put_back(const char *path, const char *keep, BOOL kept_old)
+{
+    (VOID)DeleteFile((CONST_STRPTR)path);
+    if (kept_old)
+        (VOID)Rename((CONST_STRPTR)keep, (CONST_STRPTR)path);
+}
 
 /*
  * Write one file, keeping any existing one as <path>.old. Returns FALSE
@@ -369,14 +386,7 @@ static BOOL write_file(const char *path, const Blob *blob, BOOL *kept_old)
 
     *kept_old = FALSE;
 
-    tool_copy_string(keep, sizeof(keep), path);
-    {
-        ULONG n = 0;
-
-        while (keep[n] != '\0')
-            n++;
-        tool_copy_string(keep + n, sizeof(keep) - n, ".old");
-    }
+    old_name(keep, sizeof(keep), path);
 
     if (tool_exists(path))
     {
@@ -398,7 +408,7 @@ static BOOL write_file(const char *path, const Blob *blob, BOOL *kept_old)
     {
         tool_error("cannot write %s", (LONG)path);
         tool_fault(IoErr());
-        restore_file(path, *kept_old);
+        put_back(path, keep, *kept_old);
         return FALSE;
     }
 
@@ -413,7 +423,7 @@ static BOOL write_file(const char *path, const Blob *blob, BOOL *kept_old)
             err = ERROR_DISK_FULL;
         tool_error("cannot finish writing %s", (LONG)path);
         tool_fault(err);
-        restore_file(path, *kept_old);
+        put_back(path, keep, *kept_old);
         return FALSE;
     }
 
@@ -421,7 +431,7 @@ static BOOL write_file(const char *path, const Blob *blob, BOOL *kept_old)
     {
         tool_error("only part of %s was written. A full disk is the usual "
                    "cause", (LONG)path);
-        restore_file(path, *kept_old);
+        put_back(path, keep, *kept_old);
         return FALSE;
     }
 
@@ -431,21 +441,9 @@ static BOOL write_file(const char *path, const Blob *blob, BOOL *kept_old)
 static VOID restore_file(const char *path, BOOL kept_old)
 {
     char keep[PATH_LEN + 8];
-    ULONG n = 0;
 
-    if (!kept_old)
-    {
-        (VOID)DeleteFile((CONST_STRPTR)path);
-        return;
-    }
-
-    tool_copy_string(keep, sizeof(keep), path);
-    while (keep[n] != '\0')
-        n++;
-    tool_copy_string(keep + n, sizeof(keep) - n, ".old");
-
-    (VOID)DeleteFile((CONST_STRPTR)path);
-    (VOID)Rename((CONST_STRPTR)keep, (CONST_STRPTR)path);
+    old_name(keep, sizeof(keep), path);
+    put_back(path, keep, kept_old);
 }
 
 /* 1 when the running library has IPv6 in it at all, 0 when it was built

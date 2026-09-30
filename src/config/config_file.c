@@ -369,7 +369,8 @@ BOOL ami_cfg_scan_interfaces(AmiConfig *cfg, AmiCfgIfaceSink sink)
 
 static VOID load_resolver(AmiConfig *cfg)
 {
-    char *buf;
+    char              *buf;
+    AmiResolverConfig *extra;
 
     buf = (char *)ami_cfg_read_file(AMI_CFG_FILE_NAMERES, NULL);
     if (buf != NULL)
@@ -387,43 +388,49 @@ static VOID load_resolver(AmiConfig *cfg)
        fill gaps -- a real name_resolution file always wins. */
     if (cfg->resolver.nameserver_count == 0 || cfg->hostname[0] == '\0')
     {
-        buf = (char *)ami_cfg_read_file(AMI_CFG_FILE_HOSTS, NULL);
-        if (buf != NULL)
+        /* On the heap: it is 800 bytes, and hostname and nslookup run this
+           on a Shell's 4K stack. */
+        buf   = (char *)ami_cfg_read_file(AMI_CFG_FILE_HOSTS, NULL);
+        extra = (AmiResolverConfig *)ami_alloc(sizeof(*extra));
+        if (buf != NULL && extra == NULL)
+            AMI_ERROR("config: %s: out of memory reading its resolver lines",
+                      AMI_CFG_FILE_HOSTS);
+        if (buf != NULL && extra != NULL)
         {
-            AmiResolverConfig extra;
-
-            ami_cfg_zero(&extra, sizeof(extra));
+            ami_cfg_zero(extra, sizeof(*extra));
             /* The hosts fallback may fill a missing name, but its HOSTNAME=
                line must not overwrite one from name_resolution. */
-            ami_cfg_parse_resolver(buf, &extra,
+            ami_cfg_parse_resolver(buf, extra,
                                    (cfg->hostname[0] == '\0')
                                        ? cfg->hostname : NULL,
                                    sizeof(cfg->hostname));
 
             if (cfg->resolver.nameserver_count == 0)
             {
-                cfg->resolver.nameserver_count = extra.nameserver_count;
+                cfg->resolver.nameserver_count = extra->nameserver_count;
                 {
                     UWORD i;
-                    for (i = 0; i < extra.nameserver_count; i++)
+                    for (i = 0; i < extra->nameserver_count; i++)
                     {
-                        cfg->resolver.nameserver[i]     = extra.nameserver[i];
-                        cfg->resolver.nameserver_use[i] = extra.nameserver_use[i];
+                        cfg->resolver.nameserver[i]     = extra->nameserver[i];
+                        cfg->resolver.nameserver_use[i] = extra->nameserver_use[i];
                     }
                 }
             }
             if (cfg->resolver.domain[0] == '\0')
                 ami_cfg_copy_string(cfg->resolver.domain,
-                                    sizeof(cfg->resolver.domain), extra.domain);
+                                    sizeof(cfg->resolver.domain), extra->domain);
 
             /* A name only the hosts file gave: the same rank, its own name
                (F-088). */
             if (cfg->hostname_source == (UWORD)AMI_HOSTNAME_NONE &&
                 cfg->hostname[0] != '\0')
                 cfg->hostname_source = (UWORD)AMI_HOSTNAME_HOSTS;
-
-            ami_free(buf);
         }
+        if (extra != NULL)
+            ami_free(extra);
+        if (buf != NULL)
+            ami_free(buf);
     }
 
     /* And last, the interface files: AmiTCP_NG's installer writes NAMESERVER

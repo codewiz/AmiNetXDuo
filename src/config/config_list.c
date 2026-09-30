@@ -245,6 +245,18 @@ VOID ami_config_free(AmiConfig *cfg)
  * so the sort settles precedence -- which interface is first, and whose
  * gateway becomes the default route -- and nothing else.
  */
+/* Out of memory for one interface file: the interface is missing, by name. */
+static VOID report_no_memory(const char *name)
+{
+    char text[AMI_CFG_NAME_LEN + 96];
+
+    ami_cfg_problem_file(AMI_CFG_DIR_NETINTERFACES);
+    ami_cfg_join3(text, sizeof(text), "there was not enough memory to "
+                  "read '", name, "', so that interface is missing");
+    ami_cfg_problem(0, AMI_CFG_PROBLEM_ERROR, text, AMI_CFG_ADVICE_THIS_IS_MEMORY_NOT);
+    ami_cfg_problem_file(NULL);
+}
+
 static VOID insert_interface(AmiConfig *cfg, const AmiIfConfig *iface)
 {
     UWORD pos;
@@ -266,13 +278,7 @@ static VOID insert_interface(AmiConfig *cfg, const AmiIfConfig *iface)
      */
     if (!ami_config_reserve(cfg, (UWORD)(cfg->interface_count + 1U)))
     {
-        char text[AMI_CFG_NAME_LEN + 96];
-
-        ami_cfg_problem_file(AMI_CFG_DIR_NETINTERFACES);
-        ami_cfg_join3(text, sizeof(text), "there was not enough memory to "
-                      "read '", iface->name, "', so that interface is missing");
-        ami_cfg_problem(0, AMI_CFG_PROBLEM_ERROR, text, AMI_CFG_ADVICE_THIS_IS_MEMORY_NOT);
-        ami_cfg_problem_file(NULL);
+        report_no_memory(iface->name);
         return;
     }
 
@@ -299,12 +305,21 @@ static VOID insert_interface(AmiConfig *cfg, const AmiIfConfig *iface)
  */
 VOID ami_cfg_take_interface(AmiConfig *cfg, const char *name)
 {
-    AmiIfConfig iface;
+    AmiIfConfig *iface;
 
     if (cfg == NULL || name == NULL)
         return;
 
-    if (ami_config_load_interface(name, &iface) != AMI_CFG_OK)
+    /* On the heap: CheckNetConfig and every command that loads the
+       configuration run this on a Shell's 4K stack. */
+    iface = (AmiIfConfig *)ami_alloc(sizeof(*iface));
+    if (iface == NULL)
+    {
+        report_no_memory(name);
+        return;
+    }
+
+    if (ami_config_load_interface(name, iface) != AMI_CFG_OK)
     {
         char text[AMI_CFG_NAME_LEN + 64];
 
@@ -313,13 +328,15 @@ VOID ami_cfg_take_interface(AmiConfig *cfg, const char *name)
                       "' cannot be used, so that interface does not exist");
         ami_cfg_problem(0, AMI_CFG_PROBLEM_ERROR, text, AMI_CFG_ADVICE_THE_PROBLEMS_LISTED_ABOVE);
         ami_cfg_problem_file(NULL);
+        ami_free(iface);
         return;
     }
 
     AMI_INFO("config: interface %s: %s unit %lu",
-             iface.name, iface.device, (unsigned long)iface.unit);
+             iface->name, iface->device, (unsigned long)iface->unit);
 
-    insert_interface(cfg, &iface);
+    insert_interface(cfg, iface);
+    ami_free(iface);
 }
 
 /*

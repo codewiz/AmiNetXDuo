@@ -32,6 +32,7 @@ static ToolStats      arp_stats;
 static ToolSnapshot   arp_snap;
 static ToolNeighbours arp_nd;
 static ToolRoutes6    arp_routes6;
+static NetStatusControl arp_ctl;    /* static for the Shell's 4K stack */
 
 static VOID zero_control(NetStatusControl *ctl)
 {
@@ -493,7 +494,6 @@ int main(int argc, char **argv)
     LONG              args[ARG_COUNT];
     struct RDArgs    *rda;
     struct Library   *base;
-    NetStatusControl  ctl;
     const char       *address_text = NULL;
     ULONG             want         = 0;
     ULONG             want6[4]     = { 0, 0, 0, 0 };
@@ -645,20 +645,20 @@ int main(int argc, char **argv)
             return RETURN_ERROR;
         }
 
-        zero_control(&ctl);
+        zero_control(&arp_ctl);
 
         /* One command, two caches: which one is changed follows from how the
            address was written. */
         if (want_one6)
         {
-            ctl.nsc_Destination6[0] = want6[0];
-            ctl.nsc_Destination6[1] = want6[1];
-            ctl.nsc_Destination6[2] = want6[2];
-            ctl.nsc_Destination6[3] = want6[3];
+            arp_ctl.nsc_Destination6[0] = want6[0];
+            arp_ctl.nsc_Destination6[1] = want6[1];
+            arp_ctl.nsc_Destination6[2] = want6[2];
+            arp_ctl.nsc_Destination6[3] = want6[3];
         }
         else
         {
-            ctl.nsc_Destination = want;
+            arp_ctl.nsc_Destination = want;
         }
 
         if (args[ARG_SET] != 0)
@@ -667,12 +667,12 @@ int main(int argc, char **argv)
                                  : (ULONG)NETCTRL_ARP_ADD;
 
             if (args[ARG_UNIT] != 0)
-                ctl.nsc_Index = (UWORD)(*(LONG *)args[ARG_UNIT]);
+                arp_ctl.nsc_Index = (UWORD)(*(LONG *)args[ARG_UNIT]);
 
             for (i = 0; i < (ULONG)AMI_ETH_ADDR_SIZE; i++)
-                ctl.nsc_HwAddress[i] = mac[i];
+                arp_ctl.nsc_HwAddress[i] = mac[i];
 
-            if (tool_netstatus_control(base, op, &ctl, &err) != 0)
+            if (tool_netstatus_control(base, op, &arp_ctl, &err) != 0)
             {
                 tool_error("%s was not added to the cache",
                            (LONG)address_text);
@@ -692,7 +692,7 @@ int main(int argc, char **argv)
             ULONG op = want_one6 ? (ULONG)NETCTRL_ND_DELETE
                                  : (ULONG)NETCTRL_ARP_DELETE;
 
-            if (tool_netstatus_control(base, op, &ctl, &err) != 0)
+            if (tool_netstatus_control(base, op, &arp_ctl, &err) != 0)
             {
                 tool_error("%s was not removed from the cache",
                            (LONG)address_text);
