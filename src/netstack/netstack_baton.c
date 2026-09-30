@@ -45,8 +45,14 @@ VOID ami_netstack_baton_set_sampler(VOID (*fn)(VOID))
 
 VOID ami_netstack_health_publish(VOID)
 {
+    /* The mark itself is shared, not just its registration.  A second
+       publisher must not reinitialise a semaphore already in Exec's list. */
+    Forbid();
     if (ami_health_up)
+    {
+        Permit();
         return;
+    }
 
     ami_health_mark.hm_Magic   = AMI_HEALTH_MAGIC;
     ami_health_mark.hm_Version = (UWORD)AMI_HEALTH_VERSION;
@@ -64,7 +70,6 @@ VOID ami_netstack_health_publish(VOID)
 
     /* Second stack on one machine: the first one's mark stays, and this one
        goes unpublished rather than giving FindSemaphore() two answers. */
-    Forbid();
     if (FindSemaphore((STRPTR)ami_health_name) == NULL)
     {
         AddSemaphore(&ami_health_mark.hm_Semaphore);
@@ -87,12 +92,15 @@ VOID ami_netstack_health_set_sblock(APTR sem)
 
 VOID ami_netstack_health_unpublish(VOID)
 {
+    Forbid();
     if (!ami_health_up)
+    {
+        Permit();
         return;
+    }
 
     /* Before the counters can go: a reader holds Forbid() across find and
        copy, so this cannot take the mark out from under one. */
-    Forbid();
     RemSemaphore(&ami_health_mark.hm_Semaphore);
     ami_health_up = FALSE;
     Permit();
