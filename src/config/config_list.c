@@ -410,10 +410,13 @@ static VOID resolver_from_one(AmiConfig *cfg, const char *name)
             /* A bad one IS reported: it was written to be used. */
             if (!ami_config_parse_ip(value, &addr))
             {
+                char text[128];
+
+                ami_cfg_join3(text, sizeof(text), "NAMESERVER cannot be '",
+                              value, "'");
                 ami_cfg_problem_file(path);
-                ami_cfg_problem_code(0, AMI_CFG_PROBLEM_ERROR,
-                                     AMI_CFG_SAYS_NAMESERVER_IN_AN_INTERFACE,
-                                     AMI_CFG_ADVICE_A_NAME_SERVER_IS);
+                ami_cfg_problem(0, AMI_CFG_PROBLEM_ERROR, text,
+                                AMI_CFG_ADVICE_A_NAME_SERVER_IS);
                 ami_cfg_problem_file(NULL);
                 continue;
             }

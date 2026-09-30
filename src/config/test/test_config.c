@@ -2908,6 +2908,24 @@ static void test_resolver_from_interfaces(void)
     CHECK(!seen_mentions("unknown keyword"));
     CHECK(!seen_mentions("DEVICE"));
 
+    /* A rejected address must not claim it was taken from the file. */
+    memset(&cfg, 0, sizeof(cfg));
+    set_fixture("DEVS:NetInterfaces/eth0",
+                "DEVICE=a2065.device\nUNIT=0\nCONFIGURE=DHCP\n"
+                "NAMESERVER=192.168.1.300\n");
+
+    seen_count = 0;
+    ami_config_set_reporter(collect, NULL);
+    ami_config_resolver_from_interfaces(&cfg);
+    ami_config_set_reporter(NULL, NULL);
+
+    CHECK(cfg.resolver.nameserver_count == 0);
+    CHECK(seen_count == 1);
+    CHECK(seen[0].severity == AMI_CFG_PROBLEM_ERROR);
+    CHECK(strstr(seen[0].text, "NAMESERVER cannot be '192.168.1.300'") != NULL);
+    CHECK(!strstr(seen[0].text, "was taken"));
+    CHECK(strstr(seen[0].hint, "given by address") != NULL);
+
     /* 4. An interface file with neither leaves the resolver empty rather than
           inventing something. */
     memset(&cfg, 0, sizeof(cfg));
