@@ -950,6 +950,9 @@ static LONG genet_init(NetdevNic *nic)
     c->irq_pending = 0;
     nic->running = TRUE;
     c->link = 0;
+    /* A down PHY does not trigger ge_link_poll()'s change arm after restart.
+       Clear the previously reported speed before that poll (F-275). */
+    nic->core_stat[GE_ST_LINK] = 0;
     ge_link_poll(nic);
 
     nic->core_stat[GE_ST_RXPROD0] =
