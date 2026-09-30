@@ -400,7 +400,9 @@ host_test_targets() { # builddir
 #      489 with raw_hdrincl6: IP_HDRINCL to an IPv6 destination translates
 #      the caller's header instead of sending it as payload (F-061), x86_64
 #      only
-HOST_TESTS_EXPECTED=489
+#      490 with netstatus_selector, 491 with traceroute_wait (all hosts);
+#      492 with deferred_release, 493 with netstatus_hostsource (x86_64 only).
+HOST_TESTS_EXPECTED=493
 case "$(uname -m)" in
     x86_64|amd64) ;;
     # test_inet, test_route, test_expunge, test_expunge_cork, test_select,
@@ -410,14 +412,15 @@ case "$(uname -m)" in
     # test_raw_mcast_send, test_accept_refused (#52), test_closing_forget
     # (#53), test_netmon (F-050), test_icmp6_filter_nocmsg (F-036),
     # test_nx_nest (F-042), test_aam_delete (F-029),
-    # test_unbracketed_close (F-059) and test_raw_hdrincl6 (F-061), all
+    # test_unbracketed_close (F-059), test_raw_hdrincl6 (F-061),
+    # test_deferred_release (F-059) and test_hostsource (F-088), all
     # x86_64-only for
     # the reason in
     # tests/bsdsocket/CMakeLists.txt:
     # elsewhere the host's LONG is eight bytes and no structure in them has
     # the target's shape.
-    # darwin-arm64 registers 402 of the 412 (2026-09-20).
-    *) HOST_TESTS_EXPECTED=$((HOST_TESTS_EXPECTED - 26)) ;;
+    # darwin-arm64 registers 465 of 493 on the current tree.
+    *) HOST_TESTS_EXPECTED=$((HOST_TESTS_EXPECTED - 28)) ;;
 esac
 
 # The on-Amiga harnesses this stage runs.  Verified 2026-07-25 against
