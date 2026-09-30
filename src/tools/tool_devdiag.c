@@ -192,7 +192,8 @@ VOID tool_explain_device(const char *device, ULONG unit, const char *card)
      * The probe as asked, card and all, first.  A pinned card that opened and
      * then refused S2_DEVICEQUERY is present: say so with its codes, before
      * the unpinned probe below resets them, or that probe's success read as
-     * "there is no such card" (F-215).
+     * "there is no such card" (F-215).  The same goes for the probe's own
+     * NO_NAME and NO_MEMORY, which never reached OpenDevice().
      */
     probe = tool_device_probe(device, unit, card);
 
@@ -202,6 +203,24 @@ VOID tool_explain_device(const char *device, ULONG unit, const char *card)
         return;
     }
 
+    /* The probe's own failures, before OpenDevice() was reached: neither says
+       anything about the card, so no absence is inferred from them. */
+    if (probe == TOOL_PROBE_NO_NAME)
+    {
+        tool_printf("  The interface file names no DEVICE, so there is "
+                    "nothing to open.\n");
+        return;
+    }
+
+    if (probe == TOOL_PROBE_NO_MEMORY)
+    {
+        tool_printf("  There was not enough memory to try %s unit %lu, so "
+                    "why it did not open is not known.\n",
+                    (LONG)device, unit);
+        return;
+    }
+
+    /* Only a real OpenDevice() failure is left here. */
     if (card != NULL && *card != '\0' && probe != 0 &&
         tool_device_probe(device, unit, NULL) == 0)
     {
