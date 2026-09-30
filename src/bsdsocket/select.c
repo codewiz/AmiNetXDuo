@@ -910,7 +910,15 @@ LONG bsd_WaitSelect(register LONG nfds                __asm("d0"),
         pending = SetSignal(0UL, 0UL);
 
         if ((pending & break_mask) != 0)
-            return bsd_fail(SocketBase, AMI_EINTR);   /* the request stays out */
+        {
+            /* A non-terminal request stays out for the next wait to keep; a
+               terminal one (tick total at or past LONG_MAX) has no signed due
+               time to judge, so it is taken back (F-066). */
+            if (terminal_wait && SocketBase->sb_TimerArmed)
+                bsd_timer_cancel(SocketBase);
+
+            return bsd_fail(SocketBase, AMI_EINTR);
+        }
 
         if ((pending & user_mask) != 0)
             got_signals |= SetSignal(0UL, user_mask) & user_mask;
@@ -925,8 +933,13 @@ LONG bsd_WaitSelect(register LONG nfds                __asm("d0"),
         count = bsd_poll_sets(SocketBase, nfds, in_read, in_write, in_except,
                               ready);
         if (count < 0)
+        {
+            if (terminal_wait && SocketBase->sb_TimerArmed)
+                bsd_timer_cancel(SocketBase);
+
             return bsd_waitselect_fail(SocketBase, signals, got_signals,
                                        AMI_ENETDOWN);
+        }
 
         if (count > 0 || got_signals != 0)
             break;
@@ -982,13 +995,14 @@ LONG bsd_WaitSelect(register LONG nfds                __asm("d0"),
                 ULONG now   = tx_time_get();
                 ULONG want  = bsd_timeout_ticks(timeout);
 
-                /* A tick total past LONG_MAX cannot drive the signed
+                /* A tick total at or past LONG_MAX cannot drive the signed
                    (wanted_due - now) deadline: after an early kept-timer fire
                    the remainder reads back negative and the wait returns at
-                   once (F-066).  For those, keep no earlier request, arm the
-                   full timeval, and let its completed reply be the terminal
-                   timeout -- nothing is re-armed. */
-                terminal_wait = (want > 0x7FFFFFFFUL);
+                   once, and the keep/cancel comparison's (LONG)want + 1L
+                   overflows at exactly LONG_MAX (F-066).  For those, keep no
+                   earlier request, arm the full timeval, and let its completed
+                   reply be the terminal timeout -- nothing is re-armed. */
+                terminal_wait = (want >= 0x7FFFFFFFUL);
 
                 if (terminal_wait)
                 {

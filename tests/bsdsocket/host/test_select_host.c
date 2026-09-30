@@ -1150,6 +1150,9 @@ static void t_waitselect_terminal(void)
     h.wait_planned     = 1;
     h.wait_calls       = 0;
     h.tick_jump        = TX_TIMER_TICKS_PER_SECOND;
+    h.signals          = 0;      /* clear the reposted break, if any */
+    h.nx_enter_result  = 0;      /* clear the transient poll failure */
+    h.wait_nx_enter_result = 0;
     h.sendios = h.abortios = h.waitios = 0;
     memset(&s, 0, sizeof(s));
     h_set(s.read, 0);
@@ -1218,6 +1221,81 @@ static void t_waitselect_terminal(void)
     CHECK(h.sendios == 1, "the full timeval was armed once, nothing re-armed");
     CHECK(h.abortios == 1 && !h_base.sb_TimerArmed,
           "and its request is taken back on the break, not left out");
+
+    /* An event wake with no ready descriptor sends the wait around the loop
+       once more; if the stack is gone by the loop-top readiness poll the
+       terminal request must not be left out on the ENETDOWN return. */
+    h_reset();
+    (void)h_tcp(0, NX_TCP_SYN_SENT);
+    h_sock[0].as_Flags = ASF_TCP | ASF_CONNECTING;
+    h.wait_plan[0]     = H_EVENT_SIG;
+    h.wait_planned     = 1;
+    h.wait_nx_enter_result = -1;          /* the next poll cannot enter */
+    memset(&s, 0, sizeof(s));
+    h_set(s.read, 0);
+
+    n = bsd_WaitSelect(1, s.read, NULL, NULL, &big, NULL, &h_base);
+    CHECK(n == -1 && h_base.sb_Errno == AMI_ENETDOWN,
+          "a terminal wait whose post-wakeup poll fails is ENETDOWN");
+    CHECK(h.abortios == 1 && !h_base.sb_TimerArmed,
+          "and takes its request back on the poll failure, not leaving it out");
+
+    /* The next short wait then arms its own request, not the leftover one. */
+    h_sock[0].as_Nx.tcp.nx_tcp_socket_state = NX_TCP_SYN_SENT;
+    h.wait_plan[0]     = H_TIMER_SIG;
+    h.wait_planned     = 1;
+    h.wait_calls       = 0;
+    h.tick_jump        = TX_TIMER_TICKS_PER_SECOND;
+    h.signals          = 0;      /* clear the reposted break, if any */
+    h.nx_enter_result  = 0;      /* clear the transient poll failure */
+    h.wait_nx_enter_result = 0;
+    h.sendios = h.abortios = h.waitios = 0;
+    memset(&s, 0, sizeof(s));
+    h_set(s.read, 0);
+
+    n = bsd_WaitSelect(1, s.read, NULL, NULL, &one_second, NULL, &h_base);
+    CHECK(n == 0 && h.sendios == 1,
+          "a later short wait arms its own request, not the large one");
+    CHECK(h_base.sb_TimerReq.tr_time.tv_secs == 1 &&
+          h_base.sb_TimerReq.tr_time.tv_micro == 0,
+          "for one second, not the leftover 100000000");
+
+    /* A break on the re-block after an empty event wake is the same class:
+       the terminal request must not survive the EINTR. */
+    h_reset();
+    (void)h_tcp(0, NX_TCP_SYN_SENT);
+    h_sock[0].as_Flags = ASF_TCP | ASF_CONNECTING;
+    h.wait_plan[0]     = H_EVENT_SIG;
+    h.wait_plan[1]     = H_BREAK_SIG;
+    h.wait_planned     = 2;
+    memset(&s, 0, sizeof(s));
+    h_set(s.read, 0);
+
+    n = bsd_WaitSelect(1, s.read, NULL, NULL, &big, NULL, &h_base);
+    CHECK(n == -1 && h_base.sb_Errno == AMI_EINTR,
+          "a break on the re-block after an empty event wake is EINTR");
+    CHECK(h.abortios == 1 && !h_base.sb_TimerArmed,
+          "and takes its request back, not leaving it out");
+
+    /* The next short wait then arms its own request, not the leftover one. */
+    h_sock[0].as_Nx.tcp.nx_tcp_socket_state = NX_TCP_SYN_SENT;
+    h.wait_plan[0]     = H_TIMER_SIG;
+    h.wait_planned     = 1;
+    h.wait_calls       = 0;
+    h.tick_jump        = TX_TIMER_TICKS_PER_SECOND;
+    h.signals          = 0;      /* clear the reposted break, if any */
+    h.nx_enter_result  = 0;      /* clear the transient poll failure */
+    h.wait_nx_enter_result = 0;
+    h.sendios = h.abortios = h.waitios = 0;
+    memset(&s, 0, sizeof(s));
+    h_set(s.read, 0);
+
+    n = bsd_WaitSelect(1, s.read, NULL, NULL, &one_second, NULL, &h_base);
+    CHECK(n == 0 && h.sendios == 1,
+          "a later short wait arms its own request, not the large one");
+    CHECK(h_base.sb_TimerReq.tr_time.tv_secs == 1 &&
+          h_base.sb_TimerReq.tr_time.tv_micro == 0,
+          "for one second, not the leftover 100000000");
 }
 
 static void t_events(void)

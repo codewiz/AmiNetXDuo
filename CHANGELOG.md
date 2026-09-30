@@ -15,11 +15,12 @@ version at the top when it merges.
   the remaining ticks through a 32-bit microsecond constant and wrapped, cutting
   the wait short to a fraction of the requested time.
 - `WaitSelect` keeps the documented 100,000,000 s maximum but no longer drives
-  the deadline as 32-bit *signed* ticks once the tick total outgrows them. A
+  the deadline as 32-bit *signed* ticks once the tick total reaches them. A
   timeout that large arms its full timer.device timeval and treats the reply as
   the terminal timeout (no signed re-arm or keep/cancel), so it waits the full
-  duration instead of returning early, and it takes its request back on data so
-  the next wait is not handed a due time it cannot judge.
+  duration instead of returning early, and it takes its request back on data, a
+  break, or a failed poll so the next wait is not handed a due time it cannot
+  judge.
 - `AMINETXDUO_MAX_INTERFACES` above 32 is now a compile error; the DHCP
   resolver's pending-interface set is one 32-bit word and cannot name an
   index past bit 31.
