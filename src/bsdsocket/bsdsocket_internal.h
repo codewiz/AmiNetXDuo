@@ -849,6 +849,7 @@ LONG       bsd_fd_alloc(struct AmiSocketBase *base, AmiSocket *sock);
 LONG       bsd_fd_reserve(struct AmiSocketBase *base, LONG fd);
 BOOL       bsd_fd_reserved(struct AmiSocketBase *base, LONG fd);
 LONG       bsd_fd_free(struct AmiSocketBase *base, LONG fd);
+LONG       bsd_fd_restore(struct AmiSocketBase *base, LONG fd, AmiSocket *entry);
 VOID       bsd_socket_retain(AmiSocket *sock);
 VOID       bsd_socket_release(struct AmiSocketBase *base, AmiSocket *sock);
 

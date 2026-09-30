@@ -7,7 +7,8 @@
  * Ownership must pass to another holder, or to nobody.
  *
  * socket.c is #included; the bracket is refused throughout, so the release
- * arm below is linked but never run.
+ * arm below is linked but never run.  Also bsd_fd_restore(), which puts a
+ * Dup2Socket() target back after its replacement was refused (F-055).
  *
  * SPDX-License-Identifier: MIT
  */
@@ -136,8 +137,46 @@ static void h_reset(void)
     h_signalled = NULL;
 }
 
+/* SBTC_FDCALLBACK: the last action seen, and the answer to give. */
+static LONG h_fdcb_action;
+static LONG h_fdcb_answer;
+
+static LONG h_fdcb(LONG fd, LONG action)
+{
+    (VOID)fd;
+    h_fdcb_action = action;
+    return h_fdcb_answer;
+}
+
+static void t_fd_restore(void)
+{
+    h_reset();
+    h_base.sb_FDCallback = h_fdcb;
+    h_fdcb_action = -1;
+    h_fdcb_answer = 0;
+    CHECK(bsd_fd_restore(&h_base, 1, &h_sock[0]) == 0 && h_table[1] == &h_sock[0],
+          "bsd_fd_restore puts the entry back");
+    CHECK(h_fdcb_action == FDCB_ALLOC, "and announces it with FDCB_ALLOC");
+
+    h_fdcb_action = -1;
+    CHECK(bsd_fd_restore(&h_base, 1, &h_sock[1]) != 0 && h_table[1] == &h_sock[0] &&
+          h_fdcb_action == -1,
+          "a slot taken meanwhile is refused, with no callback");
+
+    h_table[1] = NULL;
+    h_fdcb_answer = 5;
+    CHECK(bsd_fd_restore(&h_base, 1, &h_sock[0]) != 0 && h_table[1] == NULL,
+          "a refused FDCB_ALLOC leaves the slot empty");
+
+    CHECK(bsd_fd_restore(&h_base, H_FDS, &h_sock[0]) != 0,
+          "a descriptor past the table is refused");
+    h_base.sb_FDCallback = NULL;
+}
+
 int main(void)
 {
+    t_fd_restore();
+
     /* CloseSocket() with the bracket refused: the socket leaks, and its
        callbacks no longer reach this base. */
     h_reset();

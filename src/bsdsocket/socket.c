@@ -505,6 +505,25 @@ LONG bsd_fd_reserve(struct AmiSocketBase *base, LONG fd)
     return fd;
 }
 
+/*
+ * Put back an entry bsd_fd_free() took out a moment ago, when what was to
+ * replace it was refused (Dup2Socket, F-055).  The opener was told
+ * FDCB_FREE, so FDCB_ALLOC tells it the slot is in use again.  Non-zero, and
+ * the slot stays empty, when the callback refuses or the slot was taken.
+ */
+LONG bsd_fd_restore(struct AmiSocketBase *base, LONG fd, AmiSocket *entry)
+{
+    if (base->sb_Table == NULL || fd < 0 || fd >= base->sb_TableSize ||
+        base->sb_Table[fd] != NULL)
+        return -1;
+
+    if (bsd_fd_callback(base, fd, FDCB_ALLOC) != 0)
+        return -1;
+
+    base->sb_Table[fd] = entry;
+    return 0;
+}
+
 LONG bsd_fd_free(struct AmiSocketBase *base, LONG fd)
 {
     if (base->sb_Table != NULL && fd >= 0 && fd < base->sb_TableSize)

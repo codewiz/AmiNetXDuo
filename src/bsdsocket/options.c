@@ -1220,6 +1220,75 @@ static VOID bsd_dup_keep_owner(struct AmiSocketBase *base, AmiSocket *sock,
     Permit();
 }
 
+/*
+ * The socket Dup2Socket() displaced from its target, released once the new
+ * descriptor is in the slot: not before, because a refused replacement puts
+ * it back (F-055).  With no bracket its reference stays, as before.
+ */
+static VOID bsd_dup_release_victim(struct AmiSocketBase *base,
+                                   AmiSocket *victim)
+{
+    if (victim == NULL)
+        return;
+
+    if (bsd_nx_enter(base) == 0)
+    {
+        bsd_socket_release(base, victim);
+        bsd_nx_leave(base);
+    }
+}
+
+/*
+ * Empty Dup2Socket()'s target and reserve it, with the callbacks in the order
+ * they always ran: FDCB_FREE for what was there, then FDCB_CHECK and
+ * FDCB_ALLOC for the new descriptor.  A veto of FDCB_FREE changes nothing.  A
+ * veto of CHECK or ALLOC puts the old entry back, and a socket in it was
+ * never released, so it is the same socket, still open (F-055).  Putting it
+ * back is announced with FDCB_ALLOC; if the callback refuses that too, or the
+ * slot was taken meanwhile, it cannot be undone: the slot stays empty and the
+ * socket is released, as it always was, and the refusal's errno stands.
+ *
+ * 0 with *victim the socket to release once the slot is filled (or NULL); -1
+ * with nothing to release.
+ */
+static LONG bsd_dup_replace(struct AmiSocketBase *base, LONG fd,
+                            AmiSocket **victim)
+{
+    AmiSocket *prev = bsd_lookup(base, fd);
+    AmiSocket *saved;
+    LONG       error;
+
+    *victim = NULL;
+
+    saved = prev;
+    if (saved == NULL && bsd_fd_reserved(base, fd))
+        saved = BSD_FD_RESERVED;
+
+    if (saved != NULL && bsd_fd_free(base, fd) != 0)
+        return -1;
+
+    if (bsd_fd_reserve(base, fd) >= 0)
+    {
+        *victim = prev;
+        return 0;
+    }
+
+    if (saved == NULL)
+        return -1;
+
+    error = base->sb_Errno;
+    if (bsd_fd_restore(base, fd, saved) != 0)
+    {
+        AMI_WARN("bsdsocket: Dup2Socket(%ld) was refused and the descriptor "
+                 "it replaced could not be put back. It is closed",
+                 (long)fd);
+        bsd_dup_release_victim(base, prev);
+    }
+    base->sb_Errno = error;
+
+    return -1;
+}
+
 LONG bsd_Dup2Socket(register LONG old_socket __asm("d0"),
                     register LONG new_socket __asm("d1"),
                     register struct AmiSocketBase *SocketBase __asm("a6"))
@@ -1230,36 +1299,18 @@ LONG bsd_Dup2Socket(register LONG old_socket __asm("d0"),
 
     if (old_socket == -1)
     {
-        LONG fd;
-
         if (new_socket < -1 || new_socket >= bsd_table_size(SocketBase))
             return bsd_fail(SocketBase, AMI_EBADF);
 
-        if (new_socket >= 0)
-        {
-            victim = bsd_lookup(SocketBase, new_socket);
-            if (victim != NULL)
-            {
-                if (bsd_fd_free(SocketBase, new_socket) != 0)
-                    return -1;
-                if (bsd_nx_enter(SocketBase) == 0)
-                {
-                    bsd_socket_release(SocketBase, victim);
-                    bsd_nx_leave(SocketBase);
-                }
-            }
-            else if (bsd_fd_reserved(SocketBase, new_socket))
-            {
-                if (bsd_fd_free(SocketBase, new_socket) != 0)
-                    return -1;
-            }
-        }
+        if (new_socket < 0)
+            return bsd_fd_reserve(SocketBase, -1);
 
-        fd = bsd_fd_reserve(SocketBase, new_socket);
-        if (fd < 0)
+        if (bsd_dup_replace(SocketBase, new_socket, &victim) != 0)
             return -1;
 
-        return fd;
+        bsd_dup_release_victim(SocketBase, victim);
+
+        return new_socket;
     }
 
     /*
@@ -1309,31 +1360,7 @@ LONG bsd_Dup2Socket(register LONG old_socket __asm("d0"),
         return fd;
     }
 
-    victim = bsd_lookup(SocketBase, new_socket);
-    if (victim != NULL)
-    {
-        if (bsd_fd_free(SocketBase, new_socket) != 0)
-        {
-            bsd_dup_unretain(SocketBase, sock);
-            return -1;
-        }
-
-        if (bsd_nx_enter(SocketBase) == 0)
-        {
-            bsd_socket_release(SocketBase, victim);
-            bsd_nx_leave(SocketBase);
-        }
-    }
-    else if (bsd_fd_reserved(SocketBase, new_socket))
-    {
-        if (bsd_fd_free(SocketBase, new_socket) != 0)
-        {
-            bsd_dup_unretain(SocketBase, sock);
-            return -1;
-        }
-    }
-
-    if (bsd_fd_reserve(SocketBase, new_socket) < 0)
+    if (bsd_dup_replace(SocketBase, new_socket, &victim) != 0)
     {
         bsd_dup_unretain(SocketBase, sock);
         return -1;
@@ -1341,6 +1368,7 @@ LONG bsd_Dup2Socket(register LONG old_socket __asm("d0"),
 
     SocketBase->sb_Table[new_socket] = sock;
     bsd_dup_keep_owner(SocketBase, sock, owned);
+    bsd_dup_release_victim(SocketBase, victim);
 
     return new_socket;
 }

@@ -63,6 +63,9 @@ static ULONG h_permitted;
 static ULONG h_lookup_at;           /* h_permitted at the last lookup, +1 */
 static ULONG h_split;               /* retains not in their lookup's Forbid */
 
+static char h_cb[16];
+static char h_veto[4];
+
 /* Dup2Socket's fixtures: a stand-in descriptor callback, and the socket the
    last release freed. */
 static LONG     (*h_fd_hook)(LONG fd);
@@ -79,6 +82,8 @@ static void h_reset(void)
     h_base.sb_Table     = h_table;
     h_base.sb_TableSize = H_FDS;
     h_fd_hook    = NULL;
+    h_cb[0]      = '\0';
+    h_veto[0]    = '\0';
     h_forbid     = 0;
     h_split      = 0;
     h_freed      = NULL;
@@ -125,7 +130,7 @@ AmiSocket *bsd_lookup(struct AmiSocketBase *base, LONG fd)
 {
     (VOID)base;
     h_lookup_at = (h_forbid > 0) ? h_permitted + 1 : 0;
-    if (fd < 0 || fd >= H_FDS)
+    if (fd < 0 || fd >= H_FDS || h_table[fd] == BSD_FD_RESERVED)
         return NULL;
     return h_table[fd];
 }
@@ -259,26 +264,61 @@ LONG bsd_fd_alloc(struct AmiSocketBase *base, AmiSocket *sock)
     return bsd_fail(base, AMI_EMFILE);
 }
 
+/* The descriptor callbacks the stubs below stand in for, in the order they
+   ran: F = FDCB_FREE, C = FDCB_CHECK, A = FDCB_ALLOC, R = the FDCB_ALLOC that
+   puts a slot back.  h_veto names the one to refuse, with H_VETO. */
+#define H_VETO  77
+
+static LONG h_callback(struct AmiSocketBase *base, char what)
+{
+    size_t n = strlen(h_cb);
+
+    if (n + 1 < sizeof(h_cb))
+    {
+        h_cb[n] = what;
+        h_cb[n + 1] = '\0';
+    }
+    if (strchr(h_veto, what) != NULL)
+        return bsd_fail(base, H_VETO);
+    return 0;
+}
+
 LONG bsd_fd_reserve(struct AmiSocketBase *base, LONG fd)
 {
-    if (fd < 0 || fd >= H_FDS)
+    if (fd < 0 || fd >= H_FDS || h_table[fd] != NULL)
         return -1;
     if (h_fd_hook != NULL && h_fd_hook(fd) != 0)
         return bsd_fail(base, AMI_EMFILE);
+    if (h_callback(base, 'C') != 0 || h_callback(base, 'A') != 0)
+        return -1;
+    h_table[fd] = BSD_FD_RESERVED;
     return fd;
 }
 
 BOOL bsd_fd_reserved(struct AmiSocketBase *base, LONG fd)
 {
-    (VOID)base; (VOID)fd;
-    return FALSE;
+    (VOID)base;
+    return (BOOL)(fd >= 0 && fd < H_FDS && h_table[fd] == BSD_FD_RESERVED);
 }
 
 LONG bsd_fd_free(struct AmiSocketBase *base, LONG fd)
 {
-    (VOID)base;
-    if (fd >= 0 && fd < H_FDS)
+    if (fd >= 0 && fd < H_FDS && h_table[fd] != NULL)
+    {
+        if (h_callback(base, 'F') != 0)
+            return -1;
         h_table[fd] = NULL;
+    }
+    return 0;
+}
+
+LONG bsd_fd_restore(struct AmiSocketBase *base, LONG fd, AmiSocket *entry)
+{
+    if (fd < 0 || fd >= H_FDS || h_table[fd] != NULL)
+        return -1;
+    if (h_callback(base, 'R') != 0)
+        return -1;
+    h_table[fd] = entry;
     return 0;
 }
 
@@ -1088,6 +1128,84 @@ static void t_dup2_interleave(void)
           "and the socket is freed once, by the unwind");
 }
 
+/*
+ * Dup2Socket() onto an open descriptor whose replacement the callback refuses
+ * (F-055): FDCB_FREE has already run for the old one, and it comes back.
+ */
+static void h_pair(AmiSocket **a, AmiSocket **b)
+{
+    h_reset();
+    *a = h_tcp(0);
+    (*a)->as_RefCount = 1;
+    *b = h_udp(1);
+    (*b)->as_RefCount = 1;
+}
+
+static void t_dup2_target_rollback(void)
+{
+    AmiSocket *a;
+    AmiSocket *b;
+    LONG       rc;
+
+    h_pair(&a, &b);
+    strcpy(h_veto, "C");
+    rc = bsd_Dup2Socket(0, 1, &h_base);
+    CHECK(rc == -1 && h_base.sb_Errno == H_VETO, "a CHECK veto is the caller's errno");
+    CHECK(h_table[1] == b && b->as_RefCount == 1 && h_freed == NULL,
+          "and the socket it would have replaced is still there, open");
+    CHECK(strcmp(h_cb, "FCR") == 0, "FREE, CHECK, then ALLOC to put it back");
+    CHECK(a->as_RefCount == 1 && b->as_Owner == &h_base,
+          "the source keeps one reference and the target its owner");
+
+    h_pair(&a, &b);
+    strcpy(h_veto, "A");
+    rc = bsd_Dup2Socket(0, 1, &h_base);
+    CHECK(rc == -1 && h_base.sb_Errno == H_VETO && h_table[1] == b &&
+          b->as_RefCount == 1 && strcmp(h_cb, "FCAR") == 0,
+          "an ALLOC veto puts it back likewise");
+
+    h_pair(&a, &b);
+    strcpy(h_veto, "AR");
+    rc = bsd_Dup2Socket(0, 1, &h_base);
+    CHECK(rc == -1 && h_base.sb_Errno == H_VETO, "a refused put-back keeps the veto's errno");
+    CHECK(h_table[1] == NULL && h_freed == b && strcmp(h_cb, "FCAR") == 0,
+          "and cannot be undone: the slot is empty and its socket released");
+    CHECK(a->as_RefCount == 1, "the source keeps one reference");
+
+    h_pair(&a, &b);
+    strcpy(h_veto, "F");
+    rc = bsd_Dup2Socket(0, 1, &h_base);
+    CHECK(rc == -1 && h_base.sb_Errno == H_VETO && h_table[1] == b &&
+          b->as_RefCount == 1 && strcmp(h_cb, "F") == 0,
+          "a FREE veto changes nothing");
+
+    h_pair(&a, &b);
+    rc = bsd_Dup2Socket(0, 1, &h_base);
+    CHECK(rc == 1 && h_table[1] == a && a->as_RefCount == 2 && h_freed == b &&
+          strcmp(h_cb, "FCA") == 0,
+          "an accepted dup2 replaces and releases, callbacks in the old order");
+
+    /* Dup2Socket(-1, n): reserve n. */
+    h_pair(&a, &b);
+    strcpy(h_veto, "C");
+    rc = bsd_Dup2Socket(-1, 1, &h_base);
+    CHECK(rc == -1 && h_base.sb_Errno == H_VETO && h_table[1] == b &&
+          b->as_RefCount == 1 && strcmp(h_cb, "FCR") == 0,
+          "a refused reserve puts the socket back too");
+
+    h_pair(&a, &b);
+    rc = bsd_Dup2Socket(-1, 1, &h_base);
+    CHECK(rc == 1 && h_table[1] == BSD_FD_RESERVED && h_freed == b,
+          "an accepted reserve replaces and releases");
+
+    h_pair(&a, &b);
+    h_table[1] = BSD_FD_RESERVED;
+    strcpy(h_veto, "C");
+    rc = bsd_Dup2Socket(0, 1, &h_base);
+    CHECK(rc == -1 && h_table[1] == BSD_FD_RESERVED && strcmp(h_cb, "FCR") == 0,
+          "a reserved target is put back reserved");
+}
+
 int main(void)
 {
     printf("options.c host tests\n");
@@ -1102,6 +1220,7 @@ int main(void)
     t_nodelay();
     t_ioctls();
     t_dup2_interleave();
+    t_dup2_target_rollback();
 
     printf("%lu checks, %lu failures\n", h_checks, h_failures);
     return h_failures == 0 ? 0 : 1;
