@@ -684,6 +684,47 @@ static const NetdbFile cnc_netdb[] =
       "<name> <port 0-65535>/<protocol> [alias...]" }
 };
 
+/*
+ * One line of a netdb file, ended as ami_cfg_next_line() ends the loader's:
+ * '\n', '\r', CRLF or LFCR.  FGets() ends a line only at '\n', so a file with
+ * bare CRs reached the verdict as one line, a broken record hidden behind a
+ * good one, while the loader read two (F-094).  The length, or -1 at the end
+ * of the file; *cut when the line was longer than the buffer, the rest read
+ * and dropped.
+ */
+static LONG cnc_netdb_line(BPTR file, char *buf, ULONG size, BOOL *cut)
+{
+    LONG  c;
+    ULONG n    = 0;
+    BOOL  seen = FALSE;
+
+    *cut = FALSE;
+
+    while ((c = FGetC(file)) != -1)
+    {
+        seen = TRUE;
+
+        if (c == '\n' || c == '\r')
+        {
+            LONG pair = (c == '\r') ? '\n' : '\r';
+            LONG next = FGetC(file);
+
+            if (next != -1 && next != pair)
+                (VOID)UnGetC(file, next);
+            break;
+        }
+
+        if (n + 1 < size)
+            buf[n++] = (char)c;
+        else
+            *cut = TRUE;
+    }
+
+    buf[n] = '\0';
+
+    return seen ? (LONG)n : -1L;
+}
+
 static VOID check_netdb_file(const NetdbFile *spec)
 {
     char  line[CNC_LINE_MAX];
@@ -691,43 +732,30 @@ static VOID check_netdb_file(const NetdbFile *spec)
     BPTR  file;
     ULONG lineno = 0;
     UWORD said   = 0;
+    BOOL  cut;
 
     file = Open((CONST_STRPTR)cnc_where(spec->path), MODE_OLDFILE);
     if (file == (BPTR)0)
         return;                     /* missing is normal: there are built-ins */
 
-    while (FGets(file, (STRPTR)line, (LONG)sizeof(line)) != NULL)
+    while (cnc_netdb_line(file, line, sizeof(line), &cut) >= 0)
     {
-        ULONG len = 0;
         UWORD verdict;
 
         lineno++;
 
         /*
-         * A line longer than the buffer comes back in pieces, and the loader
-         * reads it whole: the rest is drained, so the next line keeps its
-         * number, and it is said that this one was not looked at rather than
-         * judging a piece.  ';' is not a comment to the loader, so it is not
-         * one here either.
+         * The loader reads a long line whole, so it is said that this one was
+         * not looked at rather than judging a piece.  ';' is not a comment to
+         * the loader, so it is not one here either.
          */
-        while (line[len] != '\0')
-            len++;
-        if (len == sizeof(line) - 1 && line[len - 1] != '\n')
+        if (cut)
         {
-            LONG c;
-            BOOL more = FALSE;
-
-            while ((c = FGetC(file)) != -1 && c != '\n')
-                more = TRUE;
-
-            if (more)
-            {
-                finding(spec->path, lineno, AMI_CFG_PROBLEM_NOTE);
-                say("      this line is longer than %ld characters and was not\n",
-                    (LONG)(sizeof(line) - 1));
-                say("      checked\n");
-                continue;
-            }
+            finding(spec->path, lineno, AMI_CFG_PROBLEM_NOTE);
+            say("      this line is longer than %ld characters and was not\n",
+                (LONG)(sizeof(line) - 1));
+            say("      checked\n");
+            continue;
         }
 
         verdict = ami_netdb_line_verdict(spec->kind, line, word, sizeof(word));
