@@ -100,7 +100,7 @@ static void test_datagram(void)
     CHECK(iperf_dg_get(buf, IPERF_DG_LEN, &id) == 0);
     CHECK(id == 1);
 
-    /* The end-of-test marker is the last id, negated. */
+    /* The end-of-test marker is the next id, negated. */
     iperf_dg_put(buf, -359, 0, 0);
     CHECK(iperf_dg_id(buf) < 0);
     CHECK(iperf_dg_id(buf) == -359);

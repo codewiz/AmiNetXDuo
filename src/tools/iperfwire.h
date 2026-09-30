@@ -92,7 +92,8 @@ void iperf_pattern_fill(unsigned char *buf, unsigned long len,
 
 /*
  * Write a datagram header at `buf`, which must have IPERF_DG_TOTAL bytes.
- * A negative `id` is the end-of-test marker.  iperf 2 sends -N after ids 1..N.
+ * A negative `id` is the end-of-test marker.  iperf 2 sends -(N+1) after ids
+ * 1..N: the id it would have sent next, negated (F-164).
  *
  * The 24 bytes after the header are zeroed rather than left to the caller's
  * buffer.  An iperf 2.2 server reads a client_hdr there and switches test mode
