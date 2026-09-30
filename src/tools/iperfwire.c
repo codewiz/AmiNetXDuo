@@ -71,9 +71,11 @@ long iperf_dg_id(const unsigned char *buf)
 
     /* Two's complement by hand: a plain cast of a value above LONG_MAX is
        implementation-defined, and this has to mean the same thing on the host
-       tests as on the 68000.  The mask is what makes it 32-bit on both. */
+       tests as on the 68000.  Negating LONG_MIN is undefined too, so the
+       negative half is (raw & 0x7fffffff) - 2^31, reached as subtract
+       LONG_MAX then one more; each step stays in range on a 32-bit long. */
     if (raw & 0x80000000UL)
-        return -(long)U32(~raw + 1UL);
+        return (long)(raw & 0x7fffffffUL) - 0x7fffffffL - 1L;
 
     return (long)raw;
 }

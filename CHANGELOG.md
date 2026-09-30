@@ -9,6 +9,10 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `iperf` decodes a datagram id without negating the most negative value. A
+  wire id of 0x80000000 is -2147483648, whose negation does not fit a 32-bit
+  long and an optimizing build could fold it into anything; the id is now
+  reached by subtraction, which stays in range.
 - `httpd` refuses a WebDAV date whose day does not exist in its month. The
   parser accepted any day up to 31 and the civil roll moved an invalid day
   silently into the next month: a 29th in a non-leap February, any 30th or

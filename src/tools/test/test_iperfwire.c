@@ -107,6 +107,12 @@ static void test_datagram(void)
 
     iperf_dg_put(buf, 0x7fffffffL, 0, 0);
     CHECK(iperf_dg_id(buf) == 0x7fffffffL);
+
+    /* The most negative id.  Its negation is undefined, so the decoder must
+       not build the answer by negating; it reads back LONG_MIN unchanged. */
+    iperf_dg_put(buf, -2147483648L, 0, 0);
+    CHECK(buf[0] == 0x80 && buf[1] == 0 && buf[2] == 0 && buf[3] == 0);
+    CHECK(iperf_dg_id(buf) == -2147483648L);
 }
 
 /* ---------------------------------------------------------------- report --- */
