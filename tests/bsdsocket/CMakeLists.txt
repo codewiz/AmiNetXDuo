@@ -86,6 +86,26 @@ if(NOT CMAKE_CROSSCOMPILING AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
     target_link_options(test_scope_epoch PRIVATE -Wl,--gc-sections)
     add_test(NAME scope_slot_epoch COMMAND test_scope_epoch)
 
+    # cmsg.c as IPV6=ON, CMSG=OFF: the stub reset installs the ICMPv6 filter's
+    # pass-all default that raw.c applies either way (F-036).
+    add_executable(test_icmp6_filter_nocmsg host/test_icmp6_filter_nocmsg_host.c)
+    target_include_directories(test_icmp6_filter_nocmsg PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/host/shim"
+        "${CMAKE_SOURCE_DIR}/src/bsdsocket"
+        "${CMAKE_SOURCE_DIR}/include"
+        "${AMINETXDUO_THREADX}/common/inc"
+        "${AMINETXDUO_THREADX}/ports/linux/gnu/inc"
+        "${AMINETXDUO_NETXDUO}/common/inc"
+        "${AMINETXDUO_NETXDUO}/ports/linux/gnu/inc"
+        "${CMAKE_SOURCE_DIR}/port/netxduo-amiga/inc")
+    target_compile_options(test_icmp6_filter_nocmsg PRIVATE
+        -include "${CMAKE_CURRENT_SOURCE_DIR}/host/shim/host_prelude.h"
+        -ffunction-sections -fdata-sections -UAMINETXDUO_CMSG)
+    target_compile_definitions(test_icmp6_filter_nocmsg PRIVATE
+        AMINETXDUO_MULTICAST AMINETXDUO_IPV6 NX_INCLUDE_USER_DEFINE_FILE)
+    target_link_options(test_icmp6_filter_nocmsg PRIVATE -Wl,--gc-sections)
+    add_test(NAME icmp6_filter_nocmsg COMMAND test_icmp6_filter_nocmsg)
+
     # raw.c's IPv4 send to a group: IP_MULTICAST_TTL and IP_MULTICAST_IF (#49).
     add_executable(test_raw_mcast_send host/test_raw_mcast_send_host.c)
     target_include_directories(test_raw_mcast_send PRIVATE

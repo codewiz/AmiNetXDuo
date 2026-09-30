@@ -384,7 +384,9 @@ host_test_targets() { # builddir
 #      482 with tls_store_coherent: the root read takes index and
 #      certificate from one open, so a replaced store is never read at the
 #      old offsets (F-300 D1)
-HOST_TESTS_EXPECTED=482
+#      483 with icmp6_filter_nocmsg: an IPV6=ON, CMSG=OFF build's raw ICMPv6
+#      socket starts with the pass-all filter (F-036), x86_64 only
+HOST_TESTS_EXPECTED=483
 case "$(uname -m)" in
     x86_64|amd64) ;;
     # test_inet, test_route, test_expunge, test_expunge_cork, test_select,
@@ -392,12 +394,13 @@ case "$(uname -m)" in
     # test_ifdevices, test_usergroup_hold, test_bind_share and test_handoff
     # (8ff3cc92), test_mcast_loop, test_mcast_epoch, test_scope_epoch,
     # test_raw_mcast_send, test_accept_refused (#52), test_closing_forget
-    # (#53) and test_netmon (F-050), all x86_64-only for the reason in
+    # (#53), test_netmon (F-050) and test_icmp6_filter_nocmsg (F-036), all
+    # x86_64-only for the reason in
     # tests/bsdsocket/CMakeLists.txt:
     # elsewhere the host's LONG is eight bytes and no structure in them has
     # the target's shape.
     # darwin-arm64 registers 402 of the 412 (2026-09-20).
-    *) HOST_TESTS_EXPECTED=$((HOST_TESTS_EXPECTED - 21)) ;;
+    *) HOST_TESTS_EXPECTED=$((HOST_TESTS_EXPECTED - 22)) ;;
 esac
 
 # The on-Amiga harnesses this stage runs.  Verified 2026-07-25 against

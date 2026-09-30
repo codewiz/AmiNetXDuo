@@ -788,6 +788,22 @@ VOID bsd_cmsg_reset(AmiSocket *sock)
        option says, and cs_Have FALSE is what keeps them off the source path. */
     if (sock != NULL)
         bsd_bzero(&sock->as_CmsgSticky, sizeof(sock->as_CmsgSticky));
+
+#ifdef AMINETXDUO_IPV6
+    /*
+     * The ICMPv6 filter's RFC 3542 3.2 default, pass everything, as the built
+     * version sets it.  raw.c applies as_Icmp6Filter whatever this option
+     * says, and without ICMP6_FILTER nothing else can set it: left zero, a
+     * raw ICMPv6 socket dropped every message but an empty one (F-036).
+     */
+    if (sock != NULL)
+    {
+        UINT i;
+
+        for (i = 0; i < 8; i++)
+            sock->as_Icmp6Filter[i] = 0xFFFFFFFFUL;
+    }
+#endif
 }
 
 /* 1 is "not ours" (cmsg.c:734): options.c falls through to its own switch. */
