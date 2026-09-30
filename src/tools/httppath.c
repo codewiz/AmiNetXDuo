@@ -430,53 +430,69 @@ int http_path_root(const char *given, char *out, unsigned long outlen)
 void http_utf8_trim(char *text)
 {
     unsigned long n;
-    unsigned long back;
 
     if (text == 0)
         return;
 
     n = hp_len(text);
 
-    /* At most three continuation bytes can precede the lead of the longest
-       sequence there is, so the walk back is bounded whatever the bytes. */
-    for (back = 0; back < 4UL && back < n; back++)
+    /*
+     * End the text on a character.  Count the continuation bytes at the end,
+     * then judge them by the byte in front: after ASCII, or more of them than
+     * the lead in front wants, the extra ones are orphans and go (F-198:
+     * C3 A9 80 kept the 80); fewer than it wants is a sequence cut short and
+     * the lead goes with them.  A run longer than any sequence has no lead
+     * that owns it all, so the tail is cut and judged again.  Every pass
+     * shortens the text, so this ends.
+     */
+    for (;;)
     {
-        unsigned char c = (unsigned char)text[n - 1UL - back];
+        unsigned long cont = 0;
+        unsigned long lead;
+        unsigned char c;
         unsigned long need;
 
-        if ((c & 0xC0) == 0x80)
-            continue;                       /* a continuation byte          */
+        while (cont < 4UL && cont < n &&
+               ((unsigned char)text[n - 1UL - cont] & 0xC0) == 0x80)
+            cont++;
 
-        if ((c & 0x80) == 0)
+        if (n == 0UL)
+            return;
+
+        if (cont == n)
         {
-            /* Plain ASCII, so anything walked over to reach it was a
-               continuation byte with no lead in front of it. */
-            if (back > 0UL)
-                text[n - back] = '\0';
-
+            text[0] = '\0';                  /* nothing but continuation bytes */
             return;
         }
 
-        if      ((c & 0xE0) == 0xC0) need = 2UL;
+        lead = n - 1UL - cont;
+        c    = (unsigned char)text[lead];
+
+        if ((c & 0xC0) == 0x80)
+        {
+            /* Four continuations and still no lead: none of them is owned. */
+            n -= cont;
+            text[n] = '\0';
+            continue;
+        }
+
+        if      ((c & 0x80) == 0)    need = 1UL;
+        else if ((c & 0xE0) == 0xC0) need = 2UL;
         else if ((c & 0xF0) == 0xE0) need = 3UL;
         else if ((c & 0xF8) == 0xF0) need = 4UL;
         else
         {
-            /* An invalid lead byte where a lead byte belongs.  Nothing here
-               completes a sequence, so it is cut. */
-            text[n - 1UL - back] = '\0';
+            text[lead] = '\0';               /* an invalid lead owns nothing */
             return;
         }
 
-        if (back + 1UL < need)
-            text[n - 1UL - back] = '\0';
+        if (cont + 1UL < need)
+            text[lead] = '\0';               /* cut short: the lead goes too */
+        else if (cont + 1UL > need)
+            text[lead + need] = '\0';        /* complete, then orphans      */
 
         return;
     }
-
-    /* Four continuation bytes and no lead: nothing here is a character. */
-    if (n >= 4UL)
-        text[n - 4UL] = '\0';
 }
 
 const char *http_path_error(HttpPathResult why)

@@ -647,10 +647,40 @@ static void test_utf8_trim(void)
     http_utf8_trim(text);
     CHECK_STR(text, "a");
 
-    /* It never runs off the front of a string that is all continuations. */
+    /* It never runs off the front of a string that is all continuations,
+       and leaves none of them (F-198). */
     strcpy(text, "\x82\x82\x82\x82\x82");
     http_utf8_trim(text);
-    CHECK(strlen(text) < 5);
+    CHECK_STR(text, "");
+
+    strcpy(text, "\x80\x80\x80");             /* three orphans, nothing else */
+    http_utf8_trim(text);
+    CHECK_STR(text, "");
+
+    strcpy(text, "a\x80\x80\x80");            /* three orphans after ASCII */
+    http_utf8_trim(text);
+    CHECK_STR(text, "a");
+
+    strcpy(text, "a\x80\x80\x80\x80\x80");    /* more than any sequence has */
+    http_utf8_trim(text);
+    CHECK_STR(text, "a");
+
+    /* A complete character followed by an orphan keeps the character. */
+    strcpy(text, "\xc3\xa9\x80");              /* é, then a stray byte (F-198) */
+    http_utf8_trim(text);
+    CHECK_STR(text, "\xc3\xa9");
+
+    strcpy(text, "a\xe2\x82\xac\x80");         /* euro, then a stray byte */
+    http_utf8_trim(text);
+    CHECK_STR(text, "a\xe2\x82\xac");
+
+    strcpy(text, "a\xf0\x9f\x98\x80\x80");     /* four bytes, then a stray */
+    http_utf8_trim(text);
+    CHECK_STR(text, "a\xf0\x9f\x98\x80");
+
+    strcpy(text, "a\xff");                     /* not a lead at all */
+    http_utf8_trim(text);
+    CHECK_STR(text, "a");
 
     http_utf8_trim(NULL);
 }
