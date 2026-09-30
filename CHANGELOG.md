@@ -9,6 +9,11 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `NetTrace` and `NetCapture` bound each capture record's header and payload
+  separately instead of by their sum. A record whose claimed length wrapped a
+  32-bit total could pass the old check and make the command read past the
+  capture buffer; the two fields are now each held within the bytes actually
+  read.
 - `iperf` no longer reports 0 bit/s for a transfer that finished inside one
   clock tick. A run that moved bytes but whose duration rounded to zero uses a
   one-millisecond lower bound for the rate instead of a rate that looks like

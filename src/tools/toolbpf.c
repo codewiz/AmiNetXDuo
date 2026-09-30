@@ -336,8 +336,16 @@ ULONG tool_bpf_drain(ToolBpfChan *c)
             ULONG datlen = tool_bpf_get32(c->buf + pos + TB_OFF_DATALEN);
             ULONG hdrlen = (ULONG)tool_bpf_get16(c->buf + pos + TB_OFF_HDRLEN);
 
+            /*
+             * hdrlen and caplen come out of the record, so bound them by
+             * subtraction: pos + hdrlen + caplen wraps once either field is
+             * large enough, and the check would pass with the data read past
+             * the buffer.  The loop condition above has made pos + 20 fit in
+             * got, so both differences are non-negative here.
+             */
             if (hdrlen < (ULONG)TB_HDR_MIN ||
-                pos + hdrlen + caplen > (ULONG)got)
+                hdrlen > (ULONG)got - pos ||
+                caplen > (ULONG)got - pos - hdrlen)
                 break;
 
             /*
