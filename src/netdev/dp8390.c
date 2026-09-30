@@ -529,9 +529,9 @@ static BOOL dp8390_overwrite(NetdevNic *nic, UBYTE isr)
     was_txing = NIC_GET(nic, ED_P0_CR) & ED_CR_TXP;
 
     NIC_PUT(nic, ED_P0_CR, nic->cr_proto | ED_CR_PAGE_0 | ED_CR_STP);
-    netdev_wait_begin(&w, DP8390_OVW_STOP_WAIT_US,
-                      netdev_clock_floor_spins(DP8390_OVW_STOP_WAIT_US,
-                                               DP8390_OVW_STOP_SPINS));
+    netdev_wait_begin_isr(&w, DP8390_OVW_STOP_WAIT_US,
+                          netdev_clock_floor_spins_isr(DP8390_OVW_STOP_WAIT_US,
+                                                       DP8390_OVW_STOP_SPINS));
     do
     {
         dp_pause(nic, 1);

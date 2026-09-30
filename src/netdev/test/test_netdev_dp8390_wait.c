@@ -300,11 +300,40 @@ static void a_stalled_beam_ends_via_the_cap(void)
     expect(cr_reads < 200000u, "and does not spin without bound");
 }
 
+/*
+ * F-312: an overwrite serviced before anything measured the beam.  It runs
+ * under the service pass's Disable(), so it must not count four fields there:
+ * it takes the fallback, as with no beam, and a later task-level calibration
+ * gives the next one the measured floor.
+ */
+static void an_unmeasured_overwrite_does_not_calibrate(void)
+{
+    BOOL rc;
+
+    machine(REFERENCE_TICKS_PER_LINE, 313);
+    reset_chip();
+    rc = dp8390_overwrite(&nic, ED_ISR_OVW);
+    expect(rc == FALSE, "an unmeasured overwrite completes without a reset");
+    expect(beam_reads < REFERENCE_TICKS_PER_LINE,
+           "and reads the beam less than a line's worth: no field counted");
+    expect_hex("and runs the fallback as CR reads",
+               cr_reads, DP8390_OVW_STOP_SPINS + 3u);
+
+    netdev_clock_calibrate();
+    expect(beam_reads > 2u * 313u * REFERENCE_TICKS_PER_LINE,
+           "the task-level calibration counts the fields");
+    expect(netdev_clock_floor_spins_isr(DP8390_OVW_STOP_WAIT_US,
+                                        DP8390_OVW_STOP_SPINS) !=
+           DP8390_OVW_STOP_SPINS,
+           "after which the interrupt-level floor is the measured one");
+}
+
 int main(void)
 {
     timed_wait_uses_the_measured_floor();
     untimed_wait_runs_the_fallback();
     a_stalled_beam_ends_via_the_cap();
+    an_unmeasured_overwrite_does_not_calibrate();
 
     if (failures != 0)
     {

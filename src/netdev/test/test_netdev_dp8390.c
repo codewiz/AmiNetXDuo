@@ -161,6 +161,16 @@ VOID netdev_wait_begin(NetdevWait *w, ULONG us, ULONG spins)
     waits++;
 }
 
+ULONG netdev_clock_floor_spins_isr(ULONG us, ULONG fallback)
+{
+    return netdev_clock_floor_spins(us, fallback);
+}
+
+VOID netdev_wait_begin_isr(NetdevWait *w, ULONG us, ULONG spins)
+{
+    netdev_wait_begin(w, us, spins);
+}
+
 BOOL netdev_wait_done(NetdevWait *w)
 {
     if (w->nw_Spins != 0u)

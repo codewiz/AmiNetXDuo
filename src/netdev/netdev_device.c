@@ -16,6 +16,7 @@
 #include "netdev_dtree.h"
 #if NETDEV_HAS_ZORRO
 #include "netdev_cache.h"
+#include "netdev_clock.h"
 #include <libraries/configregs.h>
 #endif
 
@@ -1752,6 +1753,9 @@ static BOOL netdev_add_unit(NetdevDevice *dev, const NetdevCard *card,
 #else
     (VOID)cd;
 #endif
+
+    /* Task level, before the core or its interrupt service can wait. */
+    netdev_clock_calibrate();
 
     if (unit->nu_Nic.ops->attach(&unit->nu_Nic) != 0)
     {

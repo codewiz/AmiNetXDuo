@@ -810,7 +810,7 @@ static BOOL zz_intr(NetdevNic *nic)
                 ULONG      reads = 0;
                 BOOL       seen  = FALSE;
 
-                netdev_wait_begin(&w, ZZ_STALE_WAIT_US, 0);
+                netdev_wait_begin_isr(&w, ZZ_STALE_WAIT_US, 0);
                 do
                 {
                     reads++;

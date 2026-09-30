@@ -213,12 +213,23 @@ ULONG netdev_clock_lines_per_field(VOID)
     return ndc_field_lines;
 }
 
-ULONG netdev_clock_floor_spins(ULONG us, ULONG fallback)
+VOID netdev_clock_calibrate(VOID)
 {
-    ULONG lines;
-
     if (ndc_state == 0)
         ndc_measure();
+}
+
+ULONG netdev_clock_floor_spins(ULONG us, ULONG fallback)
+{
+    if (ndc_state == 0)
+        ndc_measure();
+
+    return netdev_clock_floor_spins_isr(us, fallback);
+}
+
+ULONG netdev_clock_floor_spins_isr(ULONG us, ULONG fallback)
+{
+    ULONG lines;
 
     if (ndc_state != 1 || ndc_spins_line == 0u || ndc_us_line == 0u)
         return fallback;
@@ -284,6 +295,19 @@ static ULONG ndc_cap(ULONG lines)
 
 VOID netdev_wait_begin(NetdevWait *w, ULONG us, ULONG spins)
 {
+    /*
+     * A barrier rather than a duration, and the path this keeps the clock off:
+     * ne2000.c's one-microsecond arm runs inside the receive drain, at
+     * interrupt level, where ndc_measure() must never be reached.
+     */
+    if (us >= NETDEV_WAIT_MIN_US && ndc_state == 0)
+        ndc_measure();
+
+    netdev_wait_begin_isr(w, us, spins);
+}
+
+VOID netdev_wait_begin_isr(NetdevWait *w, ULONG us, ULONG spins)
+{
     w->nw_Spins = spins;
     w->nw_Lines = 0;
     w->nw_Cap   = 0;
@@ -291,18 +315,7 @@ VOID netdev_wait_begin(NetdevWait *w, ULONG us, ULONG spins)
     w->nw_Timed = 0;
     w->nw_Tick  = 0;
 
-    /*
-     * A barrier rather than a duration, and the path this keeps the clock off:
-     * ne2000.c's one-microsecond arm runs inside the receive drain, at
-     * interrupt level, where ndc_measure() must never be reached.
-     */
-    if (us < NETDEV_WAIT_MIN_US)
-        return;
-
-    if (ndc_state == 0)
-        ndc_measure();
-
-    if (ndc_state != 1)
+    if (us < NETDEV_WAIT_MIN_US || ndc_state != 1)
         return;
 
 #if NDC_HAVE_BEAM

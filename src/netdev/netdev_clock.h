@@ -80,6 +80,21 @@ ULONG netdev_clock_lines_per_field(VOID);
  */
 ULONG netdev_clock_floor_spins(ULONG us, ULONG fallback);
 
+/*
+ * Measure the beam now if it has not been: four fields, ~80 ms.  Task level
+ * only.  netdev_add_unit() calls it before any core attaches, so no interrupt
+ * service runs with the clock unmeasured (F-311/F-312).
+ */
+VOID netdev_clock_calibrate(VOID);
+
+/*
+ * The interrupt-level forms, for code under the service pass's Disable():
+ * they never measure.  Unmeasured, they act as if there were no beam -- the
+ * caller's spins alone, or `fallback`.
+ */
+VOID  netdev_wait_begin_isr(NetdevWait *w, ULONG us, ULONG spins);
+ULONG netdev_clock_floor_spins_isr(ULONG us, ULONG fallback);
+
 #if defined(NETDEV_CLOCK_TEST)
 /*
  * Test-only hooks: forget the measurement, and read the field length the

@@ -75,14 +75,25 @@ ULONG n68k_copy_longs_sum(void *to, const volatile void *from, ULONG longs)
     return sum;
 }
 
-/* zz_intr()'s bounded wait for a header the ARM has counted.  No case
-   here drives it -- the fixture exercises the copies, not the stale
-   header spin -- but zz9000.c references it, and until the sanitize arm
-   linked without dead-stripping, nothing said so.  One spin, then done. */
+/* zz_intr()'s bounded wait for a header the ARM has counted.  One spin,
+   then done; which form was armed is counted, because the measuring one
+   under the service pass's Disable() is F-311. */
+static ULONG waits_measuring;
+static ULONG waits_isr;
+
 VOID netdev_wait_begin(NetdevWait *w, ULONG us, ULONG spins)
 {
     (VOID)us;
     (VOID)spins;
+    waits_measuring++;
+    w->nw_Spins = 1;
+}
+
+VOID netdev_wait_begin_isr(NetdevWait *w, ULONG us, ULONG spins)
+{
+    (VOID)us;
+    (VOID)spins;
+    waits_isr++;
     w->nw_Spins = 1;
 }
 
@@ -441,6 +452,28 @@ static VOID stale_serial_recovery(VOID)
            "stale at wrap: legacy acknowledge written");
 }
 
+/* F-311: the ARM says a frame waits, the window says none, in the soft
+   interrupt after the ISR: the stale-header spin runs under Disable() and
+   must arm the wait that never calibrates the beam. */
+static VOID stale_header_wait_never_calibrates(VOID)
+{
+    fresh_unit();
+    nic.running = TRUE;
+    ZZ(&nic)->after_isr = 1;
+    *(volatile UWORD *)(volatile void *)(board.bytes + ZZ_REG_RX_STATUS) = 1;
+    waits_measuring = 0;
+    waits_isr = 0;
+
+    (VOID)zz_intr(&nic);
+    expect(nic.core_stat[ZZ_ST_SOFT_EMPTY] == 1,
+           "stale header: the soft-interrupt empty path ran");
+    expect(waits_isr == 1, "stale header: the interrupt-level wait is armed");
+    expect(waits_measuring == 0,
+           "stale header: the calibrating wait is never armed under Disable()");
+    expect(nic.core_stat[ZZ_ST_LATE_MISS] == 1,
+           "stale header: an empty window is still a miss");
+}
+
 /* A stuck/stale presented serial is deliberately left in this host window.
  * The firmware would advance it on the recovery ack; here it proves that a
  * single masked software-interrupt pass stops after the specified number of
@@ -624,6 +657,7 @@ int main(void)
     staging_path_reads_aligned();
     stale_serial_recovery();
     receive_pass_is_bounded();
+    stale_header_wait_never_calibrates();
     reset_preserves_live_tx_slots();
     tx_counter_reclaim();
     tx_offset2_negotiation();
