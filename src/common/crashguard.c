@@ -11,12 +11,15 @@
 #include "aminetxduo/crashguard.h"
 #include "aminetxduo/compat.h"
 
+#include <exec/alerts.h>
+#include <exec/execbase.h>
 #include <exec/memory.h>
 #include <exec/tasks.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
 
 #include <setjmp.h>
+#include <stdarg.h>
 
 static AmiCrashInfo ami_crash;
 static APTR         ami_crash_old_trap;
@@ -311,30 +314,130 @@ const char *ami_crash_alert_name(ULONG num)
     return "see exec/alerts.h";
 }
 
+/*
+ * WHAT A GURU MAY DO HERE (F-081).  Alert() is called from wherever Exec
+ * found the fault: an interrupt, the middle of FreeMem() with Forbid() held
+ * and the memory list it just called corrupt, a plain Task with no DOS.  The
+ * report used to Open() a file there, which needs a Process, may Wait() and
+ * so breaks the Forbid() the caller relied on, and allocates from the list
+ * that is broken -- a second Guru inside the first.
+ *
+ * So the report always does only what is safe anywhere: it records the alert
+ * in static storage and prints it with RawDoFmt()/RawPutChar(), which
+ * allocate nothing and never wait.  The file, and AMI_ERROR() with the log
+ * hook behind it, are used at once only when the context is provably a
+ * Process in user mode with neither Forbid() nor Disable() held, and the
+ * alert is not Exec's own (its lists are what is suspect).  Otherwise the
+ * record waits, and the next safe point writes it:
+ * ami_crash_remove_alert_hook().
+ */
+#ifndef RawPutChar
+#  define RawPutChar(c) \
+      LP1NR(0x204, RawPutChar, UBYTE, (c), d0, , EXEC_BASE_NAME)
+#endif
+
+#define AMI_ALERT_NAME_LEN  32
+
+static struct
+{
+    ULONG   num;
+    APTR    task;
+    char    name[AMI_ALERT_NAME_LEN];
+    BOOL    pending;                    /* recorded, not yet in crash.txt    */
+} ami_alert_rec;
+
+static volatile BOOL ami_alert_reporting;   /* a Guru inside the report      */
+
+static VOID ami_alert_put(register UBYTE c __asm("d0"),
+                          register APTR data __asm("a3"))
+{
+    (VOID)data;
+    if (c != '\0')
+        RawPutChar(c);
+}
+
+static VOID ami_alert_say(const char *fmt, ...)
+{
+    va_list args;
+
+    va_start(args, fmt);
+    RawDoFmt((STRPTR)fmt, (APTR)args, (void (*)())ami_alert_put, NULL);
+    va_end(args);
+}
+
+/* Can DOS, and the log hook, be used right now? */
+static BOOL ami_alert_context_safe(ULONG num)
+{
+    struct Task *task = SysBase->ThisTask;
+
+    if (((UWORD)SetSR(0, 0) & 0x2000) != 0)     /* supervisor: an interrupt */
+        return FALSE;
+    if (SysBase->TDNestCnt >= 0 || SysBase->IDNestCnt >= 0)
+        return FALSE;                           /* Forbid() or Disable()    */
+    if (task == NULL || task->tc_Node.ln_Type != NT_PROCESS)
+        return FALSE;
+    if ((num & 0x7FFF0000UL) == (AN_ExecLib & 0x7FFF0000UL))
+        return FALSE;                           /* Exec's own structures    */
+
+    return TRUE;
+}
+
+static VOID ami_alert_write_file(VOID)
+{
+    BPTR fh = Open((STRPTR)"DH0:crash.txt", MODE_NEWFILE);
+
+    if (fh != 0)
+    {
+        FPuts(fh, (STRPTR)"GURU: ");
+        FPuts(fh, (STRPTR)ami_crash_alert_name(ami_alert_rec.num));
+        FPuts(fh, (STRPTR)"\n");
+        Close(fh);
+    }
+    ami_alert_rec.pending = FALSE;
+}
+
 /* `used': the only caller is the `jsr _ami_alert_report' in the trampoline's
    asm() above. Not static, which is not protection -- a whole-program view is
    entitled to privatise and then drop it. */
 VOID ami_alert_report(ULONG num) __attribute__((used));
 VOID ami_alert_report(ULONG num)
 {
-    struct Task *task = FindTask(NULL);
+    struct Task *task = SysBase->ThisTask;
+    const char  *name = "?";
+    ULONG        i;
 
-    AMI_ERROR("*** GURU %08lx: %s", (LONG)num, (LONG)ami_crash_alert_name(num));
-    AMI_ERROR("    task %08lx \"%s\"", (LONG)task,
-              (LONG)((task != NULL && task->tc_Node.ln_Name != NULL)
-                         ? (const char *)task->tc_Node.ln_Name : "?"));
+    /* A Guru raised by this report itself: record nothing more, go on. */
+    if (ami_alert_reporting)
+        return;
+    ami_alert_reporting = TRUE;
 
+    if (task != NULL && task->tc_Node.ln_Name != NULL)
+        name = (const char *)task->tc_Node.ln_Name;
+
+    ami_alert_rec.num  = num;
+    ami_alert_rec.task = (APTR)task;
+    for (i = 0; i + 1 < AMI_ALERT_NAME_LEN && name[i] != '\0'; i++)
+        ami_alert_rec.name[i] = name[i];
+    ami_alert_rec.name[i] = '\0';
+    ami_alert_rec.pending = TRUE;
+
+    if (ami_alert_context_safe(num))
     {
-        BPTR fh = Open((STRPTR)"DH0:crash.txt", MODE_NEWFILE);
-
-        if (fh != 0)
-        {
-            FPuts(fh, (STRPTR)"GURU: ");
-            FPuts(fh, (STRPTR)ami_crash_alert_name(num));
-            FPuts(fh, (STRPTR)"\n");
-            Close(fh);
-        }
+        AMI_ERROR("*** GURU %08lx: %s", (LONG)num,
+                  (LONG)ami_crash_alert_name(num));
+        AMI_ERROR("    task %08lx \"%s\"", (LONG)task,
+                  (LONG)ami_alert_rec.name);
+        ami_alert_write_file();
     }
+    else
+    {
+        ami_alert_say("[ERR ] *** GURU %08lx: %s\n", (LONG)num,
+                      (LONG)ami_crash_alert_name(num));
+        ami_alert_say("[ERR ]     task %08lx \"%s\"\n", (LONG)task,
+                      (LONG)ami_alert_rec.name);
+    }
+
+    ami_alert_reporting = FALSE;
 }
 
 /*
@@ -489,4 +592,8 @@ VOID ami_crash_remove_alert_hook(VOID)
         Delay(1);
 
     ami_alert_draining = FALSE;
+
+    /* A Guru that could not write its record where it happened (F-081). */
+    if (ami_alert_rec.pending)
+        ami_alert_write_file();
 }
