@@ -7,8 +7,8 @@
  * Ownership must pass to another holder, or to nobody.
  *
  * socket.c is #included; the bracket is refused throughout, so the release
- * arm below is linked but never run.  Also bsd_fd_restore(), which puts a
- * Dup2Socket() target back after its replacement was refused (F-055).
+ * arm below is linked but never run.  Also Dup2Socket()'s claim on its
+ * target, which another task cannot close or take meanwhile (F-055).
  *
  * SPDX-License-Identifier: MIT
  */
@@ -95,6 +95,7 @@ UINT _nxe_udp_socket_unbind(NX_UDP_SOCKET *s) { (VOID)s; abort(); }
 ULONG _tx_time_get(VOID) { abort(); }
 UINT _txe_mutex_get(TX_MUTEX *m, ULONG w) { (VOID)m; (VOID)w; abort(); }
 UINT _txe_mutex_put(TX_MUTEX *m) { (VOID)m; abort(); }
+APTR ami_alloc(ULONG n) { (VOID)n; abort(); }
 VOID ami_free(APTR p) { (VOID)p; abort(); }
 VOID ami_mem_socket_delta(LONG d) { (VOID)d; abort(); }
 VOID bsd_mcast_close(AmiSocket *s) { (VOID)s; abort(); }
@@ -148,34 +149,68 @@ static LONG h_fdcb(LONG fd, LONG action)
     return h_fdcb_answer;
 }
 
-static void t_fd_restore(void)
+static void t_fd_claim(void)
 {
+    AmiSocket *prev = NULL;
+
     h_reset();
     h_base.sb_FDCallback = h_fdcb;
-    h_fdcb_action = -1;
     h_fdcb_answer = 0;
-    CHECK(bsd_fd_restore(&h_base, 1, &h_sock[0]) == 0 && h_table[1] == &h_sock[0],
-          "bsd_fd_restore puts the entry back");
-    CHECK(h_fdcb_action == FDCB_ALLOC, "and announces it with FDCB_ALLOC");
+    h_sock[0].as_RefCount = 1;
+    h_sock[0].as_Owner = &h_base;
+    h_table[1] = &h_sock[0];
 
     h_fdcb_action = -1;
-    CHECK(bsd_fd_restore(&h_base, 1, &h_sock[1]) != 0 && h_table[1] == &h_sock[0] &&
-          h_fdcb_action == -1,
-          "a slot taken meanwhile is refused, with no callback");
+    CHECK(bsd_fd_claim(&h_base, 1, &prev) == 0 && prev == &h_sock[0] &&
+          h_table[1] == BSD_FD_BUSY && h_fdcb_action == FDCB_FREE,
+          "a claim takes the socket out of the slot, after FDCB_FREE");
 
-    h_table[1] = NULL;
+    /* Another task on the base, meanwhile. */
+    CHECK(bsd_CloseSocket(1, &h_base) == -1 && h_base.sb_Errno == AMI_EBADF,
+          "CloseSocket of a claimed descriptor is EBADF");
+    CHECK(h_table[1] == BSD_FD_BUSY && h_sock[0].as_RefCount == 1 &&
+          h_sock[0].as_Owner == &h_base,
+          "and touches neither the slot nor the socket");
+    CHECK(bsd_fd_claim(&h_base, 1, &prev) == -1 && h_base.sb_Errno == AMI_EBUSY &&
+          prev == &h_sock[0],
+          "a second claim is EBUSY");
+    CHECK(bsd_fd_alloc(&h_base, &h_sock[1]) == 0 && h_table[1] == BSD_FD_BUSY,
+          "an allocation passes it by");
+    h_table[0] = NULL;
+
     h_fdcb_answer = 5;
-    CHECK(bsd_fd_restore(&h_base, 1, &h_sock[0]) != 0 && h_table[1] == NULL,
-          "a refused FDCB_ALLOC leaves the slot empty");
+    CHECK(bsd_fd_settle(&h_base, 1, &h_sock[1]) == -1 && h_base.sb_Errno == 5 &&
+          h_table[1] == BSD_FD_BUSY,
+          "a refused settle leaves the claim");
+    h_fdcb_answer = 0;
+    h_fdcb_action = -1;
+    CHECK(bsd_fd_unclaim(&h_base, 1, &h_sock[0]) == 0 && h_table[1] == &h_sock[0] &&
+          h_fdcb_action == FDCB_ALLOC,
+          "unclaim puts the socket back with FDCB_ALLOC");
 
-    CHECK(bsd_fd_restore(&h_base, H_FDS, &h_sock[0]) != 0,
-          "a descriptor past the table is refused");
+    CHECK(bsd_fd_claim(&h_base, 1, &prev) == 0, "claimed again");
+    h_fdcb_answer = 5;
+    CHECK(bsd_fd_unclaim(&h_base, 1, prev) == -1 && h_table[1] == NULL,
+          "a refused FDCB_ALLOC leaves it empty, for the caller to release");
+
+    h_fdcb_answer = 0;
+    h_table[2] = &h_sock[0];
+    h_fdcb_answer = 7;
+    CHECK(bsd_fd_claim(&h_base, 2, &prev) == -1 && h_table[2] == &h_sock[0],
+          "a vetoed FDCB_FREE leaves the slot as it was");
+    h_fdcb_answer = 0;
+    CHECK(bsd_fd_claim(&h_base, 3, &prev) == 0 && prev == NULL &&
+          bsd_fd_settle(&h_base, 3, &h_sock[1]) == 0 && h_table[3] == &h_sock[1],
+          "an empty slot is claimed and settled");
+    CHECK(bsd_fd_claim(&h_base, H_FDS, &prev) == -1 && h_base.sb_Errno == AMI_EBADF,
+          "a descriptor past the table is EBADF");
+
     h_base.sb_FDCallback = NULL;
 }
 
 int main(void)
 {
-    t_fd_restore();
+    t_fd_claim();
 
     /* CloseSocket() with the bracket refused: the socket leaks, and its
        callbacks no longer reach this base. */

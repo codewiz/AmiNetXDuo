@@ -235,6 +235,10 @@ struct AmiSocket;
 /* Dup2Socket(-1, fd) reserves a descriptor without a socket object. */
 #define BSD_FD_RESERVED ((struct AmiSocket *)(ULONG)1UL)
 
+/* A descriptor Dup2Socket() is replacing (bsd_fd_claim): no socket to look
+   up, not free, and not reserved, so nothing but the claimer touches it. */
+#define BSD_FD_BUSY     ((struct AmiSocket *)(ULONG)2UL)
+
 /*
  * Where our seglist is, for a profiler.
  *
@@ -849,7 +853,9 @@ LONG       bsd_fd_alloc(struct AmiSocketBase *base, AmiSocket *sock);
 LONG       bsd_fd_reserve(struct AmiSocketBase *base, LONG fd);
 BOOL       bsd_fd_reserved(struct AmiSocketBase *base, LONG fd);
 LONG       bsd_fd_free(struct AmiSocketBase *base, LONG fd);
-LONG       bsd_fd_restore(struct AmiSocketBase *base, LONG fd, AmiSocket *entry);
+LONG       bsd_fd_claim(struct AmiSocketBase *base, LONG fd, AmiSocket **prev);
+LONG       bsd_fd_settle(struct AmiSocketBase *base, LONG fd, AmiSocket *entry);
+LONG       bsd_fd_unclaim(struct AmiSocketBase *base, LONG fd, AmiSocket *prev);
 VOID       bsd_socket_retain(AmiSocket *sock);
 VOID       bsd_socket_release(struct AmiSocketBase *base, AmiSocket *sock);
 

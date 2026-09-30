@@ -429,7 +429,7 @@ AmiSocket *bsd_lookup(struct AmiSocketBase *base, LONG fd)
 
     sock = base->sb_Table[fd];
 
-    return (sock == BSD_FD_RESERVED) ? NULL : sock;
+    return (sock == BSD_FD_RESERVED || sock == BSD_FD_BUSY) ? NULL : sock;
 }
 
 BOOL bsd_fd_reserved(struct AmiSocketBase *base, LONG fd)
@@ -506,21 +506,81 @@ LONG bsd_fd_reserve(struct AmiSocketBase *base, LONG fd)
 }
 
 /*
- * Put back an entry bsd_fd_free() took out a moment ago, when what was to
- * replace it was refused (Dup2Socket, F-055).  The opener was told
- * FDCB_FREE, so FDCB_ALLOC tells it the slot is in use again.  Non-zero, and
- * the slot stays empty, when the callback refuses or the slot was taken.
+ * Dup2Socket()'s target, replaced in three steps with the callbacks in the
+ * order they always ran (F-055).  bsd_fd_claim() marks the slot BSD_FD_BUSY
+ * under Forbid() before any callback, so another task on a shared base can
+ * neither close what is in it (EBADF: there is nothing to look up) nor
+ * allocate it; what was there, and the reference a socket there held, now
+ * belong to the claimer.  Then FDCB_FREE for it.  A veto puts it straight
+ * back: the opener was told nothing had changed.
  */
-LONG bsd_fd_restore(struct AmiSocketBase *base, LONG fd, AmiSocket *entry)
+LONG bsd_fd_claim(struct AmiSocketBase *base, LONG fd, AmiSocket **prev)
 {
-    if (base->sb_Table == NULL || fd < 0 || fd >= base->sb_TableSize ||
-        base->sb_Table[fd] != NULL)
-        return -1;
+    AmiSocket *entry;
+    LONG       error;
 
-    if (bsd_fd_callback(base, fd, FDCB_ALLOC) != 0)
-        return -1;
+    if (bsd_table_ensure(base) != 0)
+        return bsd_fail(base, AMI_EMFILE);
+
+    if (fd < 0 || fd >= base->sb_TableSize)
+        return bsd_fail(base, AMI_EBADF);
+
+    Forbid();
+    entry = base->sb_Table[fd];
+    if (entry == BSD_FD_BUSY)
+    {
+        Permit();
+        return bsd_fail(base, AMI_EBUSY);
+    }
+    base->sb_Table[fd] = BSD_FD_BUSY;
+    Permit();
+
+    *prev = entry;
+
+    if (entry != NULL)
+    {
+        error = bsd_fd_callback(base, fd, FDCB_FREE);
+        if (error != 0)
+        {
+            base->sb_Table[fd] = entry;
+            return bsd_fail(base, error);
+        }
+    }
+
+    return 0;
+}
+
+/* FDCB_CHECK and FDCB_ALLOC for the replacement, then it is published.  A
+   veto leaves the slot claimed, for bsd_fd_unclaim(). */
+LONG bsd_fd_settle(struct AmiSocketBase *base, LONG fd, AmiSocket *entry)
+{
+    LONG error;
+
+    error = bsd_fd_callback(base, fd, FDCB_CHECK);
+    if (error == 0)
+        error = bsd_fd_callback(base, fd, FDCB_ALLOC);
+    if (error != 0)
+        return bsd_fail(base, error);
 
     base->sb_Table[fd] = entry;
+    return 0;
+}
+
+/*
+ * The replacement was refused: put back what the claim took.  An empty slot
+ * is empty again.  Anything else was announced gone with FDCB_FREE, so
+ * FDCB_ALLOC announces it back.  Non-zero when that is refused too: the slot
+ * is then empty and a socket that was in it is the caller's to release.
+ */
+LONG bsd_fd_unclaim(struct AmiSocketBase *base, LONG fd, AmiSocket *prev)
+{
+    if (prev != NULL && bsd_fd_callback(base, fd, FDCB_ALLOC) != 0)
+    {
+        base->sb_Table[fd] = NULL;
+        return -1;
+    }
+
+    base->sb_Table[fd] = prev;
     return 0;
 }
 
@@ -988,7 +1048,7 @@ VOID bsd_close_all(struct AmiSocketBase *base)
         if (bsd_fd_free(base, fd) != 0)
             base->sb_Table[fd] = NULL;
 
-        if (sock == BSD_FD_RESERVED)
+        if (sock == BSD_FD_RESERVED || sock == BSD_FD_BUSY)
             continue;
 
         if (bracketed)

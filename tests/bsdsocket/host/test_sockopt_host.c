@@ -130,7 +130,8 @@ AmiSocket *bsd_lookup(struct AmiSocketBase *base, LONG fd)
 {
     (VOID)base;
     h_lookup_at = (h_forbid > 0) ? h_permitted + 1 : 0;
-    if (fd < 0 || fd >= H_FDS || h_table[fd] == BSD_FD_RESERVED)
+    if (fd < 0 || fd >= H_FDS || h_table[fd] == BSD_FD_RESERVED ||
+        h_table[fd] == BSD_FD_BUSY)
         return NULL;
     return h_table[fd];
 }
@@ -287,12 +288,53 @@ LONG bsd_fd_reserve(struct AmiSocketBase *base, LONG fd)
 {
     if (fd < 0 || fd >= H_FDS || h_table[fd] != NULL)
         return -1;
-    if (h_fd_hook != NULL && h_fd_hook(fd) != 0)
-        return bsd_fail(base, AMI_EMFILE);
     if (h_callback(base, 'C') != 0 || h_callback(base, 'A') != 0)
         return -1;
     h_table[fd] = BSD_FD_RESERVED;
     return fd;
+}
+
+/* socket.c's claim, settle and unclaim, as far as the slot and the
+   callbacks go.  The hook runs inside the claim, where another task or a
+   callback could act. */
+LONG bsd_fd_claim(struct AmiSocketBase *base, LONG fd, AmiSocket **prev)
+{
+    AmiSocket *entry;
+
+    if (fd < 0 || fd >= H_FDS)
+        return bsd_fail(base, AMI_EBADF);
+    entry = h_table[fd];
+    if (entry == BSD_FD_BUSY)
+        return bsd_fail(base, AMI_EBUSY);
+    h_table[fd] = BSD_FD_BUSY;
+    *prev = entry;
+    if (entry != NULL && h_callback(base, 'F') != 0)
+    {
+        h_table[fd] = entry;
+        return -1;
+    }
+    return 0;
+}
+
+LONG bsd_fd_settle(struct AmiSocketBase *base, LONG fd, AmiSocket *entry)
+{
+    if (h_fd_hook != NULL && h_fd_hook(fd) != 0)
+        return bsd_fail(base, AMI_EMFILE);
+    if (h_callback(base, 'C') != 0 || h_callback(base, 'A') != 0)
+        return -1;
+    h_table[fd] = entry;
+    return 0;
+}
+
+LONG bsd_fd_unclaim(struct AmiSocketBase *base, LONG fd, AmiSocket *prev)
+{
+    if (prev != NULL && h_callback(base, 'R') != 0)
+    {
+        h_table[fd] = NULL;
+        return -1;
+    }
+    h_table[fd] = prev;
+    return 0;
 }
 
 BOOL bsd_fd_reserved(struct AmiSocketBase *base, LONG fd)
@@ -312,15 +354,6 @@ LONG bsd_fd_free(struct AmiSocketBase *base, LONG fd)
     return 0;
 }
 
-LONG bsd_fd_restore(struct AmiSocketBase *base, LONG fd, AmiSocket *entry)
-{
-    if (fd < 0 || fd >= H_FDS || h_table[fd] != NULL)
-        return -1;
-    if (h_callback(base, 'R') != 0)
-        return -1;
-    h_table[fd] = entry;
-    return 0;
-}
 
 /* socket.c's, as far as a reference goes: the last release frees the socket,
    and any other drops the owner once this base holds no descriptor for it
@@ -1030,6 +1063,15 @@ static LONG h_close_source(LONG fd)
     return h_hook_result;
 }
 
+/* Another task on the base, looking at the target while it is replaced. */
+static AmiSocket *h_seen;
+
+static LONG h_peek_target(LONG fd)
+{
+    h_seen = bsd_lookup(&h_base, fd);
+    return 0;
+}
+
 static LONG h_refuse(LONG fd)
 {
     (VOID)fd;
@@ -1184,6 +1226,15 @@ static void t_dup2_target_rollback(void)
     CHECK(rc == 1 && h_table[1] == a && a->as_RefCount == 2 && h_freed == b &&
           strcmp(h_cb, "FCA") == 0,
           "an accepted dup2 replaces and releases, callbacks in the old order");
+
+    h_pair(&a, &b);
+    h_seen = b;
+    h_fd_hook = h_peek_target;
+    strcpy(h_veto, "C");
+    rc = bsd_Dup2Socket(0, 1, &h_base);
+    CHECK(h_seen == NULL, "while it is replaced the target has no socket to look up");
+    CHECK(rc == -1 && h_table[1] == b && b->as_RefCount == 1,
+          "and a veto still finds it to put back");
 
     /* Dup2Socket(-1, n): reserve n. */
     h_pair(&a, &b);
