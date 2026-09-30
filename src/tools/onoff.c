@@ -269,8 +269,9 @@ static BOOL linked_address6(UWORD index, char *text, ULONG text_len)
 #endif /* TOOL_OFFLINE */
 
 /*
- * The NX interface index of `name` in the running stack, or -1. *online is
- * set when the answer is found.
+ * The NX interface index of `name` in the running stack, -1 when it is not
+ * listed, or -2 when the stack would not say (F-173). *online is set when the
+ * answer is found.
  */
 static LONG live_index(struct Library *base, const char *name, BOOL *online)
 {
@@ -282,8 +283,8 @@ static LONG live_index(struct Library *base, const char *name, BOOL *online)
 
     n = tool_netstatus_query(base, NETSTATUS_INTERFACES, &onoff_ifaces,
                              sizeof(onoff_ifaces), sizeof(NetStatusInterface));
-    if (n <= 0)
-        return -1;
+    if (n < 0)
+        return -2;          /* the query failed; 0 is an empty list: -1 below */
 
     /* nsh_Count is the library's number, not ours: bound it by the table. */
     for (i = 0; i < n && i < (LONG)NX_MAX_PHYSICAL_INTERFACES; i++)
@@ -313,24 +314,26 @@ static LONG live_index(struct Library *base, const char *name, BOOL *online)
 /*
  * Wait for the interface to reach the state that was asked for, reading the
  * live stack each time round. `seconds` 0 waits for as long as it takes.
- * FALSE means the shared time ran out, or wait->broken says Ctrl-C was
- * pressed.
+ * 1 reached; 0 the shared time ran out, or wait->broken says Ctrl-C was
+ * pressed; -1 the interface is no longer listed; -2 the stack would not say.
+ * The last two are not a timeout and are not reported as one (F-173).
  */
-static BOOL wait_for_live_state(struct Library *base, const char *name,
+static LONG wait_for_live_state(struct Library *base, const char *name,
                                 BOOL want_up, ToolWait *wait)
 {
     for (;;)
     {
         BOOL now = FALSE;
+        LONG where = live_index(base, name, &now);
 
-        if (live_index(base, name, &now) < 0)
-            return FALSE;
+        if (where < 0)
+            return where;
 
         if (now == want_up)
-            return TRUE;
+            return 1;
 
         if (!tool_wait_second(wait))
-            return FALSE;
+            return 0;
     }
 }
 
@@ -370,6 +373,7 @@ static LONG switch_live(const char *name, const AmiIfConfig *ifc, BOOL up,
     BOOL             online = FALSE;
     BOOL             broken = FALSE;
     LONG             index;
+    LONG             reached;
     LONG             err = 0;
     LONG             rc  = RETURN_OK;
     ULONG            i;
@@ -387,8 +391,11 @@ static LONG switch_live(const char *name, const AmiIfConfig *ifc, BOOL up,
     index = live_index(base, name, &online);
     if (index < 0)
     {
-        tool_error("%s is configured but the running stack has no such "
-                   "interface", (LONG)name);
+        if (index == -2)
+            tool_error("the network did not say which interfaces it has");
+        else
+            tool_error("%s is configured but the running stack has no such "
+                       "interface", (LONG)name);
         tool_netstatus_close(base);
         FreeArgs(rda);
         return RETURN_ERROR;
@@ -428,10 +435,20 @@ static LONG switch_live(const char *name, const AmiIfConfig *ifc, BOOL up,
         }
     }
 
-    if (!wait_for_live_state(base, name, up, &wait) && !wait.broken)
+    reached = wait_for_live_state(base, name, up, &wait);
+    if (reached < 0)
+    {
+        if (reached == -1)
+            tool_error("%s is no longer in the running stack", (LONG)name);
+        else
+            tool_error("the network did not say whether %s went %s",
+                       (LONG)name, (LONG)(up ? "online" : "offline"));
+        rc = RETURN_WARN;
+    }
+    else if (reached == 0 && !wait.broken)
     {
         tool_error("%s was still %s %lu seconds after the request to go %s",
-                   (LONG)name, (LONG)(up ? "down" : "up"), timeout,
+                   (LONG)name, (LONG)(up ? "down" : "up"), wait.elapsed,
                    (LONG)(up ? "up" : "down"));
         rc = RETURN_WARN;
     }
@@ -786,7 +803,7 @@ int main(int argc, char **argv)
     if (!wait_for_state(index, FALSE, &wait) && !wait.broken)
     {
         tool_error("%s was still up %lu seconds after the request to go down",
-                   (LONG)name, timeout);
+                   (LONG)name, wait.elapsed);
         FreeArgs(rda);
         return RETURN_WARN;
     }
@@ -819,7 +836,7 @@ int main(int argc, char **argv)
     if (!wait_for_state(index, TRUE, &wait) && !wait.broken)
     {
         tool_error("%s was still down %lu seconds after the request to come up",
-                   (LONG)name, timeout);
+                   (LONG)name, wait.elapsed);
         FreeArgs(rda);
         return RETURN_WARN;
     }
