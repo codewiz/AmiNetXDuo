@@ -469,7 +469,7 @@ static int ping_main(int argc, char **argv)
     for (i = 0; count == 0 || i < count; i++)
     {
         ULONG total;
-        ULONG wait = PING_REPLY_WAIT;
+        ULONG wait = PING_REPLY_WAIT * 1000UL;     /* milliseconds */
         ULONG t0;
         ULONG deadline;
         ULONG rtt = 0;
@@ -485,7 +485,8 @@ static int ping_main(int argc, char **argv)
 
         /*
          * TIMEOUT bounds the run, not the reply, so a five-second reply wait
-         * must not overshoot a two-second limit.
+         * must not overshoot a two-second limit.  The wait is cut to the
+         * milliseconds left once the request is out.
          */
         if (timeout != 0)
         {
@@ -496,9 +497,6 @@ static int ping_main(int argc, char **argv)
                 expired = TRUE;
                 break;
             }
-
-            if (timeout - elapsed < wait)
-                wait = timeout - elapsed;
         }
 
         total = ping_build(v6, ident, (UWORD)(i & 0xffffUL), size);
@@ -517,7 +515,14 @@ static int ping_main(int argc, char **argv)
         }
 
         sent++;
-        deadline = t0 + wait * 1000UL;
+        if (timeout != 0)
+        {
+            ULONG left = ping_left_ms(timeout, t0 - started);
+
+            if (left < wait)
+                wait = left;
+        }
+        deadline = t0 + wait;
 
         while (!answered)
         {
