@@ -322,6 +322,8 @@ VOID ami_sana2_driver_entry(NX_IP_DRIVER *driver_req)
     case NX_LINK_ENABLE:
         if (ami_sana2_online(iface) != 0)
         {
+            interface_ptr->nx_interface_link_up = NX_FALSE;
+            iface->admin_up = FALSE;
             driver_req->nx_ip_driver_status = NX_NOT_SUCCESSFUL;
             break;
         }
@@ -329,6 +331,8 @@ VOID ami_sana2_driver_entry(NX_IP_DRIVER *driver_req)
         if (ami_sana2_rx_start(iface) != 0)
         {
             ami_sana2_offline(iface);
+            interface_ptr->nx_interface_link_up = NX_FALSE;
+            iface->admin_up = FALSE;
             driver_req->nx_ip_driver_status = NX_NOT_SUCCESSFUL;
             break;
         }

@@ -661,6 +661,20 @@ static void test_enable_unwinds_on_a_failed_reader(void)
     h_check(iface.admin_up == FALSE, "nor the interface");
     h_check(req.nx_ip_driver_status == NX_NOT_SUCCESSFUL, "and it failed");
 
+    /* A repeat enable can fail after the previous enable left these flags
+       true.  The failed reader has offlined the wire, so both must fall. */
+    fixture_init(AMI_ETH_ADDR_SIZE);
+    ami_sana2_attach(&iface, &ip, 0);
+    interface_obj.nx_interface_link_up = NX_TRUE;
+    iface.admin_up = TRUE;
+    h_rx_start_result = -1;
+
+    drive(NX_LINK_ENABLE);
+    h_check(interface_obj.nx_interface_link_up == NX_FALSE,
+            "a failed repeat enable reports the offlined link down");
+    h_check(iface.admin_up == FALSE,
+            "a failed repeat enable clears administrative up");
+
     /* And a device that will not come online at all. */
     fixture_init(AMI_ETH_ADDR_SIZE);
     ami_sana2_attach(&iface, &ip, 0);
@@ -669,6 +683,19 @@ static void test_enable_unwinds_on_a_failed_reader(void)
     drive(NX_LINK_ENABLE);
     h_check(strcmp(h_log, "online ") == 0, "no readers are started");
     h_check(req.nx_ip_driver_status == NX_NOT_SUCCESSFUL, "and it failed");
+
+    /* The device can refuse an enable while prior flags still say up. */
+    fixture_init(AMI_ETH_ADDR_SIZE);
+    ami_sana2_attach(&iface, &ip, 0);
+    interface_obj.nx_interface_link_up = NX_TRUE;
+    iface.admin_up = TRUE;
+    h_online_result = -1;
+
+    drive(NX_LINK_ENABLE);
+    h_check(interface_obj.nx_interface_link_up == NX_FALSE,
+            "online refusal clears the stale link-up flag");
+    h_check(iface.admin_up == FALSE,
+            "online refusal clears the stale administrative flag");
 
     ami_sana2_unbind(&iface);
 }
