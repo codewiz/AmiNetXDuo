@@ -697,7 +697,8 @@ static LONG fetch_run(VOID)
                      * a 0-byte fetch (F-179).  A 4xx/5xx still opens it only
                      * with its first body byte, as before.
                      */
-                    if (status < 300 && st.to != NULL && !fetch_open_out(&st))
+                    if (status >= 200 && status < 300 && st.to != NULL &&
+                        !fetch_open_out(&st))
                     {
                         rc = RETURN_FAIL;
                         goto hop_done;
