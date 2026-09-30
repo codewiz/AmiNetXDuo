@@ -428,10 +428,17 @@ int bsd_gethostname(register char *name     __asm("a0"),
 long bsd_gethostid(register struct AmiSocketBase *SocketBase __asm("a6"))
 {
     NX_IP *ip = bsd_stack_ip(SocketBase);
+    ULONG  address;
 
     if (ip == NULL)
         return 0;
 
-    /* The primary interface address, in network order (identity on m68k). */
-    return (long)BSD_HTONL(ip->nx_ip_interface[0].nx_interface_ip_address);
+    /* Prefer an online address if slot zero is down or unconfigured.  Keep
+       the configured primary address when no interface is online: callers
+       also use this value as a stable host identifier with the link down. */
+    address = bsd_first_online_address(SocketBase);
+    if (address == 0)
+        address = ip->nx_ip_interface[0].nx_interface_ip_address;
+
+    return (long)BSD_HTONL(address);
 }
