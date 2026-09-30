@@ -1015,6 +1015,8 @@ static VOID t_tableless_last_closer(VOID)
     h_gate(&h_child_a);
     bsd_closing_head = &h_parked;
     (VOID)bsd_lib_close(b);
+    h_model_refs    = TRUE;                  /* this library's and another's */
+    h_ns_refs       = 2;
     h.stack_running = TRUE;
     (VOID)bsd_stack_close_release(h_base);
     CHECK(h_reclaims == 1 && h_reclaim_stack_up &&
@@ -1022,6 +1024,8 @@ static VOID t_tableless_last_closer(VOID)
           "a stack still up keeps them");
     bsd_closing_head = NULL;
     h.stack_running  = FALSE;
+    h_model_refs     = FALSE;
+    h_ns_refs        = 0;
 }
 
 /* F-059: what a last close could not drain, when the library goes.  The
