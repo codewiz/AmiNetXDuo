@@ -9,6 +9,10 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `iperf` no longer reports 0 bit/s for a transfer that finished inside one
+  clock tick. A run that moved bytes but whose duration rounded to zero uses a
+  one-millisecond lower bound for the rate instead of a rate that looks like
+  nothing was measured.
 - `iperf` refuses a UDP receive buffer smaller than 128 bytes. Its server
   answers the end-of-test datagram with a 128-byte report written into the
   buffer it read datagrams into, and a smaller buffer had no room for it.

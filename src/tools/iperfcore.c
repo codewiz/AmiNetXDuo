@@ -897,11 +897,30 @@ static VOID iperf_slice_fin(IperfRun *run)
     }
 }
 
+/*
+ * The duration to report, both in the local result and in the report the UDP
+ * server serializes for its sender.  A run that moved bytes can still end
+ * with a zero measured duration when the whole transfer fits inside one
+ * millisecond of the clock's resolution, and zero is also the "nothing was
+ * measured" value.  One millisecond is the closest lower bound the clock can
+ * stand behind.  The gate is a nonzero byte count, not clock_on: a sender
+ * sets clock_on before its first send, so a run that fails or is aborted
+ * before any byte moved still has clock_on set and must keep a zero duration.
+ */
+static ULONG iperf_report_ms(const IperfRun *run)
+{
+    if (run->res.ms == 0 && (run->res.bytes_hi != 0 || run->res.bytes_lo != 0))
+        return 1;
+
+    return run->res.ms;
+}
+
 /* UDP RX: answer the end marker, the way iperf 2's server does. */
 static VOID iperf_slice_report(IperfRun *run)
 {
     IperfWireReport rep;
     ULONG           now = ami_millis();
+    ULONG           ms  = iperf_report_ms(run);
 
     if (run->fin_tries >= IPERF_FIN_TRIES)
     {
@@ -912,8 +931,8 @@ static VOID iperf_slice_report(IperfRun *run)
     rep.flags       = IPERF_HEADER_VERSION1;
     rep.bytes_hi    = run->res.bytes_hi;
     rep.bytes_lo    = run->res.bytes_lo;
-    rep.stop_sec    = run->res.ms / 1000UL;
-    rep.stop_usec   = (run->res.ms % 1000UL) * 1000UL;
+    rep.stop_sec    = ms / 1000UL;
+    rep.stop_usec   = (ms % 1000UL) * 1000UL;
     rep.lost        = run->res.lost;
     rep.outoforder  = run->res.outoforder;
     /* The end marker is not one of the datagrams the test moved.  A report
@@ -1022,6 +1041,8 @@ VOID iperf_end(IperfRun *run, IperfResult *out)
 
     if (run->res.ms == 0 && run->clock_on)
         run->res.ms = ami_millis() - run->t_begin;
+
+    run->res.ms   = iperf_report_ms(run);
 
     run->res.bits = iperf_bits_per_sec(run->res.bytes_hi, run->res.bytes_lo,
                                        run->res.ms);
