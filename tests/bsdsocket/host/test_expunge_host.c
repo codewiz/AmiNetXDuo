@@ -447,8 +447,10 @@ VOID bsd_defer_sweep(struct AmiSocketBase *b) { (VOID)b; }
    anything. */
 ULONG ami_netdb_unloaded(VOID) { return 0; }
 VOID bsd_netmon_detach_owner(struct AmiSocketBase *owner) { (VOID)owner; }
-/* socket.c's parked closes, kept by a last close that cannot drain. */
+/* socket.c's parked closes and owed releases, kept by a last close that
+   cannot drain. */
 AmiSocket *bsd_closing_head;
+AmiSocket *bsd_defer_head;
 static AmiSocket h_parked;
 
 /* socket.c's reclaim of them (F-059), reached through the real gate, release,
