@@ -23,16 +23,30 @@ void tool_budget_init(ToolBudget *b, unsigned long total, unsigned long count)
 
 unsigned long tool_budget_secs(long days, long minutes, long ticks)
 {
-    long total;
+    long          rest;
+    unsigned long whole;
 
-    /* A connect is seconds to minutes; over a week is a clock that was set,
-       not time spent, and would overflow below. */
-    if (days < 0L || days > 7L)
+    /* The date set backwards: no time can be said to have passed. */
+    if (days < 0L)
         return 0UL;
 
-    total = days * 4320000L + minutes * 3000L + ticks;   /* 50 ticks a second */
+    /* What a TIMEOUT can name, 2^32 - 1 seconds, is 49710 days: past that
+       the answer saturates rather than wrapping back into the budget. */
+    if (days > 49710L)
+        return 0xFFFFFFFFUL;
 
-    return (total > 0L) ? (unsigned long)(total / 50L) : 0UL;
+    rest = minutes * 60L + ticks / 50L;          /* within a day or two */
+
+    if (days == 0L)
+        return (rest > 0L) ? (unsigned long)rest : 0UL;
+
+    whole = (unsigned long)days * 86400UL;
+    if (rest < 0L)
+        return ((unsigned long)(-rest) >= whole) ? 0UL
+                                                 : whole - (unsigned long)(-rest);
+    if ((unsigned long)rest > 0xFFFFFFFFUL - whole)
+        return 0xFFFFFFFFUL;
+    return whole + (unsigned long)rest;
 }
 
 unsigned long tool_budget_left(const ToolBudget *b, unsigned long elapsed)

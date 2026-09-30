@@ -340,7 +340,11 @@ static void test_slow_refusal_is_charged(void)
     CHECK(tool_budget_secs(1, -1439, 0) == 60UL);       /* across midnight */
     CHECK(tool_budget_secs(0, -1, 0) == 0UL);           /* clock set back  */
     CHECK(tool_budget_secs(-1, 0, 0) == 0UL);
-    CHECK(tool_budget_secs(30, 0, 0) == 0UL);           /* not time spent  */
+    CHECK(tool_budget_secs(30, 0, 0) == 2592000UL);     /* a long TIMEOUT  */
+    CHECK(tool_budget_secs(49710, 0, 0) == 4294944000UL);
+    CHECK(tool_budget_secs(49711, 0, 0) == 0xFFFFFFFFUL); /* saturates     */
+    CHECK(tool_budget_secs(49710, 1439, 2999) == 0xFFFFFFFFUL);
+    CHECK(tool_budget_secs(1, -1440, -1) == 0UL);       /* a tick back     */
 
     CHECK(walk_refusals(9UL, 0) == 27UL);    /* what a stopped clock allowed    */
     CHECK(walk_refusals(9UL, 1) <= 10UL);    /* what the DOS clock holds it to  */

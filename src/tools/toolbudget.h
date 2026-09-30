@@ -29,7 +29,8 @@ void tool_budget_init(ToolBudget *b, unsigned long total,
  * days, minutes and ticks (50 a second).  The connect budget measures with
  * this rather than timer.device: a command is a Process, so DateStamp() is
  * always there, and without a clock a failure that was slow but not a timeout
- * was charged nothing (F-249).  A clock set backwards reads as 0.
+ * was charged nothing (F-249).  A clock set backwards reads as 0; the
+ * answer saturates at 2^32 - 1 seconds, the longest TIMEOUT there is.
  */
 unsigned long tool_budget_secs(long days, long minutes, long ticks);
 

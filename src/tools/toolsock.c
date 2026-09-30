@@ -1139,8 +1139,11 @@ typedef struct ToolClock
 
 static VOID tool_clock_start(ToolClock *c)
 {
+    /* ami_millis() opens timer.device; its first answer can be 0 on a
+       working clock, so availability is the measured E-Clock rate, which is
+       0 only when timer.device never answered. */
     c->ms0     = ami_millis();
-    c->have_ms = (BOOL)(c->ms0 != 0UL);
+    c->have_ms = (BOOL)(ami_eclock_rate() != 0UL);
     DateStamp(&c->ds0);
     c->have_ds = (BOOL)((c->ds0.ds_Days | c->ds0.ds_Minute |
                          c->ds0.ds_Tick) != 0);
