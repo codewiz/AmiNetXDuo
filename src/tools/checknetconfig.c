@@ -685,50 +685,87 @@ static const NetdbFile cnc_netdb[] =
 };
 
 /*
+ * A netdb file being read for check_netdb_file().  left is what remains of the
+ * size Seek() measured: FGetC() answers -1 for an error as for the end of the
+ * file, and IoErr() is not specified after it, so a -1 with bytes still to
+ * come is the only sign of a failed read (F-094).  The loader's one Read()
+ * fails the whole file then, and the built-ins are used.
+ */
+typedef struct CncNetdbRead
+{
+    BPTR  file;
+    ULONG left;
+    BOOL  cut;                      /* the line was longer than the buffer   */
+    BOOL  nul;                      /* a NUL ended it                        */
+    BOOL  failed;                   /* -1 before the measured end            */
+} CncNetdbRead;
+
+static LONG cnc_netdb_getc(CncNetdbRead *r)
+{
+    LONG c = FGetC(r->file);
+
+    if (c == -1)
+    {
+        if (r->left != 0)
+            r->failed = TRUE;
+    }
+    else if (r->left != 0)
+        r->left--;
+
+    return c;
+}
+
+/*
  * One line of a netdb file, ended as ami_cfg_next_line() ends the loader's:
  * '\n', '\r', CRLF or LFCR.  FGets() ends a line only at '\n', so a file with
  * bare CRs reached the verdict as one line, a broken record hidden behind a
  * good one, while the loader read two (F-094).  The length, or -1 at the end
- * of the file; *cut when the line was longer than the buffer, the rest read
- * and dropped; *nul when a NUL ended it, where the loader's text ends too.
+ * of the file or on a failed read; r->cut when the line was longer than the
+ * buffer, the rest read and dropped; r->nul when a NUL ended it, where the
+ * loader's text ends too.
  */
-static LONG cnc_netdb_line(BPTR file, char *buf, ULONG size, BOOL *cut,
-                           BOOL *nul)
+static LONG cnc_netdb_line(CncNetdbRead *r, char *buf, ULONG size)
 {
     LONG  c;
     ULONG n    = 0;
     BOOL  seen = FALSE;
 
-    *cut = FALSE;
-    *nul = FALSE;
+    r->cut = FALSE;
+    r->nul = FALSE;
 
-    while ((c = FGetC(file)) != -1)
+    while ((c = cnc_netdb_getc(r)) != -1)
     {
         seen = TRUE;
 
         if (c == 0)
         {
-            *nul = TRUE;
+            r->nul = TRUE;
             break;
         }
 
         if (c == '\n' || c == '\r')
         {
             LONG pair = (c == '\r') ? '\n' : '\r';
-            LONG next = FGetC(file);
+            LONG next = cnc_netdb_getc(r);
 
             if (next != -1 && next != pair)
-                (VOID)UnGetC(file, next);
+            {
+                (VOID)UnGetC(r->file, next);
+                r->left++;
+            }
             break;
         }
 
         if (n + 1 < size)
             buf[n++] = (char)c;
         else
-            *cut = TRUE;
+            r->cut = TRUE;
     }
 
     buf[n] = '\0';
+
+    if (r->failed)
+        return -1;
 
     return seen ? (LONG)n : -1L;
 }
@@ -740,9 +777,8 @@ static VOID check_netdb_file(const NetdbFile *spec)
     BPTR  file;
     ULONG lineno = 0;
     UWORD said   = 0;
-    BOOL  cut;
-    BOOL  nul;
     LONG  size;
+    CncNetdbRead rd;
 
     file = Open((CONST_STRPTR)cnc_where(spec->path), MODE_OLDFILE);
     if (file == (BPTR)0)
@@ -773,7 +809,11 @@ static VOID check_netdb_file(const NetdbFile *spec)
         return;
     }
 
-    while (cnc_netdb_line(file, line, sizeof(line), &cut, &nul) >= 0)
+    rd.file   = file;
+    rd.left   = (ULONG)size;
+    rd.failed = FALSE;
+
+    while (cnc_netdb_line(&rd, line, sizeof(line)) >= 0)
     {
         UWORD verdict;
 
@@ -785,11 +825,11 @@ static VOID check_netdb_file(const NetdbFile *spec)
          * five like any other finding.  ';' is not a comment to the loader,
          * so it is not one here either.
          */
-        verdict = cut ? AMI_NETDB_LINE_SKIP
-                      : ami_netdb_line_verdict(spec->kind, line, word,
-                                               sizeof(word));
+        verdict = rd.cut ? AMI_NETDB_LINE_SKIP
+                         : ami_netdb_line_verdict(spec->kind, line, word,
+                                                  sizeof(word));
 
-        if (cut)
+        if (rd.cut)
         {
             finding(spec->path, lineno, AMI_CFG_PROBLEM_NOTE);
             say("      this line is longer than %ld characters and was not\n",
@@ -824,7 +864,7 @@ static VOID check_netdb_file(const NetdbFile *spec)
 
         /* ami_cfg_read_file() hands the parser a C string, so the loader
            reads up to here and no further. */
-        if (nul)
+        if (rd.nul)
         {
             finding(spec->path, lineno, AMI_CFG_PROBLEM_WARN);
             say("      this line holds a NUL character, where the file stops\n");
@@ -839,6 +879,13 @@ static VOID check_netdb_file(const NetdbFile *spec)
                  "not all listed.");
             break;
         }
+    }
+
+    if (rd.failed)
+    {
+        finding(spec->path, 0, AMI_CFG_PROBLEM_WARN);
+        say("      this file could not be read to its end, so none of it is\n");
+        say("      used and the built-in list is used instead\n");
     }
 
     Close(file);
