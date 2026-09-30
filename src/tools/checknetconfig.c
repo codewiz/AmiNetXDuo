@@ -738,6 +738,26 @@ static VOID check_netdb_file(const NetdbFile *spec)
     if (file == (BPTR)0)
         return;                     /* missing is normal: there are built-ins */
 
+    /*
+     * The loader measures the file the same way and does not read one past
+     * AMI_CFG_FILE_MAX at all: its lines are not the ones in use, so they are
+     * not judged as if they were.
+     */
+    if (Seek(file, 0, OFFSET_END) >= 0)
+    {
+        LONG size = Seek(file, 0, OFFSET_BEGINNING);
+
+        if (size > (LONG)AMI_CFG_FILE_MAX)
+        {
+            finding(spec->path, 0, AMI_CFG_PROBLEM_WARN);
+            say("      this file is %ld bytes, more than the %ld that are read,\n",
+                size, (LONG)AMI_CFG_FILE_MAX);
+            say("      so none of it is used and the built-in list is used instead\n");
+            Close(file);
+            return;
+        }
+    }
+
     while (cnc_netdb_line(file, line, sizeof(line), &cut) >= 0)
     {
         UWORD verdict;

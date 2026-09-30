@@ -794,6 +794,11 @@ ULONG ami_cfg_address6_line_file(const char *path, const char *ifname,
 #define AMI_NETDB_PROTOCOLS     2
 #define AMI_NETDB_SERVICES      3
 
+/* A configuration or netdb file larger than this is taken as garbage and not
+   read at all (config_file.c); a netdb file is then replaced by its built-in
+   entries. */
+#define AMI_CFG_FILE_MAX        (256UL * 1024UL)
+
 #define AMI_NETDB_LINE_ENTRY    0   /* loaded */
 #define AMI_NETDB_LINE_SKIP     1   /* blank, comment, or a hosts resolver line */
 #define AMI_NETDB_LINE_SHORT    2   /* too few columns: dropped */

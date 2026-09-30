@@ -59,9 +59,6 @@ extern "C" {
  */
 #define AMI_CFG_IFNAME_MAX          15
 
-/* A configuration file larger than this is taken as garbage. */
-#define AMI_CFG_FILE_MAX            (256UL * 1024UL)
-
 /* ------------------------------------------------------------- file access */
 
 /*
