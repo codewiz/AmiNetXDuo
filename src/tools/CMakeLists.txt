@@ -379,7 +379,7 @@ aminetxduo_add_tool(tool_telnet  telnet   SOURCES telnet.c toolsock.c toolbudget
 # traceroute is config-only too, and is the first command here to open a
 # SOCK_RAW descriptor, so it reaches the raw half of the ABI the same way it
 # reaches every other part of it, through the published vectors.
-aminetxduo_add_tool(tool_traceroute traceroute SOURCES traceroute.c toolsock.c toolbudget.c)
+aminetxduo_add_tool(tool_traceroute traceroute RT SOURCES traceroute.c toolsock.c toolbudget.c)
 
 # tftp and whois are clients and nothing more, so they are config-only in the
 # plainest sense: one datagram socket and one stream socket respectively,
