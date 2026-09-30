@@ -388,6 +388,14 @@ string(REPLACE ";" " " AMIGA_ARCH_FLAGS_STR "${AMIGA_ARCH_FLAGS}")
 #   - the hand-written routines in src/net68k and src/crypto68k read the stack,
 #     and every C declaration of one carries AMIGA_ASM_ARGS
 #     (__attribute__((__stkparm__))); see include/aminetxduo/asm_abi.h.
+#   - the compiler's own runtime entry points, src/common/ami_udivdi3.c: GCC
+#     synthesises those calls during RTL expansion and pushes their arguments
+#     whatever -mregparm says.  The definitions carry AMIGA_ASM_ARGS, and so
+#     does every C caller that names them (tests/common/rt_test.c).  This one
+#     was MISSED when the option landed: at regparm 3 the entry points read
+#     d0/d1/a0 while the call site had pushed, so __umodsi3 returned a number
+#     made of stale registers.  httpd announced its own address as
+#     90.9X.1.9@ and answered nothing.  See the header comment in that file.
 #
 # The one exception is ami_rt_cpu_select(), deliberately: it follows whatever
 # convention the build uses so that src/common/ami_udivdi3.c and its callers

@@ -40,9 +40,14 @@ TOOLCHAIN="$AMIGA_TOOLCHAIN_ROOT"
 NDK="$AMIGA_NDK"
 CC="$AMIGA_GCC"
 
+# -I"$ROOT/include": $ROOT/src/common/ami_udivdi3.c is compiled below, and it
+# includes <aminetxduo/asm_abi.h> for AMIGA_ASM_ARGS -- the pin that keeps its
+# libcall definitions on the stack convention GCC calls them with.  This script
+# builds that file itself, outside the CMake tree, so the tree's include
+# directory has to be named here too.
 CFLAGS=(-O2 -Wall -Wno-error=incompatible-pointer-types
         -m68020 -fomit-frame-pointer -fno-strict-aliasing
-        -I"$HERE/compat" -I"$NDK"
+        -I"$HERE/compat" -I"$ROOT/include" -I"$NDK"
         -include sys/types.h -include strings.h -include stdio.h
         -Dstricmp=strcasecmp
         -Dprintf=iprintf -Dsprintf=siprintf

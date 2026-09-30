@@ -17,26 +17,39 @@
 
 #include <stdarg.h>
 
+#include <aminetxduo/asm_abi.h>
+
 typedef unsigned long long  u64;
 typedef long long           s64;
 typedef unsigned long       u32;
 typedef unsigned short      u16;
 
+/* Deliberately unpinned: this one follows the build's own convention, and
+   tool_startup.S loads d0/d1 AND pushes them, so it is the boundary that
+   serves either build.  Its one other caller is assembly. */
 extern void ami_rt_cpu_select(int have_68020, int have_mulul);
 
-extern u32 __mulsi3(u32 a, u32 b);
-extern u32 __udivsi3(u32 n, u32 d);
-extern u32 __umodsi3(u32 n, u32 d);
-extern long __divsi3(long n, long d);
-extern long __modsi3(long n, long d);
-extern u64 __muldi3(u64 a, u64 b);
-extern u64 __udivdi3(u64 n, u64 d);
-extern u64 __umoddi3(u64 n, u64 d);
-extern s64 __divdi3(s64 n, s64 d);
-extern s64 __moddi3(s64 n, s64 d);
-extern u64 __lshrdi3(u64 value, int count);
-extern u64 __ashldi3(u64 value, int count);
-extern s64 __ashrdi3(s64 value, int count);
+/*
+ * These are called BY NAME here, and their definitions carry AMIGA_ASM_ARGS
+ * (src/common/ami_udivdi3.c) because the compiler's own libcalls to them push
+ * their arguments whatever -mregparm says.  A hand-written caller has to pin
+ * its side too: an unpinned declaration here passes them in d0/d1 while the
+ * body reads 4(sp)/8(sp) -- the same wrong number arrived at from the other
+ * end.  Pinning one end alone only moves the mismatch.
+ */
+extern u32 AMIGA_ASM_ARGS __mulsi3(u32 a, u32 b);
+extern u32 AMIGA_ASM_ARGS __udivsi3(u32 n, u32 d);
+extern u32 AMIGA_ASM_ARGS __umodsi3(u32 n, u32 d);
+extern long AMIGA_ASM_ARGS __divsi3(long n, long d);
+extern long AMIGA_ASM_ARGS __modsi3(long n, long d);
+extern u64 AMIGA_ASM_ARGS __muldi3(u64 a, u64 b);
+extern u64 AMIGA_ASM_ARGS __udivdi3(u64 n, u64 d);
+extern u64 AMIGA_ASM_ARGS __umoddi3(u64 n, u64 d);
+extern s64 AMIGA_ASM_ARGS __divdi3(s64 n, s64 d);
+extern s64 AMIGA_ASM_ARGS __moddi3(s64 n, s64 d);
+extern u64 AMIGA_ASM_ARGS __lshrdi3(u64 value, int count);
+extern u64 AMIGA_ASM_ARGS __ashldi3(u64 value, int count);
+extern s64 AMIGA_ASM_ARGS __ashrdi3(s64 value, int count);
 
 /* ------------------------------------------------------------- logging --- */
 

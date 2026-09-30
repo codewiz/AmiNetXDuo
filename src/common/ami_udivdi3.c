@@ -7,6 +7,10 @@
  * SPDX-License-Identifier: MIT
  */
 
+/* For AMIGA_ASM_ARGS.  No-op off m68k, so the host tier that compiles this
+   file still sees the prototypes it saw before. */
+#include <aminetxduo/asm_abi.h>
+
 typedef unsigned long long  u64;
 typedef long long           s64;
 typedef unsigned short      u16;
@@ -60,6 +64,38 @@ typedef long                s32;
    --gc-sections pass to satisfy. */
 #define AMI_LATE_LIBCALL(sym) __attribute__((used))
 #endif
+
+/*
+ * THE ARGUMENT CONVENTION HERE IS NOT THE BUILD'S CONVENTION.  Every
+ * definition below takes AMIGA_ASM_ARGS, which pins the amigaos one: every
+ * argument on the stack.
+ *
+ * These names are not ours to spell.  GCC synthesises the call during RTL
+ * expansion and PUSHES the arguments whatever -mregparm says, because the
+ * libgcc ABI for m68k has always been the stack one:
+ *
+ *     move.l d1,-(sp)         ; -mregparm=3 caller
+ *     move.l d0,-(sp)
+ *     jsr    ___umodsi3
+ *
+ * A body built at the build's own convention reads d0 and d1 instead and
+ * returns a number computed from whatever was left in them.  At -mregparm=3
+ * that turned ami_config_format_ip()'s `'0' + (v % 10)` into 0x58, 0x40, 0x90
+ * and 0x8C -- an address printed as `90.9X.1.9@` -- which is why httpd
+ * announced one and then never answered: the same arithmetic was wrong
+ * everywhere else in the image too.
+ *
+ * Elsewhere this is held still by asm_main.h (main), by AMIGA_ASM_ARGS on the
+ * net68k and crypto68k assembly, and by tool_startup.S pushing what it also
+ * loads, for the one boundary that must serve both conventions.  A call the
+ * COMPILER generates has no C caller and so no declaration that could carry a
+ * convention: the definition is the only end that can be pinned, and this is
+ * it.  What it costs is the register arguments -mregparm=3 would have passed,
+ * which these routines never actually received.
+ *
+ * A hand-written caller must pin its own side as well -- tests/common/rt_test.c
+ * does.  Pinning one end alone only trades one mismatch for another.
+ */
 
 static int ami_rt_020;
 static int ami_rt_mulul;
@@ -347,13 +383,13 @@ u32     n = 0;
     return(n);
 }
 
-u64 __udivmoddi4(u64 numerator, u64 denominator, u64 *remainder);
-u64 __udivdi3(u64 numerator, u64 denominator);
-u64 __umoddi3(u64 numerator, u64 denominator);
-s64 __divdi3(s64 numerator, s64 denominator);
-s64 __moddi3(s64 numerator, s64 denominator);
+u64 AMIGA_ASM_ARGS __udivmoddi4(u64 numerator, u64 denominator, u64 *remainder);
+u64 AMIGA_ASM_ARGS __udivdi3(u64 numerator, u64 denominator);
+u64 AMIGA_ASM_ARGS __umoddi3(u64 numerator, u64 denominator);
+s64 AMIGA_ASM_ARGS __divdi3(s64 numerator, s64 denominator);
+s64 AMIGA_ASM_ARGS __moddi3(s64 numerator, s64 denominator);
 
-AMI_LATE_LIBCALL(__udivmoddi4) u64 __udivmoddi4(u64 numerator, u64 denominator,
+AMI_LATE_LIBCALL(__udivmoddi4) AMIGA_ASM_ARGS u64 __udivmoddi4(u64 numerator, u64 denominator,
                                    u64 *remainder)
 {
 
@@ -473,13 +509,13 @@ u32     rem;
     }
 }
 
-AMI_LATE_LIBCALL(__udivdi3) u64 __udivdi3(u64 numerator, u64 denominator)
+AMI_LATE_LIBCALL(__udivdi3) AMIGA_ASM_ARGS u64 __udivdi3(u64 numerator, u64 denominator)
 {
 
     return __udivmoddi4(numerator, denominator, 0);
 }
 
-AMI_LATE_LIBCALL(__umoddi3) u64 __umoddi3(u64 numerator, u64 denominator)
+AMI_LATE_LIBCALL(__umoddi3) AMIGA_ASM_ARGS u64 __umoddi3(u64 numerator, u64 denominator)
 {
 
 u64     remainder;
@@ -491,7 +527,7 @@ u64     remainder;
 
 /* Truncating division, as C99 requires: quotient toward zero, remainder takes
  * the sign of the numerator. */
-AMI_LATE_LIBCALL(__divdi3) s64 __divdi3(s64 numerator, s64 denominator)
+AMI_LATE_LIBCALL(__divdi3) AMIGA_ASM_ARGS s64 __divdi3(s64 numerator, s64 denominator)
 {
 
 int     negate = 0;
@@ -514,7 +550,7 @@ u64     quotient;
     return(negate ? -(s64)quotient : (s64)quotient);
 }
 
-AMI_LATE_LIBCALL(__moddi3) s64 __moddi3(s64 numerator, s64 denominator)
+AMI_LATE_LIBCALL(__moddi3) AMIGA_ASM_ARGS s64 __moddi3(s64 numerator, s64 denominator)
 {
 
 int     negate = 0;
@@ -645,9 +681,9 @@ u16     b_hi = (u16)(b >> 16);
 #endif
 }
 
-u64 __muldi3(u64 a, u64 b);
+u64 AMIGA_ASM_ARGS __muldi3(u64 a, u64 b);
 
-AMI_LATE_LIBCALL(__muldi3) u64 __muldi3(u64 a, u64 b)
+AMI_LATE_LIBCALL(__muldi3) AMIGA_ASM_ARGS u64 __muldi3(u64 a, u64 b)
 {
 
 u32     a_lo = (u32)a;
@@ -670,14 +706,14 @@ u64     product = ami_umul32_wide(a_lo, b_lo);
 #if !defined(__mc68020__) && !defined(__mc68030__) && \
     !defined(__mc68040__) && !defined(__mc68060__)
 
-u32 __mulsi3(u32 a, u32 b);
-u32 __udivsi3(u32 numerator, u32 denominator);
-u32 __umodsi3(u32 numerator, u32 denominator);
-s32 __divsi3(s32 numerator, s32 denominator);
-s32 __modsi3(s32 numerator, s32 denominator);
+u32 AMIGA_ASM_ARGS __mulsi3(u32 a, u32 b);
+u32 AMIGA_ASM_ARGS __udivsi3(u32 numerator, u32 denominator);
+u32 AMIGA_ASM_ARGS __umodsi3(u32 numerator, u32 denominator);
+s32 AMIGA_ASM_ARGS __divsi3(s32 numerator, s32 denominator);
+s32 AMIGA_ASM_ARGS __modsi3(s32 numerator, s32 denominator);
 
 
-AMI_LATE_LIBCALL(__mulsi3) u32 __mulsi3(u32 a, u32 b)
+AMI_LATE_LIBCALL(__mulsi3) AMIGA_ASM_ARGS u32 __mulsi3(u32 a, u32 b)
 {
 
 #ifdef AMI_RT_ASM
@@ -724,7 +760,7 @@ u32     rem;
     return(quotient);
 }
 
-AMI_LATE_LIBCALL(__udivsi3) u32 __udivsi3(u32 numerator, u32 denominator)
+AMI_LATE_LIBCALL(__udivsi3) AMIGA_ASM_ARGS u32 __udivsi3(u32 numerator, u32 denominator)
 {
 
 #ifdef AMI_RT_ASM
@@ -739,7 +775,7 @@ AMI_LATE_LIBCALL(__udivsi3) u32 __udivsi3(u32 numerator, u32 denominator)
     return(ami_udivmodsi(numerator, denominator, 0));
 }
 
-AMI_LATE_LIBCALL(__umodsi3) u32 __umodsi3(u32 numerator, u32 denominator)
+AMI_LATE_LIBCALL(__umodsi3) AMIGA_ASM_ARGS u32 __umodsi3(u32 numerator, u32 denominator)
 {
 
 u32     remainder;
@@ -764,7 +800,7 @@ u32     remainder;
 
 /* Truncating, as C99 requires: quotient toward zero, remainder takes the sign
  * of the numerator. */
-AMI_LATE_LIBCALL(__divsi3) s32 __divsi3(s32 numerator, s32 denominator)
+AMI_LATE_LIBCALL(__divsi3) AMIGA_ASM_ARGS s32 __divsi3(s32 numerator, s32 denominator)
 {
 
 int     negate = 0;
@@ -798,7 +834,7 @@ u32     quotient;
     return(negate ? -(s32)quotient : (s32)quotient);
 }
 
-AMI_LATE_LIBCALL(__modsi3) s32 __modsi3(s32 numerator, s32 denominator)
+AMI_LATE_LIBCALL(__modsi3) AMIGA_ASM_ARGS s32 __modsi3(s32 numerator, s32 denominator)
 {
 
 int     negate = 0;
@@ -843,11 +879,11 @@ u32     remainder = 0;
  * on a u64 compiles into infinite recursion.  Gated by check-rt-recursion.sh.
  */
 
-u64 __lshrdi3(u64 value, int count);
-u64 __ashldi3(u64 value, int count);
-s64 __ashrdi3(s64 value, int count);
+u64 AMIGA_ASM_ARGS __lshrdi3(u64 value, int count);
+u64 AMIGA_ASM_ARGS __ashldi3(u64 value, int count);
+s64 AMIGA_ASM_ARGS __ashrdi3(s64 value, int count);
 
-AMI_LATE_LIBCALL(__lshrdi3) u64 __lshrdi3(u64 value, int count)
+AMI_LATE_LIBCALL(__lshrdi3) AMIGA_ASM_ARGS u64 __lshrdi3(u64 value, int count)
 {
 
 u32     hi = (u32)(value >> 32);
@@ -865,7 +901,7 @@ u32     lo = (u32)value;
             (u64)((lo >> count) | (hi << (32 - count))));
 }
 
-AMI_LATE_LIBCALL(__ashldi3) u64 __ashldi3(u64 value, int count)
+AMI_LATE_LIBCALL(__ashldi3) AMIGA_ASM_ARGS u64 __ashldi3(u64 value, int count)
 {
 
 u32     hi = (u32)(value >> 32);
@@ -883,7 +919,7 @@ u32     lo = (u32)value;
             (u64)(lo << count));
 }
 
-AMI_LATE_LIBCALL(__ashrdi3) s64 __ashrdi3(s64 value, int count)
+AMI_LATE_LIBCALL(__ashrdi3) AMIGA_ASM_ARGS s64 __ashrdi3(s64 value, int count)
 {
 
 s32     hi = (s32)(u32)((u64)value >> 32);

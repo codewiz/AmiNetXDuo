@@ -125,6 +125,16 @@ target_link_libraries(netxduo PUBLIC aminetxduo_common)
 if(CMAKE_CROSSCOMPILING)
     add_library(aminetxduo_m68k_rt STATIC ami_udivdi3.c)
 
+    # ami_udivdi3.c includes <aminetxduo/asm_abi.h> for AMIGA_ASM_ARGS, the pin
+    # that keeps its libcall definitions on the stack convention GCC calls them
+    # with.  PRIVATE, not PUBLIC: a consumer only needs that header if it calls
+    # these helpers BY NAME, and the two that do take the path themselves
+    # (tests/common/CMakeLists.txt).  Handing it to all thirteen images that
+    # link this archive would put an -I on compile lines that have nothing to
+    # do with the pin.
+    target_include_directories(aminetxduo_m68k_rt PRIVATE
+                               "${CMAKE_SOURCE_DIR}/include")
+
     # THE LIBCALL CONCERN IS REAL.  An earlier version of this comment said it
     # was not; that was wrong, and the correction is why this is written out at
     # length.

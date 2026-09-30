@@ -21,6 +21,9 @@ if(CMAKE_CROSSCOMPILING)
         target_include_directories(rt_test PRIVATE "${AMIGA_NDK_INCLUDE}")
     endif()
 
+    # <aminetxduo/asm_abi.h>, for the pins on the by-name externs in rt_test.c.
+    target_include_directories(rt_test PRIVATE "${CMAKE_SOURCE_DIR}/include")
+
 endif()
 
 # --------------------------------------------------------------- host tier --
@@ -40,6 +43,11 @@ if(NOT CMAKE_CROSSCOMPILING)
     add_executable(test_rt_host
         host/test_rt_host.c
         "${CMAKE_SOURCE_DIR}/src/common/ami_udivdi3.c")
+
+    # ami_udivdi3.c now includes <aminetxduo/asm_abi.h>.  On the host its macro
+    # is empty -- __m68k__ is undefined -- so the test sees exactly the
+    # prototypes it saw before; it just has to be able to find the header.
+    target_include_directories(test_rt_host PRIVATE "${CMAKE_SOURCE_DIR}/include")
 
     target_compile_definitions(test_rt_host PRIVATE
         __udivmoddi4=anxd_udivmoddi4

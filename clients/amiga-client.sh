@@ -29,7 +29,15 @@ AMIGA_CLIENT_OPT="${AMIGA_CLIENT_OPT:--O2}"
 # -include amiga_compat.h so the shims in clients/compat that newlib has no
 # header for, nanosleep(), clearenv(), are declared everywhere.  See that
 # file for why it is a forced include and not a patch or a shadowed <time.h>.
-AMIGA_CLIENT_CFLAGS="$AMIGA_CLIENT_ARCH $AMIGA_CLIENT_OPT -fomit-frame-pointer -fno-strict-aliasing -D__USE_NEW_TIMEVAL__ -D_SYS_MBUF_H -include sys/types.h -I$AMIGA_CLIENT_ROOT/clients/compat -include amiga_compat.h"
+#
+# -I$AMIGA_CLIENT_ROOT/include is for the sources below that are the tree's
+# own: src/common/ami_udivdi3.c includes <aminetxduo/asm_abi.h> for
+# AMIGA_ASM_ARGS, the pin that keeps its libcall definitions on the stack
+# convention GCC calls them with.  This script compiles that file itself,
+# outside the CMake tree, so the tree's include directory has to be named here
+# too -- without it the client build stops with "aminetxduo/asm_abi.h: No such
+# file or directory", which is what the archive's ssh client did.
+AMIGA_CLIENT_CFLAGS="$AMIGA_CLIENT_ARCH $AMIGA_CLIENT_OPT -fomit-frame-pointer -fno-strict-aliasing -D__USE_NEW_TIMEVAL__ -D_SYS_MBUF_H -include sys/types.h -I$AMIGA_CLIENT_ROOT/clients/compat -I$AMIGA_CLIENT_ROOT/include -include amiga_compat.h"
 
 # Applied to OUR shim sources only, never to a client's own.  Every function a
 # shim defines is an entry point somebody else calls: libc symbols the port
