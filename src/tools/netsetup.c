@@ -363,15 +363,20 @@ static BOOL ensure_dir(const char *path)
     return TRUE;
 }
 
+static VOID restore_file(const char *path, BOOL kept_old);
+
 /*
  * Write one file, keeping any existing one as <path>.old. Returns FALSE
- * having said why. The caller then puts back whatever it renamed.
+ * having said why, and having put back whatever it renamed. Close() flushes
+ * buffered writes, so a full disk can show up only at Close; a failed Close
+ * is therefore a write failure, not a success.
  */
 static BOOL write_file(const char *path, const Blob *blob, BOOL *kept_old)
 {
     char keep[PATH_LEN + 8];
     BPTR fh;
     LONG written;
+    BOOL closed;
 
     *kept_old = FALSE;
 
@@ -404,17 +409,30 @@ static BOOL write_file(const char *path, const Blob *blob, BOOL *kept_old)
     {
         tool_error("cannot write %s", (LONG)path);
         tool_fault(IoErr());
+        restore_file(path, *kept_old);
         return FALSE;
     }
 
     written = Write(fh, (APTR)blob->text, (LONG)blob->len);
-    Close(fh);
+    closed  = (BOOL)Close(fh);
+
+    if (!closed)
+    {
+        LONG err = IoErr();
+
+        if (err == 0)
+            err = ERROR_DISK_FULL;
+        tool_error("cannot finish writing %s", (LONG)path);
+        tool_fault(err);
+        restore_file(path, *kept_old);
+        return FALSE;
+    }
 
     if (written != (LONG)blob->len)
     {
         tool_error("only part of %s was written. A full disk is the usual "
                    "cause", (LONG)path);
-        (VOID)DeleteFile((CONST_STRPTR)path);
+        restore_file(path, *kept_old);
         return FALSE;
     }
 

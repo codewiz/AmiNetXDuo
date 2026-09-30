@@ -34,6 +34,9 @@ version at the top when it merges.
   DNS-list extension vectors that an older foreign stack may not provide.
 - `NetSetup` rejects `GATEWAY=0.0.0.0` and drops an interactively entered
   zero router instead of writing an invalid default route.
+- `NetSetup` no longer reports a write that fails only at its final `Close()`
+  as success, and restores the `.old` backup on every write failure instead of
+  leaving it stranded or deleted.
 - `AMINETXDUO_MAX_INTERFACES` above 32 is now a compile error; the DHCP
   resolver's pending-interface set is one 32-bit word and cannot name an
   index past bit 31.
