@@ -1262,24 +1262,37 @@ LONG bsd_Dup2Socket(register LONG old_socket __asm("d0"),
         return fd;
     }
 
-    sock = bsd_lookup(SocketBase, old_socket);
-    if (sock == NULL)
-        return bsd_fail(SocketBase, AMI_EBADF);
-
-    if (new_socket >= 0 && new_socket >= SocketBase->sb_TableSize)
-        return bsd_fail(SocketBase, AMI_EBADF);
-
-    if (new_socket == old_socket)
-        return new_socket;
-
     /*
      * The new descriptor's reference is taken before anything can run: an
      * FDCB_FREE or FDCB_ALLOC callback, or another task on a shared base,
      * may close the source before the new slot is filled, and the source's
-     * reference was then the only one (F-054).
+     * reference was then the only one (F-054).  One Forbid() from the lookup
+     * to the retain: another task's CloseSocket() either empties the slot
+     * first, and this is EBADF, or finds the reference already taken.
      */
+    Forbid();
+    sock = bsd_lookup(SocketBase, old_socket);
+    if (sock == NULL)
+    {
+        Permit();
+        return bsd_fail(SocketBase, AMI_EBADF);
+    }
+
+    if (new_socket >= 0 && new_socket >= SocketBase->sb_TableSize)
+    {
+        Permit();
+        return bsd_fail(SocketBase, AMI_EBADF);
+    }
+
+    if (new_socket == old_socket)
+    {
+        Permit();
+        return new_socket;
+    }
+
     owned = (BOOL)(sock->as_Owner == SocketBase);
     bsd_socket_retain(sock);
+    Permit();
 
     if (new_socket < 0)
     {

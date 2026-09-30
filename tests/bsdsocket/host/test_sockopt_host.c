@@ -56,6 +56,13 @@ static struct
     ULONG  packet_length;
 } h;
 
+/* Forbid() depth, and how many times it fell back to 0: a lookup and a
+   retain with no fall between them were one atomic step. */
+static ULONG h_forbid;
+static ULONG h_permitted;
+static ULONG h_lookup_at;           /* h_permitted at the last lookup, +1 */
+static ULONG h_split;               /* retains not in their lookup's Forbid */
+
 /* Dup2Socket's fixtures: a stand-in descriptor callback, and the socket the
    last release freed. */
 static LONG     (*h_fd_hook)(LONG fd);
@@ -72,6 +79,8 @@ static void h_reset(void)
     h_base.sb_Table     = h_table;
     h_base.sb_TableSize = H_FDS;
     h_fd_hook    = NULL;
+    h_forbid     = 0;
+    h_split      = 0;
     h_freed      = NULL;
     h_after_free = 0;
 }
@@ -98,8 +107,12 @@ static AmiSocket *h_udp(LONG fd)
     return s;
 }
 
-VOID Forbid(VOID) { }
-VOID Permit(VOID) { }
+VOID Forbid(VOID) { h_forbid++; }
+VOID Permit(VOID)
+{
+    if (h_forbid > 0 && --h_forbid == 0)
+        h_permitted++;
+}
 VOID Signal(struct Task *task, ULONG mask) { (VOID)task; (VOID)mask; }
 
 LONG bsd_fail(struct AmiSocketBase *base, LONG code)
@@ -111,6 +124,7 @@ LONG bsd_fail(struct AmiSocketBase *base, LONG code)
 AmiSocket *bsd_lookup(struct AmiSocketBase *base, LONG fd)
 {
     (VOID)base;
+    h_lookup_at = (h_forbid > 0) ? h_permitted + 1 : 0;
     if (fd < 0 || fd >= H_FDS)
         return NULL;
     return h_table[fd];
@@ -242,7 +256,7 @@ LONG bsd_fd_alloc(struct AmiSocketBase *base, AmiSocket *sock)
         }
     }
 
-    return -1;
+    return bsd_fail(base, AMI_EMFILE);
 }
 
 LONG bsd_fd_reserve(struct AmiSocketBase *base, LONG fd)
@@ -275,6 +289,8 @@ VOID bsd_socket_retain(AmiSocket *sock)
 {
     if (sock == h_freed)
         h_after_free++;
+    if (h_forbid == 0 || h_lookup_at != h_permitted + 1)
+        h_split++;
     sock->as_RefCount++;
 }
 
@@ -1018,8 +1034,18 @@ static void t_dup2_interleave(void)
     rc = bsd_Dup2Socket(0, 1, &h_base);
     CHECK(rc == 1 && s->as_RefCount == 2 && s->as_Owner == &h_base,
           "a plain dup2 takes one reference");
+    CHECK(h_split == 0,
+          "the source is looked up and retained inside one Forbid()");
+    CHECK(h_forbid == 0, "and every Forbid() is paired");
     rc = bsd_Dup2Socket(0, 0, &h_base);
     CHECK(rc == 0 && s->as_RefCount == 2, "dup2 onto itself takes none");
+    rc = bsd_Dup2Socket(1, -1, &h_base);
+    CHECK(rc == -1 && h_base.sb_Errno == AMI_EMFILE && s->as_RefCount == 2,
+          "a full table is EMFILE and keeps no reference");
+    h_table[1] = NULL;
+    rc = bsd_Dup2Socket(1, 0, &h_base);
+    CHECK(rc == -1 && h_base.sb_Errno == AMI_EBADF && h_forbid == 0,
+          "an empty source is EBADF, out of the Forbid()");
 
     /* A refused slot gives the reference back, with the refusal's errno. */
     h_reset();
