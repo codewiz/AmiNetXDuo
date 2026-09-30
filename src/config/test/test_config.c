@@ -720,6 +720,78 @@ static void test_interface_ipv6(void)
     CHECK(cfg.address6_count == 0);
 }
 
+static void test_address6_line(void)
+{
+    ULONG second[AMI_CFG_IP6_WORDS];
+    ULONG first[AMI_CFG_IP6_WORDS];
+    ULONG link[AMI_CFG_IP6_WORDS];
+    char  buf[512];
+
+    printf("address6 line numbers\n");
+
+    /* F-158(d): a finding about the SECOND ADDRESS6 must name that address's
+       own line, not the first ADDRESS6 line.  AmiIp6Address is public ABI
+       through ami_config_load_interface(), so the loader cannot carry a
+       per-address line; the check re-derives it by value, reproducing the
+       loader's own acceptance.  Both readers split `buf` in place, so each
+       one needs its own copy. */
+    CHECK(ami_config_parse_ip6("2001:db8:6724:1::10", second, NULL));
+
+    strcpy(buf, "device=a2065.device\n"
+                "configure6=static\n"
+                "address6=fd00:6724:1::10/64\n"
+                "address6=2001:db8:6724:1::10/64\n");
+    CHECK(ami_cfg_keyword_line(buf, "ADDRESS6") == 3);
+    strcpy(buf, "device=a2065.device\n"
+                "configure6=static\n"
+                "address6=fd00:6724:1::10/64\n"
+                "address6=2001:db8:6724:1::10/64\n");
+    CHECK(ami_cfg_address6_line(buf, "eth0", second, 0) == 4);
+
+    /* A repeated address: the later line's own line, not the first's. */
+    CHECK(ami_config_parse_ip6("fd00:6724:1::10", first, NULL));
+
+    strcpy(buf, "address6=fd00:6724:1::10/64\n"
+                "address6=fd00:6724:1::10/64\n");
+    CHECK(ami_cfg_address6_line(buf, "eth0", first, 0) == 1);
+    strcpy(buf, "address6=fd00:6724:1::10/64\n"
+                "address6=fd00:6724:1::10/64\n");
+    CHECK(ami_cfg_address6_line(buf, "eth0", first, 1) == 2);
+
+    /* A value that is not there answers 0. */
+    CHECK(ami_config_parse_ip6("2001:db8::99", second, NULL));
+    strcpy(buf, "address6=fd00:6724:1::10/64\n");
+    CHECK(ami_cfg_address6_line(buf, "eth0", second, 0) == 0);
+
+    /* A "%zone" naming another interface is rejected by the loader, so the
+       accepted address is the NEXT line, not the rejected one.  F-158(e). */
+    CHECK(ami_config_parse_ip6("fe80::1", link, NULL));
+    strcpy(buf, "address6=fe80::1%wrong\n"
+                "address6=fe80::1\n");
+    CHECK(ami_cfg_address6_line(buf, "eth0", link, 0) == 2);
+
+    /* The same "%zone" that names this interface is taken, first line. */
+    strcpy(buf, "address6=fe80::1%eth0\n"
+                "address6=2001:db8::1\n");
+    CHECK(ami_cfg_address6_line(buf, "eth0", link, 0) == 1);
+
+    /* IPADDRESS6 is the loader's alias for ADDRESS6 (keyword table). */
+    CHECK(ami_config_parse_ip6("2001:db8:6724:1::10", second, NULL));
+    strcpy(buf, "ipaddress6=2001:db8:6724:1::10/64\n");
+    CHECK(ami_cfg_address6_line(buf, "eth0", second, 0) == 1);
+
+    /* The third address is past AMI_CFG_MAX_ADDRESS6 and not taken. */
+    {
+        ULONG third[AMI_CFG_IP6_WORDS];
+
+        CHECK(ami_config_parse_ip6("fd00:6724:1::30", third, NULL));
+        strcpy(buf, "address6=fd00:6724:1::10/64\n"
+                    "address6=fd00:6724:1::20/64\n"
+                    "address6=fd00:6724:1::30/64\n");
+        CHECK(ami_cfg_address6_line(buf, "eth0", third, 0) == 0);
+    }
+}
+
 #endif /* AMINETXDUO_IPV6 */
 
 /* A real Roadshow interface file (BlitterStudio/zz9000-drivers). */
@@ -3364,6 +3436,7 @@ int main(int argc, char **argv)
     test_ip6();
 #ifdef AMINETXDUO_IPV6
     test_interface_ipv6();
+    test_address6_line();
 #endif
     test_interface_roadshow();
     test_interface_filter();

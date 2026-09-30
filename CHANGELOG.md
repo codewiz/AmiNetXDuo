@@ -9,6 +9,12 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `CheckNetConfig` names the line each `ADDRESS6` finding was read from, not
+  always the first `ADDRESS6` line. An interface may carry two addresses, and
+  a fault in the second was reported against the first address's line, which
+  was fine; the check now re-derives the line by replaying the loader's own
+  acceptance (the address's value, its `%zone`, the `IPADDRESS6` alias),
+  leaving the public `AmiIp6Address` layout unchanged.
 - A configuration read that runs out of memory resolving its `DEVS:` path no
   longer falls back to the system drawer. On a machine that also runs
   Roadshow, the unredirected `DEVS:` path is that stack's file, so an

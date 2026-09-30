@@ -767,6 +767,23 @@ ULONG ami_cfg_keyword_line(char *buf, const char *keyword);
    be read. */
 ULONG ami_cfg_keyword_line_file(const char *path, const char *keyword);
 
+/* The 1-based line of the `occur`-th ADDRESS6 line (0-based) the parser
+   keeps, counted as the parser counts lines, or 0.  "Kept" means exactly what
+   ami_cfg_parse_interface() takes: the keyword ADDRESS6 or its IPADDRESS6
+   alias, a value that parses, a "%zone" that is empty or names `ifname`, the
+   address still under AMI_CFG_MAX_ADDRESS6, and the address equal to `want`.
+   This is how a diagnostic names the address a finding is about without the
+   parser storing a per-address line in AmiIp6Address, whose layout is public
+   ABI through ami_config_load_interface() (F-158).  `buf` is a whole file's
+   text, split in place. */
+ULONG ami_cfg_address6_line(char *buf, const char *ifname,
+                            const ULONG want[AMI_CFG_IP6_WORDS], UWORD occur);
+/* The same for a file, read through ami_cfg_read_file(); 0 when it cannot
+   be read. */
+ULONG ami_cfg_address6_line_file(const char *path, const char *ifname,
+                                 const ULONG want[AMI_CFG_IP6_WORDS],
+                                 UWORD occur);
+
 /*
  * One line of a netdb file judged by the loader's rules, for CheckNetConfig
  * (src/config/netdb_check.c, F-094).  word, when not NULL, gets the column the

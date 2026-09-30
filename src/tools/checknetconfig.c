@@ -761,7 +761,7 @@ static VOID check_netdb_file(const NetdbFile *spec)
     Close(file);
 }
 
-static VOID check_one_address6(const char *path, const ULONG addr[4])
+static VOID check_one_address6(const char *path, const ULONG addr[4], ULONG line)
 {
     char text[AMI_CFG_IP6_STRLEN];
 
@@ -775,7 +775,7 @@ static VOID check_one_address6(const char *path, const ULONG addr[4])
     if (addr[0] == 0 && addr[1] == 0 &&
         addr[2] == 0 && addr[3] == 1)
     {
-        finding(path, keyword_line(path, "ADDRESS6"), AMI_CFG_PROBLEM_ERROR);
+        finding(path, line, AMI_CFG_PROBLEM_ERROR);
         note("::1 is the loopback address. It always means \"this machine\", "
              "so no other machine can reach an interface that has one.");
         note("Use an address from the prefix this network uses, or leave "
@@ -786,7 +786,7 @@ static VOID check_one_address6(const char *path, const ULONG addr[4])
     /* ff00::/8, RFC 4291 2.7.  A group, not a machine. */
     if ((addr[0] & 0xFF000000UL) == 0xFF000000UL)
     {
-        finding(path, keyword_line(path, "ADDRESS6"), AMI_CFG_PROBLEM_ERROR);
+        finding(path, line, AMI_CFG_PROBLEM_ERROR);
         say("      %s is a multicast address: it names a group of\n",
             (LONG)text);
         say("      machines and cannot be one machine's own address\n");
@@ -797,7 +797,7 @@ static VOID check_one_address6(const char *path, const ULONG addr[4])
        from the MAC in every mode, so a written one never reaches off-wire. */
     if ((addr[0] & 0xFFC00000UL) == 0xFE800000UL)
     {
-        finding(path, keyword_line(path, "ADDRESS6"), AMI_CFG_PROBLEM_WARN);
+        finding(path, line, AMI_CFG_PROBLEM_WARN);
         say("      %s is a link-local address, which reaches only this\n",
             (LONG)text);
         say("      wire, and the interface gives itself one already\n");
@@ -811,8 +811,16 @@ static VOID check_addressing6(const char *path, const AmiIfConfig *ifc)
     UWORD m;
     UWORD n;
 
+    /* The line an address was read from, without the loader carrying it in
+       AmiIp6Address: that struct is public ABI through
+       ami_config_load_interface(), so the loader cannot grow it for a
+       diagnostic (F-158).  The first line the parser keeps with this value is
+       the one it took. */
     for (m = 0; m < ifc->address6_count; m++)
-        check_one_address6(path, ifc->address6[m].addr);
+        check_one_address6(path, ifc->address6[m].addr,
+                           ami_cfg_address6_line_file(path, ifc->name,
+                                                      ifc->address6[m].addr,
+                                                      0));
 
     /* Two ADDRESS6 lines on ONE interface naming one address, which the
        cross-interface walk above cannot see because it never compares an
@@ -821,14 +829,26 @@ static VOID check_addressing6(const char *path, const AmiIfConfig *ifc)
     {
         for (n = (UWORD)(m + 1); n < ifc->address6_count; n++)
         {
-            char text[AMI_CFG_IP6_STRLEN];
+            char  text[AMI_CFG_IP6_STRLEN];
+            UWORD prior;
+            UWORD k;
 
             if (!same_address6(ifc->address6[m].addr, ifc->address6[n].addr))
                 continue;
 
+            /* The offending entry is the later of the two; its line is the
+               occurrence after the equal addresses before it. */
+            prior = 0;
+            for (k = 0; k < n; k++)
+                if (same_address6(ifc->address6[k].addr,
+                                  ifc->address6[n].addr))
+                    prior++;
+
             tool_format_ip6(ifc->address6[n].addr, text, sizeof(text));
 
-            finding(path, keyword_line(path, "ADDRESS6"),
+            finding(path,
+                    ami_cfg_address6_line_file(path, ifc->name,
+                                               ifc->address6[n].addr, prior),
                     AMI_CFG_PROBLEM_ERROR);
             say("      ADDRESS6 names %s twice, and the second line adds\n",
                 (LONG)text);
