@@ -390,7 +390,6 @@ VOID tool_wrap(ULONG indent, const char *text)
 
     for (;;)
     {
-        ULONG start;
         ULONG len;
 
         while (*text == ' ')
@@ -414,11 +413,27 @@ VOID tool_wrap(ULONG indent, const char *text)
         if (pos > indent)
             line[pos++] = ' ';
 
-        start = pos;
-        for (i = 0; i < len && start + i + 1 < sizeof(line); i++)
-            line[pos++] = text[i];
+        /* A single user-supplied word can exceed the Shell width.  Continue
+           it on the next indented line instead of skipping its tail. */
+        while (len != 0)
+        {
+            ULONG room = (ULONG)TOOL_WRAP_WIDTH - pos;
+            ULONG take = (len < room) ? len : room;
 
-        text += len;
+            for (i = 0; i < take; i++)
+                line[pos++] = text[i];
+            text += take;
+            len  -= take;
+
+            if (len != 0)
+            {
+                line[pos] = '\0';
+                tool_printf("%s\n", (LONG)line);
+                pos = 0;
+                for (i = 0; i < indent; i++)
+                    line[pos++] = ' ';
+            }
+        }
     }
 
     if (pos > indent)
