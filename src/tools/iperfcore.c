@@ -651,6 +651,27 @@ static VOID iperf_slice_send(IperfRun *run)
     }
 }
 
+/*
+ * The receiver reached its own target (-n bytes or -t seconds).  A TCP run
+ * is done.  A UDP run answers its sender first, as it does the end marker:
+ * the client waits in ST_FIN for exactly that report, and without it retried
+ * the marker until it gave up with no figures (F-166).  Sent now, the report
+ * waits in the client's socket until its ST_FIN reads it.
+ */
+static VOID iperf_rx_target_met(IperfRun *run, ULONG now)
+{
+    run->res.ms = now - run->t_begin;
+
+    if (iperf_udp(run) && run->have_from)
+    {
+        run->state     = ST_REPORT;
+        run->fin_tries = 0;
+        return;
+    }
+
+    run->state = ST_DONE;
+}
+
 static VOID iperf_slice_recv(IperfRun *run)
 {
     ULONG now = ami_millis();
@@ -662,8 +683,7 @@ static VOID iperf_slice_recv(IperfRun *run)
 
     if (run->clock_on && iperf_target_met(run, now))
     {
-        run->res.ms = now - run->t_begin;
-        run->state  = ST_DONE;
+        iperf_rx_target_met(run, now);
         return;
     }
 
@@ -718,9 +738,10 @@ static VOID iperf_slice_recv(IperfRun *run)
                     /* The end marker.  Its own bytes are counted, which is
                        what iperf 2's server does and what makes the two
                        totals comparable. */
-                    run->res.ms    = ami_millis() - run->t_begin;
-                    run->state     = ST_REPORT;
-                    run->fin_tries = 0;
+                    run->res.ms     = ami_millis() - run->t_begin;
+                    run->state      = ST_REPORT;
+                    run->fin_tries  = 0;
+                    run->got_marker = 1;
                     return;
                 }
 
@@ -751,8 +772,7 @@ static VOID iperf_slice_recv(IperfRun *run)
 
             if (iperf_target_met(run, now))
             {
-                run->res.ms = now - run->t_begin;
-                run->state  = ST_DONE;
+                iperf_rx_target_met(run, now);
                 return;
             }
 
@@ -890,8 +910,10 @@ static VOID iperf_slice_report(IperfRun *run)
     rep.stop_usec   = (run->res.ms % 1000UL) * 1000UL;
     rep.lost        = run->res.lost;
     rep.outoforder  = run->res.outoforder;
-    /* The end marker is not one of the datagrams the test moved. */
-    rep.datagrams   = (run->res.packets > 0) ? (run->res.packets - 1) : 0;
+    /* The end marker is not one of the datagrams the test moved.  A report
+       sent because this side's target was met has none to take off (F-166). */
+    rep.datagrams   = (run->got_marker && run->res.packets > 0)
+                          ? (run->res.packets - 1) : run->res.packets;
     rep.jitter_sec  = 0;
     rep.jitter_usec = 0;
 
