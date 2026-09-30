@@ -620,11 +620,9 @@ static VOID bsd_child_close_gate(struct AmiSocketBase *child)
     bsd_handoff_flush(child, &handoffs, bracketed);
     if (!bracketed)
     {
-        /* Nothing will drain them now, and a sweep after the teardown would
-           reach a freed NX_IP (#53): forgotten, not freed.  The owed
-           releases too (F-059). */
-        bsd_closing_head = NULL;
-        bsd_defer_head   = NULL;
+        /* Nothing can drain them now.  The teardown deletes their NX sockets
+           with the IP instance, and bsd_orphans_reclaim() then frees or
+           forgets them, so no sweep reaches a freed NX_IP (#53, F-059). */
         AMI_WARN("bsdsocket: last close with the kernel down. "
                  "Closing sockets are left to the stack teardown");
         return;
@@ -735,6 +733,9 @@ static VOID bsd_netstack_boot_main(VOID)
                                                             b->nb_Force);
             break;
         default:
+            /* A stack that went down some other way leaves nothing for this
+               one's sweeps to reach (F-059). */
+            bsd_orphans_reclaim();
             b->nb_Result = netstack_startup_loopback();
             if (b->nb_Result != AMI_NET_OK)
                 netstack_shutdown();
@@ -892,6 +893,7 @@ static VOID bsd_netstack_shutdown_owned(struct AmiSocketBase *master)
     }
 #endif
     netstack_shutdown();
+    bsd_orphans_reclaim();
 }
 
 /*

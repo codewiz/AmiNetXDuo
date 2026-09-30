@@ -809,6 +809,66 @@ VOID bsd_defer_sweep(struct AmiSocketBase *base)
     }
 }
 
+/*
+ * The parked closes and owed releases a last opener could not drain, once the
+ * stack they belong to is gone (F-059).  ami_ns_destroy() deleted their NX
+ * sockets with the IP instance (ami_ns_sockets_delete()), and a stopped kernel
+ * runs no thread or timer, so only their memory is left: it is freed, and
+ * nothing else is done to them.  While the stack is still up the lists are
+ * kept, and the next bracketed close pays them against the live IP.  Destroyed
+ * but not provably quiet -- a kernel that would not stop, a device still
+ * holding requests -- they are forgotten, not freed, as before.  Either way a
+ * dead stack leaves both lists empty, so no sweep ever reaches its sockets.
+ *
+ * A socket is on at most one list: a parked close has no reference left to
+ * owe.  An owed socket that still has a reference no release is owed for is
+ * named by something live, and is never freed here.
+ */
+VOID bsd_orphans_reclaim(VOID)
+{
+    AmiSocket *closing;
+    AmiSocket *owed;
+    AmiSocket *sock;
+    AmiSocket *next;
+
+    if (netstack_get() != NULL)
+        return;
+
+    Forbid();
+    closing          = bsd_closing_head;
+    owed             = bsd_defer_head;
+    bsd_closing_head = NULL;
+    bsd_defer_head   = NULL;
+    Permit();
+
+    if (closing == NULL && owed == NULL)
+        return;
+
+    if (!netstack_can_unload())
+    {
+        AMI_WARN("bsdsocket: sockets of a stack that did not stop cleanly "
+                 "are left in memory");
+        return;
+    }
+
+    for (sock = owed; sock != NULL; sock = next)
+    {
+        next = sock->as_DeferNext;
+
+        if ((sock->as_Flags & ASF_CLOSING) != 0 ||
+            sock->as_RefCount > sock->as_DeferRefs)
+            continue;
+
+        bsd_socket_dispose(sock);
+    }
+
+    for (sock = closing; sock != NULL; sock = next)
+    {
+        next = sock->as_ClosingNext;
+        bsd_socket_dispose(sock);
+    }
+}
+
 VOID bsd_closing_drain(VOID)
 {
     AmiSocket *sock;

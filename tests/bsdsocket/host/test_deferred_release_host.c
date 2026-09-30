@@ -39,7 +39,7 @@ static struct AmiSocketBase h_base;
 static struct AmiSocketBase h_other;
 static AmiSocket           *h_table[H_FDS];
 static AmiSocket           *h_other_table[H_FDS];
-static AmiSocket            h_sock[2];
+static AmiSocket            h_sock[4];
 static struct Task          h_task_base, h_task_other;
 static int                  h_signals;
 static struct Task         *h_signalled;
@@ -47,6 +47,12 @@ static struct Task         *h_signalled;
 static int                  h_bracket;
 static int                  h_frees;
 static APTR                 h_freed;
+static APTR                 h_freed_all[16];
+static AmiNetStack         *h_stack;            /* netstack_get()          */
+static BOOL                 h_quiet;            /* netstack_can_unload()   */
+
+AmiNetStack *netstack_get(VOID) { return h_stack; }
+BOOL netstack_can_unload(VOID) { return h_quiet; }
 
 LONG bsd_nx_enter(struct AmiSocketBase *base) { (VOID)base; return h_bracket ? 0 : -1; }
 VOID bsd_nx_leave(struct AmiSocketBase *base) { (VOID)base; }
@@ -98,7 +104,24 @@ ULONG _tx_time_get(VOID) { return 0; }
 UINT _txe_mutex_get(TX_MUTEX *m, ULONG w) { (VOID)m; (VOID)w; abort(); }
 UINT _txe_mutex_put(TX_MUTEX *m) { (VOID)m; abort(); }
 APTR ami_alloc(ULONG n) { (VOID)n; abort(); }
-VOID ami_free(APTR p) { h_frees++; h_freed = p; }
+VOID ami_free(APTR p)
+{
+    if (h_frees < 16)
+        h_freed_all[h_frees] = p;
+    h_frees++;
+    h_freed = p;
+}
+
+/* TRUE when p was freed exactly once. */
+static int h_freed_once(APTR p)
+{
+    int i, n = 0;
+
+    for (i = 0; i < h_frees && i < 16; i++)
+        if (h_freed_all[i] == p)
+            n++;
+    return n == 1;
+}
 VOID ami_mem_socket_delta(LONG d) { (VOID)d; }
 VOID bsd_mcast_close(AmiSocket *s) { (VOID)s; abort(); }
 VOID bsd_raw_close(AmiSocket *s) { (VOID)s; abort(); }
@@ -120,6 +143,12 @@ static void h_reset(void)
     memset(h_sock, 0, sizeof(h_sock));
     h_sock[0].as_Flags = ASF_DELETED;
     h_sock[1].as_Flags = ASF_DELETED;
+    h_sock[2].as_Flags = ASF_DELETED;
+    h_sock[3].as_Flags = ASF_DELETED;
+    bsd_closing_head = NULL;
+    bsd_defer_head   = NULL;
+    h_stack = NULL;
+    h_quiet = TRUE;
 
     l->lh_Head     = (struct Node *)&l->lh_Tail;
     l->lh_Tail     = NULL;
@@ -206,6 +235,77 @@ int main(void)
     h_sock[0].as_RefCount++;
     CHECK(bsd_CloseSocket(3, &h_other) == 0, "a bracketed close elsewhere");
     CHECK(h_frees == 2, "pays all three owed releases: both sockets freed");
+
+    /* ---- the last opener could not bracket (F-059) ----------------------
+       What it could not drain: sock 0 a parked close, sock 1 owing its last
+       release, sock 2 owing one release with a reference nobody owes (still
+       named by something live), sock 3 left in no list. */
+#define H_ORPHANS()                                                          \
+    do {                                                                     \
+        h_reset();                                                           \
+        h_sock[0].as_Flags |= ASF_CLOSING;                                   \
+        bsd_closing_head = &h_sock[0];                                       \
+        h_sock[1].as_RefCount = 1;                                           \
+        h_sock[2].as_RefCount = 2;                                           \
+        h_bracket = 0;                                                       \
+        bsd_socket_defer(&h_sock[1]);                                        \
+        bsd_socket_defer(&h_sock[2]);                                        \
+    } while (0)
+
+    /* The stack is destroyed and quiet: memory only, each freed once. */
+    H_ORPHANS();
+    h_stack = NULL;
+    h_quiet = TRUE;
+    bsd_orphans_reclaim();
+    CHECK(h_frees == 2 && h_freed_once(&h_sock[0]) && h_freed_once(&h_sock[1]),
+          "a dead, quiet stack: the parked close and the owed socket are freed "
+          "once each, and nothing in NetX is called");
+    CHECK(!h_freed_once(&h_sock[2]) && !h_freed_once(&h_sock[3]),
+          "one still named by something live is not freed");
+    CHECK(bsd_closing_head == NULL && bsd_defer_head == NULL,
+          "and both lists are empty");
+    bsd_orphans_reclaim();
+    CHECK(h_frees == 2, "a second call frees nothing again");
+
+    /* Destroyed, but a kernel that did not stop: forgotten, not freed. */
+    H_ORPHANS();
+    h_stack = NULL;
+    h_quiet = FALSE;
+    bsd_orphans_reclaim();
+    CHECK(h_frees == 0 && bsd_closing_head == NULL && bsd_defer_head == NULL,
+          "a stack that is not provably quiet: nothing freed, lists emptied");
+
+    /* Still up for another holder: kept, then paid by the next bracketed
+       close, exactly once. */
+    H_ORPHANS();
+    bsd_closing_head = NULL;                    /* only the owed releases */
+    h_stack = (AmiNetStack *)&h_master;
+    bsd_orphans_reclaim();
+    CHECK(h_frees == 0 && bsd_defer_head != NULL,
+          "a stack still up: the owed releases are kept");
+    h_bracket = 1;
+    h_other_table[0] = &h_sock[3];
+    h_sock[3].as_RefCount = 2;
+    h_sock[3].as_Owner = &h_other;
+    CHECK(bsd_CloseSocket(0, &h_other) == 0 && h_frees == 1 &&
+          h_freed_once(&h_sock[1]) && bsd_defer_head == NULL,
+          "the next bracketed close pays them: freed once");
+    CHECK(h_sock[2].as_RefCount == 1, "and the live one only loses its owed "
+          "reference");
+
+    /* A restart: the startup guard empties a dead stack's lists before
+       anything on the new stack can sweep them. */
+    H_ORPHANS();
+    h_stack = NULL;
+    h_quiet = TRUE;
+    bsd_orphans_reclaim();                      /* library.c, before startup */
+    h_stack = (AmiNetStack *)&h_master;         /* the new stack */
+    h_bracket = 1;
+    h_other_table[1] = &h_sock[3];
+    h_sock[3].as_RefCount = 2;
+    CHECK(bsd_CloseSocket(1, &h_other) == 0 && h_frees == 2 &&
+          bsd_closing_head == NULL && bsd_defer_head == NULL,
+          "after a restart the new stack's sweep finds nothing of the old");
 
     printf("deferred_release: %lu checks, %lu failures\n",
            h_checks, h_failures);

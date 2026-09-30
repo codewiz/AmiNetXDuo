@@ -958,14 +958,20 @@ VOID       bsd_closing_drain(VOID);
 
 /* socket.c, a reference dropped with no bracket is owed rather than leaked
    (F-059).  Defer under Forbid(); the sweep pays every owed release and must
-   be called inside a bracket.  The head is forgotten, like bsd_closing_head,
-   by a last close that cannot bracket. */
+   be called inside a bracket.  A last close that cannot bracket leaves the
+   list, like bsd_closing_head, to bsd_orphans_reclaim(). */
 VOID       bsd_socket_defer(AmiSocket *sock);
 VOID       bsd_defer_sweep(struct AmiSocketBase *base);
 extern AmiSocket *bsd_defer_head;
-/* The parked closes.  Emptied, not drained, by a last close that cannot
-   drain (bsd_child_close_gate()): the stack's teardown takes their NX
-   sockets and NX_IP, and a sweep after it would reach freed memory (#53). */
+
+/* socket.c, what a last opener could not drain: freed once netstack_shutdown()
+   has taken the stack down and it is provably quiet, kept while the stack is
+   still up.  Both lists are empty after any stack is gone. */
+VOID       bsd_orphans_reclaim(VOID);
+/* The parked closes.  A last close that cannot drain leaves them to the
+   stack teardown, which takes their NX sockets and NX_IP, and then to
+   bsd_orphans_reclaim(), which empties the list: a sweep after the teardown
+   would reach freed memory (#53). */
 extern AmiSocket *bsd_closing_head;
 
 /* socket.c, TRUE when the socket parked on a listener holds a connection
