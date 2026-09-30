@@ -112,14 +112,25 @@ static struct Hook hook_a;
 static struct Hook hook_b;
 static struct Hook hook_live;
 
+typedef union HookEntry
+{
+    ULONG (*raw)(VOID);
+    ULONG (*callback)(struct Hook *, APTR, APTR);
+} HookEntry;
+
 static VOID setup(VOID)
 {
+    HookEntry entry;
+
     memset(&hook_a, 0, sizeof(hook_a));
     memset(&hook_b, 0, sizeof(hook_b));
     memset(&hook_live, 0, sizeof(hook_live));
-    hook_a.h_Entry    = (ULONG (*)(VOID))hook_a_fn;
-    hook_b.h_Entry    = (ULONG (*)(VOID))hook_b_fn;
-    hook_live.h_Entry = (ULONG (*)(VOID))hook_live_fn;
+    entry.callback = hook_a_fn;
+    hook_a.h_Entry = entry.raw;
+    entry.callback = hook_b_fn;
+    hook_b.h_Entry = entry.raw;
+    entry.callback = hook_live_fn;
+    hook_live.h_Entry = entry.raw;
     calls_a = calls_b = calls_live = 0;
 }
 
