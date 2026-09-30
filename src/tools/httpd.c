@@ -2171,7 +2171,9 @@ static BOOL httpd_produce(HttpConn *c)
                         date.ds_Minute = 0;
                         date.ds_Tick   = 0;
 
-                        if (c->fib != NULL)
+                        /* The synthetic volumes root has no Examine() result.
+                           The slot's FIB may hold a previous client's date. */
+                        if (!c->is_volumes_root && c->fib != NULL)
                         {
                             date = c->fib->fib_Date;
                             if (c->fib->fib_DirEntryType <= 0)
