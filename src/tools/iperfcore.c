@@ -94,6 +94,12 @@ const char *iperf_plan_check(const IperfPlan *plan)
     if ((plan->dir == IPERF_UDP_TX) && plan->buflen < (ULONG)IPERF_DG_TOTAL)
         return "a UDP datagram smaller than 36 bytes cannot carry the header";
 
+    /* The UDP server writes its whole 128-byte report into the buffer a
+       datagram was read into, and that buffer is only guaranteed to be
+       plan->buflen bytes, so a receive this small has no room for it. */
+    if ((plan->dir == IPERF_UDP_RX) && plan->buflen < (ULONG)IPERF_REPORT_LEN)
+        return "a UDP receive buffer smaller than 128 bytes cannot hold the report";
+
     return NULL;
 }
 

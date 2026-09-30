@@ -9,6 +9,9 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `iperf` refuses a UDP receive buffer smaller than 128 bytes. Its server
+  answers the end-of-test datagram with a 128-byte report written into the
+  buffer it read datagrams into, and a smaller buffer had no room for it.
 - `WaitSelect` re-arms a large timeout as the true remainder instead of a
   wrapped 32-bit value. A wait accepted for more than ~71 minutes, when a kept
   timer request fired early and the call had to re-arm the balance, multiplied
