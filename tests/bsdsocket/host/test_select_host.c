@@ -1213,6 +1213,38 @@ static void t_waitselect_terminal(void)
               "one second over the boundary is terminal, not re-armed");
     }
 
+    /* The tick total saturates, but its own addition can still wrap: the
+       largest whole-second product plus a rounded-microsecond count carries
+       past ULONG_MAX to a near-zero deadline (F-066).  The saturating total
+       must hold the terminal path so the full timeval is armed, not an
+       immediate fire. */
+    {
+        const ULONG sat_secs = 0xFFFFFFFFUL / (ULONG)TX_TIMER_TICKS_PER_SECOND;
+        struct timeval wrap = { sat_secs, 999999UL };
+
+        h_reset();
+        (void)h_tcp(0, NX_TCP_SYN_SENT);
+        h_sock[0].as_Flags = ASF_TCP | ASF_CONNECTING;
+        h.wait_plan[0]     = H_TIMER_SIG;
+        h.wait_planned     = 1;
+        h.tick_jump        = TX_TIMER_TICKS_PER_SECOND / 2;
+        memset(&s, 0, sizeof(s));
+        h_set(s.read, 0);
+
+        n = bsd_WaitSelect(1, s.read, NULL, NULL, &wrap, NULL, &h_base);
+        CHECK(n == 0, "a timeout whose rounded ticks wrap ULONG_MAX is "
+                      "terminal, not an early fire");
+        CHECK(h.sendios == 1 &&
+              h_base.sb_TimerReq.tr_time.tv_secs == sat_secs &&
+              h_base.sb_TimerReq.tr_time.tv_micro == 999999UL,
+              "the full timeval is armed, not a wrapped 32-bit remainder");
+        CHECK(h_base.sb_TimerDue == 0,
+              "and it carries no signed deadline, not the wrapped near-zero "
+              "tick");
+        CHECK(h.waitios == 1 && h.abortios == 0,
+              "the completed reply is collected, not re-armed");
+    }
+
     /* A break (Ctrl-C) landing while the terminal request is out must not
        leave it behind: it has no signed due time, so the next wait could not
        judge a zero sb_TimerDue.  It is taken back on the way to EINTR, and

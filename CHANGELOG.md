@@ -21,6 +21,11 @@ version at the top when it merges.
   duration instead of returning early, and it takes its request back on data, a
   break, or a failed poll so the next wait is not handed a due time it cannot
   judge.
+- `WaitSelect` saturates the timeout's tick total before adding its rounded
+  microseconds, so a valid timeout whose whole-second ticks plus the sub-second
+  carry would wrap past `ULONG_MAX` can no longer collapse to a near-zero
+  deadline and fire at once; it keeps the terminal path and waits the full
+  duration.
 - `AMINETXDUO_MAX_INTERFACES` above 32 is now a compile error; the DHCP
   resolver's pending-interface set is one 32-bit word and cannot name an
   index past bit 31.

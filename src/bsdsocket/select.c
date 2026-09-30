@@ -631,7 +631,18 @@ static ULONG bsd_timeout_ticks(const struct timeval *tv)
 
     if (secs != 0 && ticks / secs != (ULONG)TX_TIMER_TICKS_PER_SECOND)
         return 0xFFFFFFFFUL;
-    ticks += ((ULONG)tv->tv_micro + BSD_TICK_US - 1UL) / BSD_TICK_US;
+
+    /* The product passed the check above, but adding the rounded microseconds
+       can still carry it past ULONG_MAX to a small value that would then fire
+       at once on the non-terminal path (F-066).  Saturate instead of wrapping
+       back to a near-zero deadline. */
+    {
+        ULONG micro = ((ULONG)tv->tv_micro + BSD_TICK_US - 1UL) / BSD_TICK_US;
+        if (micro > 0xFFFFFFFFUL - ticks)
+            return 0xFFFFFFFFUL;
+        ticks += micro;
+    }
+
     return ticks;
 }
 
