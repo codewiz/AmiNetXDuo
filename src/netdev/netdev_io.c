@@ -44,7 +44,9 @@ VOID netdev_begin_io(register struct Device     *dev NETDEV_REG_A6,
     {
         struct IOStdReq *std = (struct IOStdReq *)io;
 
-        std->io_Actual = 0;
+        /* A plain 32-byte IORequest ends where io_Actual would start (F-309). */
+        if (std->io_Message.mn_Length >= sizeof(struct IOStdReq))
+            std->io_Actual = 0;
         std->io_Error  = IOERR_NOCMD;
         if ((std->io_Flags & IOF_QUICK) == 0)
             ReplyMsg(&std->io_Message);

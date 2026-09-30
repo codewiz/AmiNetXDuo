@@ -20,6 +20,7 @@
  */
 
 #include <stdio.h>
+#include <stddef.h>
 #include <string.h>
 
 #include <proto/exec.h>
@@ -559,6 +560,59 @@ static void j_a_short_request_is_answered_inside_it(void)
     }
 }
 
+/*
+ * F-309: a request that says it is a plain IORequest ends before io_Actual.
+ * Everything from its end is a canary; the command is still refused and
+ * replied to.  IOREQ_END is where io_Actual starts: 32, sizeof(struct
+ * IORequest), on m68k; the host's IORequest has tail padding over it.
+ */
+#define IOREQ_END   offsetof(struct IOStdReq, io_Actual)
+
+static void j2_an_ioreq_sized_request_keeps_its_end(void)
+{
+    static const UWORD commands[] = { CMD_READ, CMD_WRITE, S2_ONEVENT };
+    int i;
+
+    for (i = 0; i < (int)(sizeof(commands) / sizeof(commands[0])); i++)
+    {
+        StdFrame f;
+        UBYTE    ref[sizeof(StdFrame)];
+
+        std_frame(&f, commands[i], (UWORD)IOREQ_END);
+        memcpy(ref, &f, sizeof(f));
+        seen_perform = 0;
+        seen_query = 0;
+        seen_reply = 0;
+        netdev_begin_io(&fake_device, (struct IOSana2Req *)&f);
+
+        expect(memcmp((const UBYTE *)&f + IOREQ_END,
+                      ref + IOREQ_END,
+                      sizeof(f) - IOREQ_END) == 0,
+               "nothing past a 32-byte IORequest is written");
+        expect_u32("it is refused as no such command",
+                   (unsigned long)(UBYTE)f.std.io_Error,
+                   (unsigned long)(UBYTE)IOERR_NOCMD);
+        expect(seen_perform == 0 && seen_query == 0, "and reaches no handler");
+        expect(seen_reply == 1, "and is replied to");
+    }
+
+    {   /* IOF_QUICK: answered in place, no reply, still nothing past it. */
+        StdFrame f;
+        UBYTE    ref[sizeof(StdFrame)];
+
+        std_frame(&f, CMD_READ, (UWORD)IOREQ_END);
+        f.std.io_Flags = IOF_QUICK;
+        memcpy(ref, &f, sizeof(f));
+        seen_reply = 0;
+        netdev_begin_io(&fake_device, (struct IOSana2Req *)&f);
+        expect(memcmp((const UBYTE *)&f + IOREQ_END,
+                      ref + IOREQ_END,
+                      sizeof(f) - IOREQ_END) == 0,
+               "nor past a quick one");
+        expect(seen_reply == 0, "which is not replied to");
+    }
+}
+
 static void k_abortio_reads_no_opener_it_cannot_have(void)
 {
     StdFrame f;
@@ -594,6 +648,7 @@ int main(void)
     h_the_two_bulk_commands_skip_the_jump_table();
     i_a_plain_iostdreq_reaches_the_query();
     j_a_short_request_is_answered_inside_it();
+    j2_an_ioreq_sized_request_keeps_its_end();
     k_abortio_reads_no_opener_it_cannot_have();
 
     printf("%d checks, %d failures, %s\n", checks, failures,
