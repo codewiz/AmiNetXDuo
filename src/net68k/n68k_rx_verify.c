@@ -57,28 +57,19 @@
 #endif
 
 /*
- * THE COUNTERS COST MORE THAN THEY EARN ON THE TARGET.
+ * The error and skip counters, counted on every build (F-286).  They sit on
+ * paths a bulk transfer does not take -- a bad checksum, a truncated or
+ * fragmented frame, a protocol this file does not check -- so they cost
+ * nothing per frame, and NetShutdown prints them (netstack.c) as the ones
+ * worth having when something is actually wrong.  They were compiled out of
+ * every m68k build but RXPROBE, and that print showed their zeros as counts.
  *
- * n68k_rx_verify_stats is read in exactly one place --
- * ami_sana2_rxprobe_report() (sana2_rx.c:386) -- whose only call site is
- * inside #ifdef AMINETXDUO_RXPROBE (sana2_rx.c:2021).  A shipping build ran
- * all forty increments and never read one.  Four are on the fused fast path,
- * once a frame: ip_ok, transport_ok, from_copy, v4_fused.  Each is a
- * read-modify-write of a global, and the removal prize prices this block at
- * +3.40% for ~118 instructions, so an instruction here is ~0.029% of receive.
- *
- * THE HOST TIER KEEPS THEM, BECAUSE IT ASSERTS ON THEM:
- * test_rxverify_host.c:1037 and :1046 check from_copy and v4_fused to prove
- * the FUSED path was the one that ran, which is a property no other test can
- * see.  So the gate is the TARGET, not the feature -- the host build always
- * counts, and an m68k RXPROBE build still does.
+ * The per-frame success counters are N68K_RXV_HOT (net68k.h), built only with
+ * AMINETXDUO_RX_VERIFY_STATS.  v6_ext is one of those: it counts verified
+ * IPv6 frames behind an extension header, a share of v6_ok, on the path
+ * every such frame takes.
  */
-#if defined(AMINETXDUO_RXPROBE) || \
-    !(defined(__mc68000__) || defined(__m68k__))
 #define N68K_RXV_COUNT(f)   (n68k_rx_verify_stats.f++)
-#else
-#define N68K_RXV_COUNT(f)   ((VOID)0)
-#endif
 
 /* Longword-aligned, which is what both of the above need on a 68000: the word
    form is only ever used at an even offset from this same pointer. */
@@ -432,7 +423,7 @@ UINT        ok;
     N68K_RXV_HOT(v6_ok);
     if (offset > 40U)
     {
-        N68K_RXV_COUNT(v6_ext);
+        N68K_RXV_HOT(v6_ext);
     }
 
     return (n68k_rxv6_bit(protocol));
@@ -782,7 +773,7 @@ UINT    offset;
         N68K_RXV_HOT(from_copy);
         if (offset > 40U)
         {
-            N68K_RXV_COUNT(v6_ext);
+            N68K_RXV_HOT(v6_ext);
         }
 
         return (n68k_rxv6_bit(protocol));

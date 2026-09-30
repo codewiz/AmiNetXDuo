@@ -144,7 +144,8 @@ typedef struct N68kRxVerifyStats
 extern N68kRxVerifyStats n68k_rx_verify_stats;
 
 /*
- * ip_ok, transport_ok, from_copy and v6_ok fire on EVERY received frame, and
+ * ip_ok, transport_ok, from_copy, v4_fused and v6_ok fire on EVERY received
+ * frame, and v6_ext on every IPv6 one behind an extension header, and
  * they fire inside the reader's nx_ip_protection hold, where a calibrated burn
  * put a cycle at about 1.53 times what it costs outside (netdev_cmds.c:218).
  * Each is a longword read-modify-write to an absolute address.
