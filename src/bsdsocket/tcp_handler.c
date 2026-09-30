@@ -34,6 +34,7 @@
 typedef struct TcpBoot
 {
     struct Task    *tb_Parent;
+    ULONG           tb_SigMask;   /* the parent's private wake signal     */
     BOOL            tb_Ok;
 } TcpBoot;
 
@@ -845,7 +846,7 @@ static VOID tcp_ctrl_main(VOID)
     BOOL ok      = tcp_ctrl_publish();
 
     tcp_boot->tb_Ok = ok;
-    Signal(tcp_boot->tb_Parent, SIGF_SINGLE);
+    Signal(tcp_boot->tb_Parent, tcp_boot->tb_SigMask);
 
     if (!ok)
     {
@@ -974,6 +975,7 @@ VOID bsd_tcp_handler_start(struct AmiSocketBase *master)
     struct Process *proc;
     struct TagItem  tags[6];
     struct Task    *me = FindTask(NULL);
+    BYTE            sig;
 
     if (me == NULL || me->tc_Node.ln_Type != NT_PROCESS)
         return;
@@ -997,9 +999,24 @@ VOID bsd_tcp_handler_start(struct AmiSocketBase *master)
     tcp_started = TRUE;
     ReleaseSemaphore(&master->sb_Lock);
 
-    boot.tb_Parent = me;
-    boot.tb_Ok     = FALSE;
-    tcp_boot       = &boot;
+    /*
+     * A private signal, never SIGF_SINGLE: the ThreadX port uses SIGF_SINGLE
+     * as its thread run-signal, and this caller can be such a thread.  Sharing
+     * the bit wakes this Wait() on an unrelated signal, before the handler has
+     * finished with `boot`, and it is on this stack.
+     */
+    sig = (BYTE)AllocSignal(-1);
+    if (sig < 0)
+    {
+        AMI_ERROR("TCP: no signal for the handler");
+        tcp_started = FALSE;
+        return;
+    }
+
+    boot.tb_Parent  = me;
+    boot.tb_SigMask = 1UL << (ULONG)sig;
+    boot.tb_Ok      = FALSE;
+    tcp_boot        = &boot;
 
     tags[0].ti_Tag  = NP_Entry;
     tags[0].ti_Data = (ULONG)tcp_ctrl_main;
@@ -1014,14 +1031,13 @@ VOID bsd_tcp_handler_start(struct AmiSocketBase *master)
     tags[5].ti_Tag  = TAG_DONE;
     tags[5].ti_Data = 0;
 
-    SetSignal(0, SIGF_SINGLE);
-
     proc = CreateNewProc(tags);
     if (proc == NULL)
     {
         AMI_ERROR("TCP: cannot start the handler process");
         tcp_boot    = NULL;
         tcp_started = FALSE;
+        FreeSignal(sig);
         return;
     }
 
@@ -1030,8 +1046,9 @@ VOID bsd_tcp_handler_start(struct AmiSocketBase *master)
      * block, and `boot` is on this stack, so it must be finished with before
      * this function returns.
      */
-    Wait(SIGF_SINGLE);
+    Wait(boot.tb_SigMask);
     tcp_boot = NULL;
+    FreeSignal(sig);
 
     if (!boot.tb_Ok)
         AMI_WARN("TCP: device not available");

@@ -102,6 +102,13 @@ static struct
     /* Exec */
     unsigned        signals;
     struct Task    *last_signalled;
+    ULONG           last_signal_mask;
+    ULONG           sig_recv;           /* pending signals on h_proc.pr_Task */
+    ULONG           wait_mask;          /* the mask the last Wait() armed on  */
+    ULONG           wait_result;        /* what the last Wait() returned       */
+    BYTE            alloc_sig;          /* the bit AllocSignal() hands back    */
+    BOOL            alloc_fails;
+    unsigned        alloc_calls, free_calls;
     unsigned        opens, closes;
     BOOL            open_fails;
 
@@ -249,22 +256,45 @@ struct Task *FindTask(const char *name)
 
 VOID Signal(struct Task *task, ULONG signalSet)
 {
-    (VOID)signalSet;
     h.signals++;
-    h.last_signalled = task;
+    h.last_signalled    = task;
+    h.last_signal_mask  = signalSet;
+    if (task == &h_proc.pr_Task)
+        h.sig_recv |= signalSet;
 }
 
 ULONG Wait(ULONG signalSet)
 {
-    return signalSet;
+    h.wait_mask   = signalSet;
+    h.wait_result = h.sig_recv & signalSet;
+    h.sig_recv   &= ~signalSet;
+
+    return h.wait_result;
 }
 
 ULONG SetSignal(ULONG newSignals, ULONG signalSet)
 {
-    (VOID)newSignals;
-    (VOID)signalSet;
+    h.sig_recv = (h.sig_recv & ~signalSet) | newSignals;
 
-    return 0;
+    return h.sig_recv;
+}
+
+BYTE AllocSignal(LONG signalNum)
+{
+    (VOID)signalNum;
+
+    h.alloc_calls++;
+    if (h.alloc_fails)
+        return -1;
+
+    h.alloc_sig = 7;                    /* a private bit, far from SIGB_SINGLE */
+    return h.alloc_sig;
+}
+
+VOID FreeSignal(LONG signalNum)
+{
+    (VOID)signalNum;
+    h.free_calls++;
 }
 
 struct Library *OpenLibrary(const UBYTE *libName, ULONG version)
@@ -947,9 +977,10 @@ static TcpBoot h_boot;
 
 static void h_run_ctrl_with(void (*stall)(struct MsgPort *port))
 {
-    h_boot.tb_Parent = &h_proc.pr_Task;
-    h_boot.tb_Ok     = FALSE;
-    tcp_boot         = &h_boot;
+    h_boot.tb_Parent  = &h_proc.pr_Task;
+    h_boot.tb_SigMask = 1UL << 7;      /* the parent's private wake signal   */
+    h_boot.tb_Ok      = FALSE;
+    tcp_boot          = &h_boot;
 
     h.stall = stall;
 
@@ -1001,6 +1032,8 @@ static void t_device_packets(void)
     CHECK(h_boot.tb_Ok == TRUE, "the parent was told the handler is up");
     CHECK(h.signals == 1 && h.last_signalled == &h_proc.pr_Task,
           "and told exactly once, on its own task");
+    CHECK(h.last_signal_mask == (1UL << 7) && h.last_signal_mask != SIGF_SINGLE,
+          "and on the parent's private signal, not SIGF_SINGLE");
     CHECK(h.adds == 1, "the device node went on the DOS list");
 
     CHECK(h_reply_of(fs) != NULL && fs->pkt.dp_Res1 == DOSFALSE &&
@@ -1580,6 +1613,10 @@ static void t_start(void)
     CHECK(h.last_entry == (APTR)tcp_ctrl_main, "running tcp_ctrl_main()");
     CHECK(h.last_stack == TCP_CTRL_STACK, "on the control stack size");
     CHECK(tcp_started == TRUE, "and records that it did");
+    CHECK(h.alloc_calls == 1, "the start allocates a wake signal");
+    CHECK(h.wait_mask == (1UL << h.alloc_sig) && h.wait_mask != SIGF_SINGLE,
+          "and waits on that private signal, never SIGF_SINGLE");
+    CHECK(h.free_calls == 1, "and gives the signal back after the wait");
 
     /* A second open must not start a second handler. */
     bsd_tcp_handler_start(&h_base);
@@ -1594,6 +1631,28 @@ static void t_start(void)
     CHECK(tcp_started == FALSE,
           "a handler that could not start does not stay marked started");
     CHECK(tcp_boot == NULL, "and the boot record is not left dangling");
+
+    /* No private signal available: refuse to start rather than fall back to
+       the shared SIGF_SINGLE, which the ThreadX port uses as its run signal. */
+    h_reset();
+    h.alloc_fails = TRUE;
+
+    bsd_tcp_handler_start(&h_base);
+
+    CHECK(h.procs == 0, "no signal means no handler process");
+    CHECK(tcp_started == FALSE, "and nothing is left marked started");
+    CHECK(tcp_boot == NULL, "with no boot record dangling");
+
+    /* An unrelated SIGF_SINGLE already pending must not release the parent:
+       it waits on its own bit, so the foreign signal does not satisfy it. */
+    h_reset();
+    h.sig_recv = SIGF_SINGLE;
+
+    bsd_tcp_handler_start(&h_base);
+
+    CHECK(h.wait_mask == (1UL << h.alloc_sig) && h.wait_mask != SIGF_SINGLE,
+          "the parent waits on its own signal, never SIGF_SINGLE");
+    CHECK(h.wait_result == 0, "and the unrelated SIGF_SINGLE does not wake it");
 
     /* Called from a plain Task rather than a Process. */
     h_reset();

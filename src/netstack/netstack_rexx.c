@@ -60,6 +60,7 @@ enum
 typedef struct AmiRexxBoot
 {
     struct Task *rb_Parent;
+    ULONG        rb_SigMask;   /* the parent's private wake signal         */
     BOOL         rb_Ok;
 } AmiRexxBoot;
 
@@ -351,7 +352,7 @@ static VOID ami_rx_main(VOID)
     if (boot != NULL)
     {
         boot->rb_Ok = (port != NULL) ? TRUE : FALSE;
-        Signal(boot->rb_Parent, SIGF_SINGLE);
+        Signal(boot->rb_Parent, boot->rb_SigMask);
     }
 
     if (port == NULL)
@@ -421,6 +422,7 @@ VOID ami_netstack_rexx_start(VOID)
     AmiRexxBoot     boot;
     struct TagItem  tags[6];
     struct Task    *me = FindTask(NULL);
+    BYTE            sig;
 
     if (ami_rx_proc != NULL)
         return;
@@ -437,9 +439,21 @@ VOID ami_netstack_rexx_start(VOID)
     ami_rx_gone    = 0UL;
     ami_rx_stopper = NULL;
 
-    boot.rb_Parent = me;
-    boot.rb_Ok     = FALSE;
-    ami_rx_boot    = &boot;
+    /* A private signal, never SIGF_SINGLE: this caller can be an adopted
+       ThreadX thread, and the port uses SIGF_SINGLE as the thread run-signal.
+       Sharing the bit wakes the Wait() below on an unrelated signal, before
+       the host has finished with `boot`, and it is on this stack. */
+    sig = (BYTE)AllocSignal(-1);
+    if (sig < 0)
+    {
+        AMI_WARN("AMITCP: no signal for the ARexx host");
+        return;
+    }
+
+    boot.rb_Parent  = me;
+    boot.rb_SigMask = 1UL << (ULONG)sig;
+    boot.rb_Ok      = FALSE;
+    ami_rx_boot     = &boot;
 
     tags[0].ti_Tag  = NP_Entry;
     tags[0].ti_Data = (ULONG)ami_rx_main;
@@ -454,20 +468,20 @@ VOID ami_netstack_rexx_start(VOID)
     tags[5].ti_Tag  = TAG_DONE;
     tags[5].ti_Data = 0;
 
-    SetSignal(0, SIGF_SINGLE);
-
     ami_rx_proc = CreateNewProc(tags);
     if (ami_rx_proc == NULL)
     {
         ami_rx_boot = NULL;
+        FreeSignal(sig);
         AMI_ERROR("AMITCP: cannot start the ARexx host process");
         return;
     }
 
     /* Bounded: the host signals before it does anything that can block, and
        `boot` is on this stack. */
-    Wait(SIGF_SINGLE);
+    Wait(boot.rb_SigMask);
     ami_rx_boot = NULL;
+    FreeSignal(sig);
 
     if (!boot.rb_Ok)
     {
