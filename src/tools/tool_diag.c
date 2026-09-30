@@ -873,6 +873,73 @@ VOID tool_stack_release(struct Library *base)
 }
 
 /*
+ * SocketBaseTagList(), -294.  SBTC_BREAKMASK (code 1) is the mask the
+ * resolver polls between the rungs of its ladder (resolver.c,
+ * bsd_resolve_break), so a signal added to it ends a lookup there.
+ */
+#define TOOL_SBTC_BREAKMASK     1UL
+#define TOOL_SBTM(code, set)    (TAG_USER | (((code) & 0x3fffUL) << 1) | (set))
+
+static LONG tool_call_sbtaglist(struct Library *base, struct TagItem *tags)
+{
+    register struct Library *a6  __asm("a6") = base;
+    register struct TagItem *a0  __asm("a0") = tags;
+    register LONG            res __asm("d0");
+    register LONG _clob_a0 __asm("a0");
+
+    __asm __volatile ("jsr a6@(-294:W)"
+                      : "=r" (res), "=r" (_clob_a0)
+                      : "r" (a6), "r" (a0)
+                      : "d1", "a1", "cc", "memory");
+    return res;
+}
+
+BOOL tool_sock_breakmask(struct Library *base, ULONG mask, ULONG *old)
+{
+    struct TagItem tags[3];
+    ULONG          n = 0;
+
+    if (base == NULL)
+        return FALSE;
+
+    if (old != NULL)
+    {
+        *old = SIGBREAKF_CTRL_C;
+        tags[n].ti_Tag  = TOOL_SBTM(TOOL_SBTC_BREAKMASK, 0UL);  /* GET, VAL */
+        tags[n].ti_Data = 0;
+        n++;
+    }
+    tags[n].ti_Tag  = TOOL_SBTM(TOOL_SBTC_BREAKMASK, 1UL);      /* SET, VAL */
+    tags[n].ti_Data = mask;
+    n++;
+    tags[n].ti_Tag  = TAG_DONE;
+    tags[n].ti_Data = 0;
+
+    if (tool_call_sbtaglist(base, tags) != 0)
+        return FALSE;
+
+    if (old != NULL)
+        *old = tags[0].ti_Data;
+    return TRUE;
+}
+
+/* Added to the break mask of the base each lookup below opens for itself;
+   0 leaves it as the library sets it. */
+static ULONG tool_lookup_break;
+
+VOID tool_stack_break_extra(ULONG sigmask)
+{
+    tool_lookup_break = sigmask;
+}
+
+static VOID tool_lookup_arm(struct Library *base)
+{
+    if (tool_lookup_break != 0)
+        (VOID)tool_sock_breakmask(base, SIGBREAKF_CTRL_C | tool_lookup_break,
+                                  NULL);
+}
+
+/*
  * Name lookup through the running stack's own vectors: a command cannot reach
  * netstack_resolve() inside bsdsocket.library, and gethostbyname() is the
  * published entry into the same resolver, DHCP-supplied servers included.
@@ -890,6 +957,7 @@ BOOL tool_stack_lookup(const char *name, ULONG *addr_out)
     if (base == NULL)
         return FALSE;
 
+    tool_lookup_arm(base);
     he = tool_call_gethostbyname(base, name);
 
     /* The hostent belongs to our opener base, so read it before closing. */
@@ -929,6 +997,7 @@ BOOL tool_stack_lookup_addr(ULONG addr, char *name_out, ULONG name_len)
     quad[2] = (UBYTE)((addr >>  8) & 0xff);
     quad[3] = (UBYTE)(addr & 0xff);
 
+    tool_lookup_arm(base);
     he = tool_call_gethostbyaddr(base, quad, 4L, 2L /* AF_INET */);
 
     if (he != NULL && he->h_name != NULL && he->h_name[0] != '\0')

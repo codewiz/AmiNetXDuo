@@ -297,6 +297,11 @@ BOOL tool_stack_domain(char *domain, ULONG domainlen);
  */
 BOOL tool_stack_lookup(const char *name, ULONG *addr_out);
 BOOL tool_stack_lookup_addr(ULONG addr, char *name_out, ULONG name_len);
+/* A signal that also ends the two lookups above, as Ctrl-C does: it goes
+   into the break mask of the base each opens.  0 for none. */
+VOID tool_stack_break_extra(ULONG sigmask);
+/* SBTC_BREAKMASK on `base`; *old, when asked, gets the mask it replaced. */
+BOOL tool_sock_breakmask(struct Library *base, ULONG mask, ULONG *old);
 
 /*
  * The name servers the running stack is really using, as text, including ones

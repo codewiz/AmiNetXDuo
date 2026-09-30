@@ -8,6 +8,9 @@
 #include "toolsock.h"
 #include "aminetxduo/version.h"
 
+#include <exec/io.h>
+#include <devices/timer.h>
+
 const char *const tool_name = "host";
 
 static const char version_tag[] __attribute__((used)) =
@@ -27,6 +30,90 @@ enum
 #define HOST_DEFAULT_TIMEOUT    10UL        /* seconds */
 #define HOST_NAME_MAX           256
 
+/*
+ * TIMEOUT (F-199).  The lookup is bsdsocket.library's, one synchronous call,
+ * so the deadline is a timer.device signal added to the break mask the
+ * library's resolver polls between the rungs of its retry ladder, as it polls
+ * Ctrl-C.  A rung is one synchronous query to every configured server, up to
+ * two seconds each, so the answer comes by TIMEOUT plus at most one rung, not
+ * to the second; and the library gives up on its own after 30 seconds, so a
+ * longer TIMEOUT is that.  Nothing is left running: the rung has returned
+ * before the signal is looked at.
+ */
+typedef struct HostDeadline
+{
+    struct MsgPort     *port;
+    struct timerequest *req;
+    BOOL                open;
+    BOOL                armed;
+} HostDeadline;
+
+static BOOL host_deadline_arm(HostDeadline *d, ULONG seconds)
+{
+    d->port  = CreateMsgPort();
+    d->req   = NULL;
+    d->open  = FALSE;
+    d->armed = FALSE;
+
+    if (d->port == NULL)
+        return FALSE;
+
+    d->req = (struct timerequest *)
+             CreateIORequest(d->port, (ULONG)sizeof(*d->req));
+    if (d->req == NULL)
+        return FALSE;
+
+    if (OpenDevice((CONST_STRPTR)TIMERNAME, UNIT_VBLANK,
+                   (struct IORequest *)d->req, 0) != 0)
+        return FALSE;
+    d->open = TRUE;
+
+    d->req->tr_node.io_Command = TR_ADDREQUEST;
+    d->req->tr_time.tv_secs    = seconds;
+    d->req->tr_time.tv_micro   = 0;
+    SendIO((struct IORequest *)d->req);
+    d->armed = TRUE;
+
+    return TRUE;
+}
+
+static ULONG host_deadline_mask(const HostDeadline *d)
+{
+    return (d->armed && d->port != NULL) ? (1UL << d->port->mp_SigBit) : 0UL;
+}
+
+static BOOL host_deadline_passed(const HostDeadline *d)
+{
+    return (BOOL)(d->armed &&
+                  CheckIO((struct IORequest *)d->req) != NULL);
+}
+
+/* Every exit: the request back, the device closed, the signal cleared. */
+static VOID host_deadline_close(HostDeadline *d)
+{
+    ULONG mask = host_deadline_mask(d);
+
+    if (d->armed)
+    {
+        if (CheckIO((struct IORequest *)d->req) == NULL)
+            AbortIO((struct IORequest *)d->req);
+        WaitIO((struct IORequest *)d->req);
+        d->armed = FALSE;
+    }
+    if (d->open)
+        CloseDevice((struct IORequest *)d->req);
+    if (d->req != NULL)
+        DeleteIORequest((struct IORequest *)d->req);
+    if (d->port != NULL)
+        DeleteMsgPort(d->port);
+    if (mask != 0)
+        SetSignal(0UL, mask);
+
+    d->port = NULL;
+    d->req  = NULL;
+    d->open = FALSE;
+}
+
 int main(int argc, char **argv)
 {
     LONG            args[ARG_COUNT];
@@ -41,6 +128,12 @@ int main(int argc, char **argv)
     ToolAddrInfo    hints;
     ToolAddrInfo   *list = NULL;
     ULONG           v6[4];
+    ULONG           timeout = HOST_DEFAULT_TIMEOUT;
+    ULONG           old_mask = SIGBREAKF_CTRL_C;
+    BOOL            mask_set = FALSE;
+    BOOL            late = FALSE;
+    HostDeadline    deadline;
+    int             rc;
 
     (VOID)argv;
 
@@ -62,6 +155,21 @@ int main(int argc, char **argv)
     }
 
     name = (const char *)args[ARG_NAME];
+
+    /* 0, like no TIMEOUT at all, is the default. */
+    if (args[ARG_TIMEOUT] != 0)
+    {
+        LONG seconds = *(const LONG *)args[ARG_TIMEOUT];
+
+        if (seconds < 0)
+        {
+            tool_error("TIMEOUT cannot be negative");
+            FreeArgs(rda);
+            return RETURN_ERROR;
+        }
+        if (seconds > 0)
+            timeout = (ULONG)seconds;
+    }
 
     if (!tool_arg_family(args[ARG_IPV4], args[ARG_IPV6], &family))
     {
@@ -109,12 +217,27 @@ int main(int argc, char **argv)
         return RETURN_ERROR;
     }
 
+    /* All three ways of asking below obey it: the base this command opened,
+       and the ones tool_stack_lookup() and tool_stack_lookup_addr() open. */
+    if (host_deadline_arm(&deadline, timeout))
+    {
+        tool_stack_break_extra(host_deadline_mask(&deadline));
+        mask_set = tool_sock_breakmask(sbase, SIGBREAKF_CTRL_C |
+                                       host_deadline_mask(&deadline),
+                                       &old_mask);
+    }
+    else
+    {
+        tool_error("timer.device did not open, so TIMEOUT cannot be kept; "
+                   "the library's own 30 seconds apply");
+    }
+
     if (ami_config_parse_ip(name, &addr))
     {
         ok = tool_stack_lookup_addr(addr, text, sizeof(text));
         if (ok)
             tool_printf("%s is %s\n", (LONG)name, (LONG)text);
-        else
+        else if (!host_deadline_passed(&deadline))
             tool_error("no name for %s", (LONG)name);
     }
     else if (tool_sock_have_addrinfo(sbase))
@@ -152,14 +275,16 @@ int main(int argc, char **argv)
             tool_sock_freeaddrinfo(sbase, list);
         }
 
-        if (!ok && tool_sock_family_absent(sbase, name, family))
+        if (!ok && !host_deadline_passed(&deadline) &&
+            tool_sock_family_absent(sbase, name, family))
         {
             tool_sock_say_no_family(name, family);
             no_family = TRUE;
         }
         else if (!ok)
         {
-            tool_error("cannot resolve \"%s\"", (LONG)name);
+            if (!host_deadline_passed(&deadline))
+                tool_error("cannot resolve \"%s\"", (LONG)name);
         }
     }
     else if (family == TOOL_AF_INET6)
@@ -181,11 +306,30 @@ int main(int argc, char **argv)
         }
         else
         {
-            tool_error("cannot resolve \"%s\"", (LONG)name);
+            if (!host_deadline_passed(&deadline))
+                tool_error("cannot resolve \"%s\"", (LONG)name);
         }
     }
 
-    if (!ok && !no_family)
+    late = (BOOL)(!ok && host_deadline_passed(&deadline));
+
+    tool_stack_break_extra(0UL);
+    if (mask_set)
+        (VOID)tool_sock_breakmask(sbase, old_mask, NULL);
+    host_deadline_close(&deadline);
+
+    rc = ok ? RETURN_OK : RETURN_ERROR;
+
+    if (tool_break())
+    {
+        tool_fault(ERROR_BREAK);
+        rc = RETURN_WARN;
+    }
+    else if (late)
+    {
+        tool_error("%s: no answer within %lu seconds", (LONG)name, timeout);
+    }
+    else if (!ok && !no_family)
     {
         /*
          * gethostbyname() fails without a reason a command can read, and the
@@ -195,15 +339,7 @@ int main(int argc, char **argv)
         tool_explain_resolve(name, AMI_NET_ERR_NONAME);
     }
 
-    if (tool_break())
-    {
-        tool_fault(ERROR_BREAK);
-        CloseLibrary(sbase);
-        FreeArgs(rda);
-        return RETURN_WARN;
-    }
-
     CloseLibrary(sbase);
     FreeArgs(rda);
-    return ok ? RETURN_OK : RETURN_ERROR;
+    return rc;
 }

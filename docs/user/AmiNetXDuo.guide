@@ -1782,7 +1782,12 @@
   reverse. Anything else is looked up forwards.
 
   @{b}NAME@{ub}     The name or the address. Required.
-  @{b}TIMEOUT@{ub}  Seconds to wait. Default 10.
+  @{b}TIMEOUT@{ub}  Seconds to wait for an answer. Default 10, which 0 also
+           means. It is checked between the resolver's attempts, and
+           one attempt can take up to 2 seconds per configured name
+           server, so the answer or the refusal can come that much
+           later. The resolver ends every lookup after 30 seconds, so
+           a larger value has the effect of 30.
   @{b}-4@{ub}, @{b}-6@{ub}   Ask for one family only. Every command that resolves a
            name takes the same two switches.
 
