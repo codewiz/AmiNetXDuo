@@ -8,6 +8,7 @@
  */
 
 #include "tools.h"
+#include "routematch.h"
 
 const char *const tool_name = "NetSetup";
 
@@ -457,6 +458,23 @@ static VOID restore_file(const char *path, BOOL kept_old)
 
     (VOID)DeleteFile((CONST_STRPTR)path);
     (VOID)Rename((CONST_STRPTR)keep, (CONST_STRPTR)path);
+}
+
+/* 1 when the running library has IPv6 in it at all, 0 when it was built
+   without, -1 when it would not say (route6_stack_ipv6).  The full-build
+   NetSetup ships on every drawer, so this must be asked at run time, not
+   compiled in. */
+static LONG stack_has_ipv6(struct Library *base)
+{
+    static union
+    {
+        struct { NetStatusHeader hdr; NetStatusSystem e; } system;
+    } v6;
+
+    LONG n = tool_netstatus_query(base, NETSTATUS_SYSTEM, &v6,
+                                  sizeof(v6.system), sizeof(NetStatusSystem));
+
+    return route6_stack_ipv6(n, (n > 0) ? (ULONG)v6.system.e.nss_Flags : 0UL);
 }
 
 /* --------------------------------------------------------------- the plan, */
@@ -1251,6 +1269,58 @@ int main(int argc, char **argv)
         tool_error("%s already exists", (LONG)ifpath);
         FreeArgs(rda);
         return RETURN_ERROR;
+    }
+
+    /*
+     * IPV6=<mode> against a library without IPv6 -- a full-build command on a
+     * minimal or micro library -- is refused here, before anything is written,
+     * so an IPv6-only file is not left for a library that cannot use it
+     * (F-143). A compile-time guard cannot catch this: the shipped command is
+     * the same full build on every drawer.
+     *
+     * The library is normally not running here -- this command sets up the
+     * machine that has nothing yet -- so the quiet open (which wants the
+     * AMITCP port up) is not enough. Opening bsdsocket.library starts loopback
+     * only and makes the system query answer, so ask the installed library
+     * itself. The netstatus vector is a jump into the library's own table, so
+     * identity and revision are checked before it is called: on a foreign or
+     * too-old library the slot is somebody else's code.
+     */
+    if (plan.configure6[0] != '\0' &&
+        tool_stricmp(plan.configure6, "off") != 0)
+    {
+        struct Library *base = tool_stack_start();
+
+        if (base != NULL)
+        {
+            if (!tool_stack_is_ours(base) ||
+                base->lib_Revision < (UWORD)AMI_NETSTATUS_MIN_REVISION)
+            {
+                /* Foreign or too old to ask: keep the file. */
+                tool_stack_release(base);
+            }
+            else
+            {
+                LONG v6 = stack_has_ipv6(base);
+
+                tool_stack_release(base);
+
+                if (v6 <= 0)
+                {
+                    if (v6 == 0)
+                        tool_error("this bsdsocket.library was built without "
+                                   "IPv6, so there is no IPv6 to configure");
+                    else
+                        tool_error("the network did not say whether it has "
+                                   "IPv6, so nothing was written");
+                    FreeArgs(rda);
+                    return RETURN_FAIL;
+                }
+            }
+        }
+        /* Missing, foreign or too old to ask: there is no capability to test,
+           and a machine without the stack, or with somebody else's, keeps its
+           file -- it may yet gain IPv6. */
     }
 
     /* ---- write ----------------------------------------------------------- */

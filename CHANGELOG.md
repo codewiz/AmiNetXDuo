@@ -37,6 +37,9 @@ version at the top when it merges.
 - `NetSetup` no longer reports a write that fails only at its final `Close()`
   as success, and restores the `.old` backup on every write failure instead of
   leaving it stranded or deleted.
+- `NetSetup` refuses to write a `CONFIGURE6` line against a
+  `bsdsocket.library` built without IPv6 (the minimal or micro drawer), instead
+  of leaving a configuration that library cannot use.
 - `AMINETXDUO_MAX_INTERFACES` above 32 is now a compile error; the DHCP
   resolver's pending-interface set is one 32-bit word and cannot name an
   index past bit 31.
