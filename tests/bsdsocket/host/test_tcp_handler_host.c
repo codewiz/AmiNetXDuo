@@ -1354,7 +1354,8 @@ static void t_session_listen(void)
 
 static void t_session_io(void)
 {
-    HPacket *find, *rd, *rd0, *rderr, *wr, *wrshort, *wrerr, *seek, *fh;
+    HPacket *find, *rd, *rd0, *rderr, *wr, *wrshort, *wrerr, *wrpartial;
+    HPacket *seek, *fh;
     HPacket *sig, *end;
     static char buf[64] __attribute__((aligned(4)));
 
@@ -1370,9 +1371,10 @@ static void t_session_io(void)
 
     h.recv_plan[0] = 12;    h.recv_plan[1] = 0;   h.recv_plan[2] = -1;
     h.recv_planned = 3;
-    /* One short write that has to be resumed, then a failure part way in. */
+    /* Complete a short write, then fail before and after partial progress. */
     h.send_plan[0] = 4;     h.send_plan[1] = 6;   h.send_plan[2] = -1;
-    h.send_planned = 3;
+    h.send_plan[3] = 4;     h.send_plan[4] = -1;
+    h.send_planned = 5;
 
     find    = h_open_session("TCP:host/telnet");
 
@@ -1381,6 +1383,7 @@ static void t_session_io(void)
     rderr   = h_packet(ACTION_READ,  0, (LONG)buf, 64);
     wr      = h_packet(ACTION_WRITE, 0, (LONG)buf, 10);
     wrerr   = h_packet(ACTION_WRITE, 0, (LONG)buf, 10);
+    wrpartial = h_packet(ACTION_WRITE, 0, (LONG)buf, 10);
     wrshort = h_packet(ACTION_READ,  0, (LONG)buf, 0);
     seek    = h_packet(ACTION_SEEK,  0, 0, 0);
     fh      = h_packet(ACTION_EXAMINE_FH, 0, 0, 0);
@@ -1394,6 +1397,7 @@ static void t_session_io(void)
     h_after[h_after_n++] = rderr;
     h_after[h_after_n++] = wr;
     h_after[h_after_n++] = wrerr;
+    h_after[h_after_n++] = wrpartial;
     h_after[h_after_n++] = wrshort;
     h_after[h_after_n++] = seek;
     h_after[h_after_n++] = end;
@@ -1412,11 +1416,14 @@ static void t_session_io(void)
 
     CHECK(wr->pkt.dp_Res1 == 10 && h.sent_total == 10,
           "a short write is resumed until the whole buffer is gone");
-    CHECK(h.send_calls == 3,
-          "two calls for the ten bytes and one for the write that failed");
+    CHECK(h.send_calls == 5,
+          "two calls for the full write, one early error, two partial writes");
     CHECK(wrerr->pkt.dp_Res1 == -1 &&
           wrerr->pkt.dp_Res2 == ERROR_DEVICE_NOT_MOUNTED,
-          "a failed write maps its errno");
+          "a write that sent nothing maps its errno");
+    CHECK(wrpartial->pkt.dp_Res1 == 4 && wrpartial->pkt.dp_Res2 == 0 &&
+          h.sent_total == 14,
+          "a write with partial progress reports the bytes already sent");
 
     CHECK(wrshort->pkt.dp_Res1 == 0,
           "a zero length read is zero bytes and no error");

@@ -542,7 +542,10 @@ static VOID tcp_session_write(TcpSession *s, struct DosPacket *pkt)
 
             AMI_WARN("TCP: write failed after %ld of %ld bytes, errno %ld",
                      (long)done, (long)length, (long)err);
-            tcp_reply(pkt, -1, tcp_dos_error(err), s->ts_Port);
+            if (done > 0)
+                tcp_reply(pkt, done, 0, s->ts_Port);
+            else
+                tcp_reply(pkt, -1, tcp_dos_error(err), s->ts_Port);
             return;
         }
     }
