@@ -365,16 +365,29 @@ static int line_holds_any(const char *hay, const char *list)
     return 0;
 }
 
+/* What one FGets() reads of the report: a longer line comes in pieces. */
+#define REPORT_CHUNK    (MAX_LINE + MAX_DIR + 40)
+
 /*
  * Did this attempt's output carry a line with `needle` and with none of the
  * comma-separated substrings in `stop`?  `from` is where the report stood
  * before the command ran, so only what this attempt appended is read.
+ *
+ * A line longer than REPORT_CHUNK arrives in pieces, and a piece is not a
+ * line: the needle in the first and a stop word in a later one was a pass,
+ * and a needle across the cut was never seen (F-205).  So what was found is
+ * kept until the newline that ends the line, and each piece is read with the
+ * last MAX_LINE - 1 characters of the one before it, the most a needle or a
+ * stop word can be, so a match across the cut is found too.
  */
 static int attempt_met(LONG from, const char *needle, const char *stop)
 {
     BPTR fh = Open((CONST_STRPTR)REPORT, MODE_OLDFILE);
-    char line[MAX_LINE + MAX_DIR + 40];
-    int  met = 0;
+    char buf[MAX_LINE - 1 + REPORT_CHUNK];
+    LONG carry     = 0;
+    int  has_it    = 0;
+    int  has_stop  = 0;
+    int  met       = 0;
 
     if (fh == (BPTR)0)
         return 0;
@@ -385,14 +398,39 @@ static int attempt_met(LONG from, const char *needle, const char *stop)
         return 0;
     }
 
-    while (!met && FGets(fh, (STRPTR)line, (ULONG)sizeof(line)) != NULL)
+    while (!met && FGets(fh, (STRPTR)(buf + carry), (ULONG)REPORT_CHUNK) != NULL)
     {
-        if (!line_holds(line, needle))
-            continue;
-        if (stop[0] != '\0' && line_holds_any(line, stop))
-            continue;
-        met = 1;
+        LONG len = carry;
+
+        while (buf[len] != '\0')
+            len++;
+
+        if (line_holds(buf, needle))
+            has_it = 1;
+        if (stop[0] != '\0' && line_holds_any(buf, stop))
+            has_stop = 1;
+
+        if (len > 0 && buf[len - 1] == '\n')
+        {
+            met      = has_it && !has_stop;
+            has_it   = 0;
+            has_stop = 0;
+            carry    = 0;
+        }
+        else
+        {
+            LONG keep = (len < MAX_LINE - 1) ? len : (LONG)(MAX_LINE - 1);
+            LONG i;
+
+            for (i = 0; i < keep; i++)
+                buf[i] = buf[len - keep + i];
+            carry = keep;
+        }
     }
+
+    /* The report's last line, with no newline after it. */
+    if (!met && has_it && !has_stop)
+        met = 1;
 
     Close(fh);
     return met;
