@@ -366,7 +366,7 @@ static ULONG bsd_budget_left(const BsdWaitBudget *b)
 }
 
 static LONG bsd_send_tcp_run(struct AmiSocketBase *base, AmiSocket *sock,
-                             BsdIovCursor *cur, LONG len, LONG flags,
+                             BsdIovCursor *cur, LONG len,
                              AmiSana2If *run, const BsdWaitBudget *tb)
 {
     NX_PACKET_POOL *pool = bsd_stack_pool(base);
@@ -659,7 +659,7 @@ static LONG bsd_send_tcp_cork(struct AmiSocketBase *base, AmiSocket *sock,
             bsd_tcp_send_fin(sock);
         if (bsd_cork_drain(base, sock, tb, run) != 0)
             return -1;
-        return bsd_send_tcp_run(base, sock, cur, len, flags, run, tb);
+        return bsd_send_tcp_run(base, sock, cur, len, run, tb);
     }
 
     bsd_send_mss_get(base, sock, &mss);
@@ -775,7 +775,7 @@ static LONG bsd_send_tcp_cork(struct AmiSocketBase *base, AmiSocket *sock,
         return (taken > 0) ? taken : bsd_cork_so_error(base, sock);
 
     /* Nothing pending: the rest takes the uncorked path. */
-    rest = bsd_send_tcp_run(base, sock, cur, len - taken, flags, run, tb);
+    rest = bsd_send_tcp_run(base, sock, cur, len - taken, run, tb);
     if (rest < 0)
         return (taken > 0) ? taken : -1;
 
@@ -857,7 +857,7 @@ static LONG bsd_send_tcp(struct AmiSocketBase *base, AmiSocket *sock,
         result = bsd_send_tcp_cork(base, sock, cur, len, flags, run, &tb);
     else
 #endif
-    result = bsd_send_tcp_run(base, sock, cur, len, flags, run, &tb);
+    result = bsd_send_tcp_run(base, sock, cur, len, run, &tb);
     ami_sana2_tx_run_end(run);
 
     return result;
