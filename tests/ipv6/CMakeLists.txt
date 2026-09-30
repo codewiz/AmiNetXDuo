@@ -107,9 +107,13 @@ if(NOT CMAKE_CROSSCOMPILING)
         "${AMINETXDUO_NETXDUO}/common/src/nxd_ipv6_default_router_add_internal.c"
         "${AMINETXDUO_NETXDUO}/common/src/nxd_ipv6_find_max_prefix_length.c"
         "${AMINETXDUO_NETXDUO}/common/src/nxd_ipv6_prefix_router_timer_tick.c"
-        "${AMINETXDUO_NETXDUO}/common/src/nx_ipv6_util.c")
+        "${AMINETXDUO_NETXDUO}/common/src/nx_ipv6_util.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nxd_icmpv6_ra_flag_callback_set.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nxd_icmpv6_ra_flag_interface_callback_set.c"
+        "${CMAKE_SOURCE_DIR}/src/netstack/dhcpv6_wire.c")
 
     target_include_directories(test_ipv6_ra PRIVATE
+        "${CMAKE_SOURCE_DIR}/src/netstack"              # dhcpv6_wire.h
         "${CMAKE_SOURCE_DIR}/tests/perf/host/shim"      # tx_port.h, first
         "${AMINETXDUO_NETXDUO}/ports/linux/gnu/inc"     # nx_port.h
         "${CMAKE_SOURCE_DIR}/port/netxduo-amiga/inc"    # nx_user.h, ours

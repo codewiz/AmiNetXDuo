@@ -27,6 +27,16 @@ AmiDhcpv6Action ami_dhcpv6_action_for_ra(unsigned int ra_flag)
     return AMI_DHCPV6_ACT_NONE;
 }
 
+AmiDhcpv6Action ami_dhcpv6_action_for_ra_on(unsigned int selected_interface,
+                                            unsigned int ra_interface,
+                                            unsigned int ra_flag)
+{
+    if (ra_interface != selected_interface)
+        return AMI_DHCPV6_ACT_NONE;
+
+    return ami_dhcpv6_action_for_ra(ra_flag);
+}
+
 AmiDhcpv6Action ami_dhcpv6_resume_action(unsigned int created,
                                          unsigned int started,
                                          unsigned int asked,
