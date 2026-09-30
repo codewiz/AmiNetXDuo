@@ -243,18 +243,6 @@ static BOOL ask_address(const char *prompt, const char *suggestion,
 
 /* ------------------------------------------------------------ validation, */
 
-/* A netmask is a run of ones then a run of zeroes, so 255.255.0.255 is not one. */
-static BOOL netmask_is_sane(ULONG mask)
-{
-    ULONG inverted = ~mask;
-
-    if (mask == 0)
-        return FALSE;
-
-    /* Contiguous ones <=> ~mask + 1 is a power of two (or zero). */
-    return (BOOL)((inverted & (inverted + 1UL)) == 0UL);
-}
-
 /* 10.x -> /8, 172.16-31 -> /16, 192.168 -> /24, otherwise by old class rules. */
 static ULONG default_netmask(ULONG address)
 {
@@ -862,17 +850,14 @@ static BOOL ask_static_details(Plan *plan)
     ami_config_format_ip(default_netmask(plan->address), suggestion,
                          sizeof(suggestion));
 
-    for (;;)
-    {
-        if (!ask_address("Netmask", suggestion, &plan->netmask, FALSE))
-            return FALSE;
-
-        if (netmask_is_sane(plan->netmask))
-            break;
-
-        tool_printf("  That is not a usable netmask: it must be a run of\n");
-        tool_printf("  255s followed by 0s, like 255.255.255.0.\n");
-    }
+    /*
+     * Any dotted mask the parser accepts is kept. A netmask that is not a run
+     * of 255s then 0s is unusual, but the stack, the config loader and the
+     * command line all accept it, so an interactive setup must not reject a
+     * mask the machine will then load (F-142).
+     */
+    if (!ask_address("Netmask", suggestion, &plan->netmask, FALSE))
+        return FALSE;
 
     tool_printf("\nThe router (gateway) is what reaches everything outside\n");
     tool_printf("this network. If there is no router, leave this empty.\n");

@@ -40,6 +40,9 @@ version at the top when it merges.
 - `NetSetup` refuses to write a `CONFIGURE6` line against a
   `bsdsocket.library` built without IPv6 (the minimal or micro drawer), instead
   of leaving a configuration that library cannot use.
+- `NetSetup` no longer rejects a non-contiguous netmask entered interactively,
+  matching the command line and the config loader, which accept any dotted
+  mask the stack itself will use.
 - `AMINETXDUO_MAX_INTERFACES` above 32 is now a compile error; the DHCP
   resolver's pending-interface set is one 32-bit word and cannot name an
   index past bit 31.
