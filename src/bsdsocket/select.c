@@ -12,17 +12,11 @@
 #include <proto/timer.h>
 
 
-/* The largest timeout WaitSelect() accepts.  The autodoc's 100,000,000 s
-   cannot be honoured: the deadline is kept in 32-bit *signed* ticks
-   (wanted_due - now), and a timeout whose tick total exceeds LONG_MAX reads
-   back as a negative remainder after an early kept-timer fire, so the wait
-   returns early (F-066).  The tick total is secs*TX_TIMER_TICKS_PER_SECOND
-   plus the sub-second part rounded up to a whole tick (up to one more
-   tick-second), so the largest whole-second count whose total always stays
-   under LONG_MAX is one second less than LONG_MAX/TPS.  On the Amiga port's
-   50 Hz tick that is 42,949,671 s (~497 days). */
-#define BSD_SELECT_MAX_SECS \
-    (0x7FFFFFFFUL / (ULONG)TX_TIMER_TICKS_PER_SECOND - 1UL)
+/* The largest timeout WaitSelect() accepts, from the autodoc.  A timeout this
+   large cannot be represented in 32-bit *signed* ticks: below, a tick total
+   past LONG_MAX takes the terminal timer path (arm the full timeval, no
+   re-arm) instead of the signed (wanted_due - now) deadline (F-066). */
+#define BSD_SELECT_MAX_SECS 100000000UL
 
 /* fd_set is an array of 32-bit words, bit (fd % 32) of word (fd / 32). */
 #define BSD_FD_WORD(fd)     ((ULONG)(fd) / BSD_FD_BITS)
@@ -844,6 +838,7 @@ LONG bsd_WaitSelect(register LONG nfds                __asm("d0"),
     ULONG      wait_mask;
     BOOL       timer_running = FALSE;   /* this wait relies on the request */
     ULONG      wanted_due    = 0UL;     /* the tick this wait's timeout is at */
+    BOOL       terminal_wait = FALSE;   /* tick total > LONG_MAX: no re-arm */
     BOOL       poll_only     = FALSE;
 
     if (nfds < 0)
@@ -987,13 +982,29 @@ LONG bsd_WaitSelect(register LONG nfds                __asm("d0"),
                 ULONG now   = tx_time_get();
                 ULONG want  = bsd_timeout_ticks(timeout);
 
-                wanted_due = now + want;
+                /* A tick total past LONG_MAX cannot drive the signed
+                   (wanted_due - now) deadline: after an early kept-timer fire
+                   the remainder reads back negative and the wait returns at
+                   once (F-066).  For those, keep no earlier request, arm the
+                   full timeval, and let its completed reply be the terminal
+                   timeout -- nothing is re-armed. */
+                terminal_wait = (want > 0x7FFFFFFFUL);
 
-                /* A request still out is kept unless it would fire more than
-                   a tick after this wait's deadline. */
-                if (bsd_timer_reap(SocketBase) &&
-                    (LONG)(SocketBase->sb_TimerDue - now) > (LONG)want + 1L)
+                if (terminal_wait)
+                {
+                    bsd_timer_reap(SocketBase);
                     bsd_timer_cancel(SocketBase);
+                }
+                else
+                {
+                    wanted_due = now + want;
+
+                    /* A request still out is kept unless it would fire more
+                       than a tick after this wait's deadline. */
+                    if (bsd_timer_reap(SocketBase) &&
+                        (LONG)(SocketBase->sb_TimerDue - now) > (LONG)want + 1L)
+                        bsd_timer_cancel(SocketBase);
+                }
 
                 /* Reaped or cancelled, so a set bit is stale; a kept request
                    sets it again when it fires. */
@@ -1016,6 +1027,13 @@ LONG bsd_WaitSelect(register LONG nfds                __asm("d0"),
         {
             Signal(SocketBase->sb_Task, received & break_mask);
 
+            /* The terminal request (tick total past LONG_MAX) has no signed
+               due time; leave it out here and the next wait's keep/cancel
+               would judge a zero sb_TimerDue and keep a ~3-year request for
+               a one-second one (F-066).  Take it back before returning. */
+            if (terminal_wait && SocketBase->sb_TimerArmed)
+                bsd_timer_cancel(SocketBase);
+
             return bsd_waitselect_fail(SocketBase, signals, got_signals,
                                        AMI_EINTR);
         }
@@ -1034,21 +1052,27 @@ LONG bsd_WaitSelect(register LONG nfds                __asm("d0"),
             SocketBase->sb_TimerArmed = FALSE;
 
             /* A kept request armed for an earlier wait fires early for this
-               one: arm the remainder and keep waiting. */
-            now  = tx_time_get();
-            left = (LONG)(wanted_due - now);
-            if (left > 0)
+               one: arm the remainder and keep waiting.  The terminal path
+               (tick total past LONG_MAX) has no remainder to compute -- its
+               full timeval just elapsed, so it falls through and ends. */
+            if (!terminal_wait)
             {
-                /* The remainder, split in ticks instead of multiplied through
-                   BSD_TICK_US: `left * BSD_TICK_US` is 32-bit and wraps once
-                   the remainder exceeds ~214748 ticks (about 71 minutes), so a
-                   large accepted timeout re-armed for far too little (F-066). */
-                ULONG secs  = (ULONG)left / (ULONG)TX_TIMER_TICKS_PER_SECOND;
-                ULONG micro = ((ULONG)left % (ULONG)TX_TIMER_TICKS_PER_SECOND) *
-                              BSD_TICK_US;
+                now  = tx_time_get();
+                left = (LONG)(wanted_due - now);
+                if (left > 0)
+                {
+                    /* The remainder, split in ticks instead of multiplied
+                       through BSD_TICK_US: `left * BSD_TICK_US` is 32-bit and
+                       wraps once the remainder exceeds ~214748 ticks (about 71
+                       minutes), so a large accepted timeout re-armed for far
+                       too little (F-066). */
+                    ULONG secs  = (ULONG)left / (ULONG)TX_TIMER_TICKS_PER_SECOND;
+                    ULONG micro = ((ULONG)left % (ULONG)TX_TIMER_TICKS_PER_SECOND) *
+                                  BSD_TICK_US;
 
-                bsd_timer_arm(SocketBase, secs, micro, wanted_due);
-                continue;
+                    bsd_timer_arm(SocketBase, secs, micro, wanted_due);
+                    continue;
+                }
             }
 
             timer_running = FALSE;
@@ -1065,7 +1089,13 @@ LONG bsd_WaitSelect(register LONG nfds                __asm("d0"),
         }
     }
 
-    /* A wait that ended on data leaves the request out for the next one. */
+    /* A wait that ended on data leaves the request out for the next one,
+       whose deadline arithmetic keeps it when it still fits a signed tick.
+       The terminal path has no such deadline: it armed for a tick total past
+       LONG_MAX, so leaving it out would hand the next wait a due time it
+       cannot judge.  Take it back instead (F-066). */
+    if (terminal_wait && SocketBase->sb_TimerArmed)
+        bsd_timer_cancel(SocketBase);
 
     if (count <= 0 && words > 0)
     {
