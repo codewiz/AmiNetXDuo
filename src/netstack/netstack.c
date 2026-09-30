@@ -344,6 +344,16 @@ static VOID ami_ns_destroy(AmiNetStack *ns)
 _Static_assert((int)AMI_CFG_MAX_ATTACHED == (int)NX_MAX_PHYSICAL_INTERFACES,
                "AMI_CFG_MAX_ATTACHED must equal NX_MAX_PHYSICAL_INTERFACES");
 
+/*
+ * The DHCP resolver records which interfaces have a pending DNS reconcile in a
+ * single ULONG (AmiNsDnsPending.interfaces, netstack_dns_handoff.h).  A DHCP
+ * callback can name any attached interface, so above 32 interfaces the mark
+ * drops index 32+ (netstack_dns_handoff.c) and the absorb loop shifts 1UL << 32.
+ * Cap the online-interface knob at the 32 bits the mask actually has.
+ */
+_Static_assert(NX_MAX_PHYSICAL_INTERFACES <= 32,
+               "at most 32 interfaces: the DHCP resolver's pending mask is one ULONG");
+
 static LONG ami_ns_open_devices(AmiNetStack *ns)
 {
     UWORD i;

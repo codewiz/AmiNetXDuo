@@ -9,6 +9,9 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `AMINETXDUO_MAX_INTERFACES` above 32 is now a compile error; the DHCP
+  resolver's pending-interface set is one 32-bit word and cannot name an
+  index past bit 31.
 - `AddNetInterface` gives a static interface with no `NETMASK` line the same
   /24 default the start-up pass does, instead of a zero mask that made the
   interface treat the whole address space as directly reachable.
