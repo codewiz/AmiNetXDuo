@@ -188,8 +188,21 @@ VOID tool_explain_device(const char *device, ULONG unit, const char *card)
     const char *where = tool_device_where(device);
     LONG        probe;
 
-    if (card != NULL && *card != '\0' &&
-        tool_device_probe(device, unit, card) != 0 &&
+    /*
+     * The probe as asked, card and all, first.  A pinned card that opened and
+     * then refused S2_DEVICEQUERY is present: say so with its codes, before
+     * the unpinned probe below resets them, or that probe's success read as
+     * "there is no such card" (F-215).
+     */
+    probe = tool_device_probe(device, unit, card);
+
+    if (probe == TOOL_PROBE_REFUSED)
+    {
+        tool_explain_device_refused(device, unit);
+        return;
+    }
+
+    if (card != NULL && *card != '\0' && probe != 0 &&
         tool_device_probe(device, unit, NULL) == 0)
     {
         tool_printf("  %s unit %lu opens, but there is no %s in this "
@@ -197,15 +210,6 @@ VOID tool_explain_device(const char *device, ULONG unit, const char *card)
                     (LONG)device, unit, (LONG)card);
         tool_printf("  Correct the CARD line in DEVS:NetInterfaces/, or "
                     "remove it and let UNIT choose.\n");
-        return;
-    }
-
-
-    probe = tool_device_probe(device, unit, card);
-
-    if (probe == TOOL_PROBE_REFUSED)
-    {
-        tool_explain_device_refused(device, unit);
         return;
     }
 
