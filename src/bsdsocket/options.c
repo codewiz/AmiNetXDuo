@@ -123,7 +123,12 @@ VOID bsd_opt_apply_ip(AmiSocket *sock)
 
 /*
  * struct timeval -> ThreadX ticks, rounded up so a tiny timeout still waits.
+ * The sub-second product and its rounding bias must both fit in a 32-bit
+ * ULONG: 999999 * rate + 999999 <= 0xffffffff.  Reject an unsupported
+ * custom tick rate at build time rather than silently shortening timeouts.
  */
+_Static_assert(NX_IP_PERIODIC_RATE >= 1 && NX_IP_PERIODIC_RATE <= 4293,
+               "NX_IP_PERIODIC_RATE overflows timeval tick conversion");
 static BOOL bsd_timeval_ticks(const struct timeval *tv, ULONG *out)
 {
     ULONG seconds;
