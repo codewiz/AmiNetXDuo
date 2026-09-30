@@ -31,6 +31,7 @@
 #include "genetreg.h"
 #include "genet_ring.h"
 #include "genet_phy.h"
+#include <aminetxduo/asm_abi.h>
 #include "genet_words.h"
 #include "dp8390.h"     /* the DP8390_TX_* return codes are the shared contract */
 #include "n68k_iocopy.h"
@@ -567,8 +568,10 @@ __asm__(
 "    rts\n"
 );
 extern VOID ge_sup_cpushp(VOID);
-extern VOID ge_sup_pages_call(ULONG first, ULONG pages,
-                              struct ExecBase *sysbase);
+/* The asm above reads its arguments at 12..20(sp), so the stack pin
+   (aminetxduo/asm_abi.h). */
+extern AMIGA_ASM_ARGS VOID ge_sup_pages_call(ULONG first, ULONG pages,
+                                             struct ExecBase *sysbase);
 
 static VOID ge_sup_pages(ULONG first, ULONG pages)
 {

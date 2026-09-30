@@ -74,6 +74,7 @@ BOOL  nd_cache_ram_in(ULONG lo, ULONG hi);
 #include <exec/execbase.h>
 #include <exec/memory.h>
 #include <proto/exec.h>
+#include <aminetxduo/asm_abi.h>
 
 extern struct ExecBase *SysBase;
 
@@ -120,8 +121,10 @@ extern VOID nd_sup_tt_read(VOID);
 extern VOID nd_sup_tt0_write(VOID);
 extern VOID nd_sup_tt1_write(VOID);
 
-extern VOID nd_super_call(VOID (*fn)(VOID), APTR operand,
-                          struct ExecBase *sysbase);
+/* The asm above reads its arguments at 12..20(sp), so the stack pin
+   (aminetxduo/asm_abi.h). */
+extern AMIGA_ASM_ARGS VOID nd_super_call(VOID (*fn)(VOID), APTR operand,
+                                         struct ExecBase *sysbase);
 
 static VOID nd_super(VOID (*fn)(VOID), APTR operand)
 {
