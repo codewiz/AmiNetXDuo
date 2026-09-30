@@ -88,6 +88,13 @@ static BOOL host_deadline_passed(const HostDeadline *d)
                   CheckIO((struct IORequest *)d->req) != NULL);
 }
 
+/* The deadline is claimed only where the library was told of it: a base
+   that refused the mask was bounded by its own 30 seconds, not by this. */
+static BOOL host_late(const HostDeadline *d, BOOL enforced)
+{
+    return (BOOL)(enforced && host_deadline_passed(d));
+}
+
 /* Every exit: the request back, the device closed, the signal cleared. */
 static VOID host_deadline_close(HostDeadline *d)
 {
@@ -132,6 +139,7 @@ int main(int argc, char **argv)
     ULONG           old_mask = SIGBREAKF_CTRL_C;
     BOOL            mask_set = FALSE;
     BOOL            late = FALSE;
+    BOOL            enforced = FALSE;   /* the path taken was really told */
     HostDeadline    deadline;
     int             rc;
 
@@ -235,9 +243,10 @@ int main(int argc, char **argv)
     if (ami_config_parse_ip(name, &addr))
     {
         ok = tool_stack_lookup_addr(addr, text, sizeof(text));
+        enforced = tool_stack_break_armed();
         if (ok)
             tool_printf("%s is %s\n", (LONG)name, (LONG)text);
-        else if (!host_deadline_passed(&deadline))
+        else if (!host_late(&deadline, enforced))
             tool_error("no name for %s", (LONG)name);
     }
     else if (tool_sock_have_addrinfo(sbase))
@@ -252,6 +261,8 @@ int main(int argc, char **argv)
         hints.ai_next      = NULL;
 
         ok = FALSE;
+
+        enforced = mask_set;
 
         if (tool_sock_getaddrinfo(sbase, name, NULL, &hints, &list) == 0)
         {
@@ -275,7 +286,7 @@ int main(int argc, char **argv)
             tool_sock_freeaddrinfo(sbase, list);
         }
 
-        if (!ok && !host_deadline_passed(&deadline) &&
+        if (!ok && !host_late(&deadline, enforced) &&
             tool_sock_family_absent(sbase, name, family))
         {
             tool_sock_say_no_family(name, family);
@@ -283,7 +294,7 @@ int main(int argc, char **argv)
         }
         else if (!ok)
         {
-            if (!host_deadline_passed(&deadline))
+            if (!host_late(&deadline, enforced))
                 tool_error("cannot resolve \"%s\"", (LONG)name);
         }
     }
@@ -299,6 +310,7 @@ int main(int argc, char **argv)
     else
     {
         ok = tool_stack_lookup(name, &addr);
+        enforced = tool_stack_break_armed();
         if (ok)
         {
             ami_config_format_ip(addr, text, sizeof(text));
@@ -306,12 +318,12 @@ int main(int argc, char **argv)
         }
         else
         {
-            if (!host_deadline_passed(&deadline))
+            if (!host_late(&deadline, enforced))
                 tool_error("cannot resolve \"%s\"", (LONG)name);
         }
     }
 
-    late = (BOOL)(!ok && host_deadline_passed(&deadline));
+    late = (BOOL)(!ok && host_late(&deadline, enforced));
 
     tool_stack_break_extra(0UL);
     if (mask_set)

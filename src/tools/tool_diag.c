@@ -924,19 +924,29 @@ BOOL tool_sock_breakmask(struct Library *base, ULONG mask, ULONG *old)
 }
 
 /* Added to the break mask of the base each lookup below opens for itself;
-   0 leaves it as the library sets it. */
+   0 leaves it as the library sets it.  tool_lookup_armed says whether the
+   last lookup's base took it, so a caller claims its deadline only when the
+   library was really told (F-199). */
 static ULONG tool_lookup_break;
+static BOOL  tool_lookup_armed;
 
 VOID tool_stack_break_extra(ULONG sigmask)
 {
     tool_lookup_break = sigmask;
+    tool_lookup_armed = FALSE;
+}
+
+BOOL tool_stack_break_armed(VOID)
+{
+    return tool_lookup_armed;
 }
 
 static VOID tool_lookup_arm(struct Library *base)
 {
-    if (tool_lookup_break != 0)
-        (VOID)tool_sock_breakmask(base, SIGBREAKF_CTRL_C | tool_lookup_break,
-                                  NULL);
+    tool_lookup_armed = (BOOL)(tool_lookup_break != 0 &&
+                               tool_sock_breakmask(base,
+                                                   SIGBREAKF_CTRL_C |
+                                                   tool_lookup_break, NULL));
 }
 
 /*
