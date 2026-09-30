@@ -40,30 +40,35 @@ VOID httpd_read_gmt_offset(VOID)
     LocaleBase = NULL;
 }
 
-/* A DateStamp as seconds since 1970, in GMT. */
+/* The last second 32 bits hold: Sun, 07 Feb 2106 06:28:15 GMT.  A later
+   date is given as this one rather than wrapped into the 1970s (F-217). */
+#define HTTPD_SECS_MAX     0xffffffffULL
+
+/* A DateStamp as seconds since 1970, in GMT.  Summed in 64 bits and clamped
+   once, so a zone east of GMT still brings a date back under the limit. */
 ULONG httpd_stamp_secs(const struct DateStamp *ds)
 {
-    ULONG secs;
+    unsigned long long secs;
 
     if (ds->ds_Days < 0 || ds->ds_Minute < 0 || ds->ds_Tick < 0)
         return HTTPD_AMIGA_EPOCH;
 
-    secs  = (ULONG)ds->ds_Days * 86400UL;
-    secs += (ULONG)ds->ds_Minute * 60UL;
-    secs += (ULONG)ds->ds_Tick / (ULONG)TICKS_PER_SECOND;
+    secs  = (unsigned long long)ds->ds_Days * 86400ULL;
+    secs += (unsigned long long)ds->ds_Minute * 60ULL;
+    secs += (unsigned long long)ds->ds_Tick / TICKS_PER_SECOND;
     secs += HTTPD_AMIGA_EPOCH;
 
     /* loc_GMTOffset is minutes west, so GMT is later than local time here. */
     if (httpd_gmt_west > 0)
-        secs += (ULONG)httpd_gmt_west * 60UL;
+        secs += (unsigned long long)httpd_gmt_west * 60ULL;
     else if (httpd_gmt_west < 0)
     {
-        ULONG east = (ULONG)(-httpd_gmt_west) * 60UL;
+        unsigned long long east = (unsigned long long)(-httpd_gmt_west) * 60ULL;
 
-        secs = (secs > east) ? (secs - east) : 0UL;
+        secs = (secs > east) ? (secs - east) : 0ULL;
     }
 
-    return secs;
+    return (secs > HTTPD_SECS_MAX) ? (ULONG)HTTPD_SECS_MAX : (ULONG)secs;
 }
 
 /* Seconds of local time since the Amiga epoch.  It can step backwards if the
