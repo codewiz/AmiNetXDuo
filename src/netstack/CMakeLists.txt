@@ -23,6 +23,7 @@ set(NETSTACK_SOURCES
     netstack_config_runtime.c
     netstack_gateway.c
     netstack_gateway_apply.c
+    netstack_mask.c
     netstack_pool.c
     netstack_pool_runtime.c
     netstack_memlist.c

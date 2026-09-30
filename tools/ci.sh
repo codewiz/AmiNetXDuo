@@ -390,7 +390,9 @@ host_test_targets() { # builddir
 #      bracket is refused, not nested (F-042), x86_64 only
 #      485 with aam_delete_inflight: DeleteAddrAllocMessage() on a message a
 #      worker still owns orphans it for the worker to free (F-029), x86_64 only
-HOST_TESTS_EXPECTED=485
+#      486 with test_mask: a static interface with no NETMASK line gets the
+#      same /24 the start-up pass substitutes (F-019)
+HOST_TESTS_EXPECTED=486
 case "$(uname -m)" in
     x86_64|amd64) ;;
     # test_inet, test_route, test_expunge, test_expunge_cork, test_select,

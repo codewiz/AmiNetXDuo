@@ -9,6 +9,9 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `AddNetInterface` gives a static interface with no `NETMASK` line the same
+  /24 default the start-up pass does, instead of a zero mask that made the
+  interface treat the whole address space as directly reachable.
 - The remote-framebuffer encoder refuses a screen whose tile grid does not fit
   the 16-bit index the frames carry on the wire; a grid that large had its
   indices truncated, and the browser drew a corrupted picture with no error on

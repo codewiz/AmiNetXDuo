@@ -863,6 +863,22 @@ if(NOT CMAKE_CROSSCOMPILING)
 
     add_test(NAME slot COMMAND test_slot)
 
+    # A static interface whose file omits NETMASK must carry the same /24 the
+    # start-up pass substitutes, not a zero mask that makes NetX Duo treat the
+    # whole address space as on-link.
+    add_executable(test_mask
+        host/test_mask_host.c
+        "${CMAKE_SOURCE_DIR}/src/netstack/netstack_mask.c")
+
+    target_include_directories(test_mask PRIVATE
+        "${CMAKE_SOURCE_DIR}/src/config/test/shim"     # exec/types.h
+        "${CMAKE_SOURCE_DIR}/src/netstack"
+        "${CMAKE_SOURCE_DIR}/include")
+
+    target_compile_options(test_mask PRIVATE -Wall -Wextra -Werror)
+
+    add_test(NAME mask COMMAND test_mask)
+
     # What the IPTYPE lines add up to: whether the bring-up starts DHCP, waits
     # for an address at all, and which slot the RFC 3927 fallback serves.
     # config_parse.c comes along for ami_config_iface_wants_ipv4(), the one

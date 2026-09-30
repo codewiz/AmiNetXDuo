@@ -7,6 +7,7 @@
 #include "netstack_internal.h"
 #include "netstack_iptype.h"
 #include "netstack_slot.h"
+#include "netstack_mask.h"
 #ifdef AMINETXDUO_DHCP
 #include "netstack_dhcp_wire.h"
 #endif
@@ -1480,9 +1481,7 @@ static LONG ami_ns_configure_addresses(AmiNetStack *ns)
          * interface that says so, and does not count as resolved.
          */
         status = nx_ip_interface_address_set(&ns->ns_Ip, (UINT)i, cfg->address,
-                                             (cfg->netmask != 0UL)
-                                                 ? cfg->netmask
-                                                 : 0xFFFFFF00UL);
+                                             ami_ns_static_netmask(cfg->netmask));
         if (status != NX_SUCCESS)
         {
             ami_event(NETEVENT_ADDR_REFUSED, (UWORD)i, (ULONG)status);
@@ -3264,7 +3263,8 @@ static LONG ami_ns_interface_add_locked(const AmiIfConfig *cfg,
                                     (slot_cfg->iptype == AMI_IPTYPE_STATIC)
                                         ? slot_cfg->address : 0UL,
                                     (slot_cfg->iptype == AMI_IPTYPE_STATIC)
-                                        ? slot_cfg->netmask : 0UL,
+                                        ? ami_ns_static_netmask(slot_cfg->netmask)
+                                        : 0UL,
                                     ami_sana2_driver_entry);
 
     /*
