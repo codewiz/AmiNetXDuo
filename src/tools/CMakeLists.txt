@@ -938,6 +938,12 @@ if(NOT CMAKE_CROSSCOMPILING)
     target_compile_options(test_payverdict PRIVATE -Wall -Wextra)
     add_test(NAME paysum_verdict COMMAND test_payverdict)
 
+    # nslookup's TXT join counts what does not fit instead of dropping it (F-171).
+    add_executable(test_nsltxt test/test_nsltxt.c)
+    target_include_directories(test_nsltxt PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_compile_options(test_nsltxt PRIVATE -Wall -Wextra)
+    add_test(NAME nslookup_txt COMMAND test_nsltxt)
+
     # nslookup's TIMEOUT split into 200 ms slices over three attempts (F-170).
     add_executable(test_nslbudget test/test_nslbudget.c)
     target_include_directories(test_nslbudget PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

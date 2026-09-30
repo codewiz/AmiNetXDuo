@@ -7,6 +7,7 @@
 
 #include "toolsock.h"
 #include "nslbudget.h"
+#include "nsltxt.h"
 
 #include "aminetxduo/version.h"
 
@@ -127,13 +128,6 @@ static VOID nsl_put16(UBYTE *p, UWORD v)
  * moves the cursor, clears the window and changes the mode. Names and TXT
  * records are free text chosen by whoever runs the zone.
  */
-static char nsl_safe_char(UBYTE c)
-{
-    if (c < 0x20 || (c >= 0x7f && c <= 0x9f))
-        return '?';
-
-    return (char)c;
-}
 
 /*
  * A name in wire form: each label prefixed by its length, a zero label for the
@@ -472,26 +466,18 @@ static BOOL nsl_print_record(const UBYTE *msg, UWORD type, ULONG rdata,
              * DKIM and verification tokens get split across them by the
              * 255-byte limit and are meant to be read joined, so join them.
              */
-            ULONG p   = rdata;
-            ULONG end = rdata + rdlen;
-            ULONG o   = 0;
+            unsigned long omitted;
 
-            while (p < end)
-            {
-                ULONG n = (ULONG)msg[p++];
-                ULONG i;
+            if (!nsl_txt_join(msg, rdata, rdata + rdlen, nsl_text,
+                              sizeof(nsl_text), &omitted))
+                return FALSE;
 
-                if (p + n > end)
-                    return FALSE;
-
-                for (i = 0; i < n && o + 1 < sizeof(nsl_text); i++)
-                    nsl_text[o++] = nsl_safe_char(msg[p + i]);
-
-                p += n;
-            }
-
-            nsl_text[o] = '\0';
-            tool_printf("  text       \"%s\"\n", (LONG)nsl_text);
+            /* Marked only when bytes were left out (F-171). */
+            if (omitted != 0)
+                tool_printf("  text       \"%s\" (%lu more bytes not shown)\n",
+                            (LONG)nsl_text, (ULONG)omitted);
+            else
+                tool_printf("  text       \"%s\"\n", (LONG)nsl_text);
             break;
         }
 
