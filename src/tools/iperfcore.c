@@ -748,7 +748,11 @@ static VOID iperf_slice_recv(IperfRun *run)
                        gives as the total (F-164). */
                     unsigned long last = 0UL - (unsigned long)id;
 
-                    if (last >= (unsigned long)run->expect)
+                    /* Wire ids are 32 bits.  A forged -LONG_MAX or LONG_MIN
+                       would push expect past LONG_MAX, and the report
+                       subtracts from it. */
+                    if (last >= (unsigned long)run->expect &&
+                        last < 0x7fffffffUL)
                         run->expect = (long)(last + 1UL);
 
                     run->res.ms     = ami_millis() - run->t_begin;
@@ -945,8 +949,9 @@ static VOID iperf_slice_report(IperfRun *run)
     rep.lost        = run->res.lost;
     rep.outoforder  = run->res.outoforder;
     /* The highest id seen, end marker included: iperf 2's total, which its
-       client prints as lost/total (F-164). */
-    rep.datagrams   = (ULONG)(run->expect - 1);
+       client prints as lost/total (F-164).  Unsigned, so a data id of
+       LONG_MAX that wrapped expect cannot overflow it again here. */
+    rep.datagrams   = (ULONG)run->expect - 1UL;
     rep.jitter_sec  = 0;
     rep.jitter_usec = 0;
 
