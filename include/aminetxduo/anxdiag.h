@@ -225,9 +225,8 @@ extern "C" {
 #define ANXDIAG_WHY_NODMA      13   /* GENET: the RAM the rings got is not in
                                        the tree's physical memory, so the DMA
                                        could not have reached it              */
-#define ANXDIAG_WHY_ED_MEM     14   /* ED core: the mapped packet buffer did
-                                       not read back the pattern written to
-                                       it, so the buffer RAM is bad           */
+#define ANXDIAG_WHY_ED_MEM     14   /* ED core: mapped packet-buffer pattern
+                                       did not read back                    */
 
 /* ANXDIAG_MAC_SOURCE values. */
 #define ANXDIAG_MAC_PROM        0   /* the card's address PROM               */

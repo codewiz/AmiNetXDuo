@@ -90,7 +90,7 @@ static const char *cnd_why(ULONG why)
                "so the buffer RAM behind it is bad";
     case ANXDIAG_WHY_ED_MEM:
         return "the mapped packet buffer did not read back the pattern "
-               "written to it, so the RAM behind the window is bad";
+               "written to it; check the card RAM and address window";
     case ANXDIAG_WHY_ADDRESS:
         return "the card offered no usable station address";
     case ANXDIAG_WHY_REGS:
