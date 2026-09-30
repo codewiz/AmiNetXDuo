@@ -11,6 +11,11 @@ version at the top when it merges.
 
 - `httpd` uses the proper reason phrases for 304, 426 and 502 responses
   instead of printing `Unknown` in those status lines.
+- `telnet` reads from the socket between chunks of scripted input, not only
+  after the input ends. A large script against an echoing peer could fill the
+  receive buffer, stop the peer reading, and stall the blocking send before
+  input EOF; the socket is now polled after each chunk without slowing a
+  silent peer by 50 ms per chunk.
 - `telnet` flushes a carriage return held from the previous byte before it
   starts to read an IAC command. A CR followed by an escaped 0xFF (IAC IAC)
   put the 0xFF out first and then dropped the CR when the segment ended; the

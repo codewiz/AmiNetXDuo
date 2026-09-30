@@ -584,6 +584,7 @@ int main(int argc, char **argv)
         ToolTimeval tv;
         LONG        ready;
         LONG        n;
+        BOOL        poll = FALSE;
 
         if (tool_break())
         {
@@ -619,7 +620,19 @@ int main(int argc, char **argv)
                     (VOID)tool_output_write(tn_from_user, n);
 
                 tn_send_raw(&st, tn_staged, len);
-                continue;
+
+                /*
+                 * A keystroke is followed straight away by the next one, so
+                 * interactive input keeps polling the console.  Scripted input
+                 * must reach the socket read after every chunk: an echoing
+                 * peer fills the receive buffer while the whole file is still
+                 * being shovelled, and the blocking send then stalls.  Poll
+                 * the socket rather than wait, so a silent peer is not
+                 * throttled to one chunk per poll period.
+                 */
+                if (in.interactive)
+                    continue;
+                poll = TRUE;
             }
 
         }
@@ -628,7 +641,7 @@ int main(int argc, char **argv)
         tool_fd_add(&readfds, st.sock);
 
         tv.tv_secs  = 0;
-        tv.tv_micro = 50000;
+        tv.tv_micro = poll ? 0 : 50000;
 
         ready = tool_sock_select(sb, st.sock + 1, &readfds, NULL, &tv);
 
