@@ -345,7 +345,16 @@ static LONG nc_shovel(struct Library *sb, LONG sock, const NcOptions *opt)
              * full CPU, so this counts as an idle tick and is paced like one.
              */
             ready = 0;
-            (VOID)tool_delay_ticks(2);      /* ~40 ms, near the poll period */
+
+            /* ~40 ms, near the poll period.  A Ctrl-C seen during it has
+               been taken off the signal mask, so it ends the loop here as
+               the check at the top would have (F-185). */
+            if (tool_delay_ticks(2))
+            {
+                rc = RETURN_WARN;
+                tool_fault(ERROR_BREAK);
+                break;
+            }
         }
 
         if (ready == 0)
