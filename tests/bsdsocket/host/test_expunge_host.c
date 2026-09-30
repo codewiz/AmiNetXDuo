@@ -400,7 +400,7 @@ struct Process *CreateNewProc(const struct TagItem *t)
     h.create_proc_calls++;
     if (h.forbid_depth > 0)
         h.blocking_under_forbid++;
-    if (h_run_entry && t[0].ti_Tag == NP_Entry)
+    if (h_run_entry)                /* tags[0] is NP_Entry (library.c) */
     {
         ((VOID (*)(VOID))t[0].ti_Data)();
         return &h_proc;
@@ -1045,8 +1045,7 @@ static VOID t_orphans_restart_and_expunge(VOID)
     struct AmiSocketBase *opened;
     APTR                  r;
 
-    printf("leftovers of a dead stack at a restart and at expunge
-");
+    printf("leftovers of a dead stack at a restart and at expunge\n");
 
     /* The stack job starts a stack: the leftovers go first.  The startup is
        made to fail so the open stops at the job, which is all this needs. */
