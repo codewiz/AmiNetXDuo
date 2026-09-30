@@ -762,7 +762,9 @@ unsigned long fetch_head_status(const FetchHead *h)
 
 int fetch_head_interim(unsigned long status)
 {
-    return status >= 100UL && status < 200UL;
+    /* 101 is not one: after it the connection speaks another protocol
+       (RFC 9110 15.2.2), so there is no HTTP answer to read on (F-233). */
+    return status >= 100UL && status < 200UL && status != 101UL;
 }
 
 const char *fetch_head_field(const FetchHead *h, const char *name)

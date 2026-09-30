@@ -126,6 +126,8 @@ unsigned long fetch_head_status(const FetchHead *h);
  * parse one or more 1xx responses received prior to a final response, even if
  * the client does not expect one."  Restart the block and keep reading.
  */
+/* 101 Switching Protocols is excluded: it is the last HTTP a connection
+   carries, not a response before the real one. */
 int fetch_head_interim(unsigned long status);
 
 /* The value of a header, case-insensitively, or NULL.  `name` carries the

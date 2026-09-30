@@ -655,6 +655,22 @@ static LONG fetch_run(VOID)
                     }
 
                     /*
+                     * 101: the server switched this connection to another
+                     * protocol.  This request is HTTP/1.0 with no Upgrade, and
+                     * RFC 9110 15.2 forbids any 1xx to an HTTP/1.0 client, so
+                     * it was not asked for, and nothing after it is HTTP
+                     * (F-233).
+                     */
+                    if (status == 101)
+                    {
+                        tool_error("%s switched the connection to another "
+                                   "protocol (101) that this request did "
+                                   "not ask for", (LONG)u.host);
+                        rc = RETURN_ERROR;
+                        goto hop_done;
+                    }
+
+                    /*
                      * Decided before any body byte is written, so the user's
                      * file is never opened for an answer we are not going to
                      * keep.

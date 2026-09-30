@@ -533,9 +533,53 @@ static void test_content_length(void)
     CHECK(cl_of("HTTP/1.0 200 OK\r\nContent-Length-X: 5\r\n\r\n") == 0);
 }
 
+/* F-233: 101 Switching Protocols ends HTTP on the connection.  Taken for an
+   interim response, the bytes of the new protocol were parsed as the next
+   header block, which is never an HTTP status line. */
+static void test_switching_protocols_is_final(void)
+{
+    static const char wire[] =
+        "HTTP/1.1 101 Switching Protocols\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "\r\n"
+        "\x81\x05hello";
+
+    FetchHead     head;
+    char          buf[FETCH_HEAD_MAX];
+    unsigned long at    = 0;
+    unsigned long total = sizeof(wire) - 1;
+    int           interim = 0;
+
+    fetch_head_start(&head, buf, sizeof(buf));
+
+    for (;;)
+    {
+        at += fetch_head_feed(&head, (const unsigned char *)wire + at,
+                              total - at);
+        if (!head.complete || !fetch_head_interim(fetch_head_status(&head)))
+            break;
+
+        interim++;
+        fetch_head_start(&head, buf, sizeof(buf));
+    }
+
+    CHECK(interim == 0);
+    CHECK(head.complete);
+    CHECK(fetch_head_status(&head) == 101);
+
+    /* The others in 1xx are still interim. */
+    CHECK(fetch_head_interim(100));
+    CHECK(fetch_head_interim(102));
+    CHECK(fetch_head_interim(103));
+    CHECK(!fetch_head_interim(101));
+    CHECK(!fetch_head_interim(200));
+}
+
 int main(void)
 {
     test_rfc3986_examples();
+    test_switching_protocols_is_final();
     test_content_length();
     test_relative_redirects();
     test_fragment_is_dropped();
