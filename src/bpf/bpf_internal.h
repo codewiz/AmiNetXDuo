@@ -14,12 +14,16 @@
 
 #include "aminetxduo/bpf.h"
 #include "aminetxduo/compat.h"
+#include "aminetxduo/config.h"
 
 /* --------------------------------------------------------------- tunables */
 
 #ifndef AMI_BPF_MAX_IFACES
-#define AMI_BPF_MAX_IFACES      4
+#define AMI_BPF_MAX_IFACES      (AMI_CFG_MAX_ATTACHED + 1)
 #endif
+
+AMI_STATIC_ASSERT(AMI_BPF_MAX_IFACES >= AMI_CFG_MAX_ATTACHED + 1,
+                  "BPF needs one row per physical interface plus loopback");
 
 #define AMI_BPF_IFNAMSIZ        IFNAMSIZ
 

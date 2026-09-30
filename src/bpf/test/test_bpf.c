@@ -9,6 +9,7 @@
  */
 
 #include "bpf_internal.h"
+#include "aminetxduo/config.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -1768,6 +1769,31 @@ static void test_capture_state_hook(void)
     CHECK(cap_hook_calls == 5);
 }
 
+/* Every physical slot plus the synthetic loopback needs its own BPF row. */
+static void test_interface_registry_capacity(void)
+{
+    static UBYTE cookies[AMI_CFG_MAX_ATTACHED + 1];
+    char name[AMI_BPF_IFNAMSIZ];
+    unsigned i;
+
+    printf("bpf: physical interface and loopback capacity\n");
+    CHECK(ami_bpf_init() == 0);
+
+    for (i = 0; i < AMI_CFG_MAX_ATTACHED; i++)
+    {
+        snprintf(name, sizeof(name), "eth%u", i);
+        CHECK(ami_bpf_attach_interface(name, &cookies[i], DLT_EN10MB,
+                                       1500, test_inject) == 0);
+    }
+
+    CHECK(ami_bpf_attach_interface("lo0", &cookies[AMI_CFG_MAX_ATTACHED],
+                                   DLT_EN10MB, 1500, test_inject) == 0);
+    CHECK(ami_bpf_open(T_BPF_OWNER, 0) == 0);
+    CHECK(ami_bpf_ioctl(T_BPF_OWNER, 0, BIOCSETIF, "lo0") == 0);
+    CHECK(ami_bpf_close(T_BPF_OWNER, 0) == 0);
+    ami_bpf_cleanup();
+}
+
 /* -------------------------------------------------------------------- main */
 
 int main(int argc, char **argv)
@@ -1802,6 +1828,7 @@ int main(int argc, char **argv)
     test_getter_close_reopen();
     test_reopen_under_reader();
     test_capture_state_hook();
+    test_interface_registry_capacity();
 
     printf("\n%d checks, %d failure(s)\n", checks, failures);
 
