@@ -71,6 +71,18 @@ static char h_veto[4];
 static LONG     (*h_fd_hook)(LONG fd);
 static AmiSocket *h_freed;
 static ULONG      h_after_free;
+AmiSocket        *bsd_defer_head;
+
+/* Match socket.c's deferred-release bookkeeping when the NetX bracket is
+   unavailable; options.c now uses this on a refused Dup2Socket unwind. */
+VOID bsd_socket_defer(AmiSocket *sock)
+{
+    if (sock->as_DeferRefs++ == 0)
+    {
+        sock->as_DeferNext = bsd_defer_head;
+        bsd_defer_head = sock;
+    }
+}
 
 static void h_reset(void)
 {
@@ -88,6 +100,7 @@ static void h_reset(void)
     h_split      = 0;
     h_freed      = NULL;
     h_after_free = 0;
+    bsd_defer_head = NULL;
 }
 
 static AmiSocket *h_tcp(LONG fd)
@@ -1168,6 +1181,19 @@ static void t_dup2_interleave(void)
     CHECK(rc == -1 && h_base.sb_Errno == AMI_EMFILE, "closed and refused is the refusal");
     CHECK(h_freed == s && h_after_free == 0 && s->as_RefCount == 0,
           "and the socket is freed once, by the unwind");
+
+    h_reset();
+    s = h_tcp(0);
+    s->as_RefCount = 1;
+    h_fd_hook = h_close_source;
+    h_hook_result = 1;
+    h.nx_enter_result = -1;
+    rc = bsd_Dup2Socket(0, -1, &h_base);
+    CHECK(rc == -1 && h_base.sb_Errno == AMI_EMFILE,
+          "closed and refused with the stack down keeps the refusal errno");
+    CHECK(bsd_defer_head == s && s->as_DeferRefs == 1 &&
+          s->as_RefCount == 1 && h_freed == NULL,
+          "its last release waits for a NetX bracket instead of being lost");
 }
 
 /*
