@@ -152,6 +152,7 @@ static const char *cnd_chip(ULONG chip)
     case 2:  return "an Am7990 LANCE, which masters the bus itself";
     case 3:  return "a 3Com EtherLink III, windowed, with PIO FIFOs";
     case 4:  return "a Broadcom GENET v5, the Pi 4's own MAC, a bus master";
+    case 5:  return "an MNT ZZ9000, its Zynq's MAC behind the card's firmware";
     default: break;
     }
 
@@ -355,10 +356,13 @@ static VOID cnd_step(const AnxDiagStep *st)
         return;
     case ANXDIAG_ATTACH_OK:
         /*
-         * A LANCE has no data port, so it has no transfer mode: reporting
-         * bus.dmode would be an invented fact.
+         * Only the NE2000's remote-DMA port has a transfer mode: ne2000.c is
+         * the one driver that sets bus.dmode.  For the shared-memory DP8390
+         * (ed_copy_in/out), a LANCE, an EtherLink III, a GENET that moves
+         * frames by its own DMA or a ZZ9000 with its frame windows, reporting
+         * it would be an invented fact (F-155).
          */
-        if (cnd_chip_seen == 2 || cnd_chip_seen == 3)
+        if (cnd_chip_seen != 0)
         {
             say("  ATTACHED.\n");
             return;
@@ -483,11 +487,12 @@ static VOID cnd_step(const AnxDiagStep *st)
             "  card into the configuration chosen above.\n", v);
         return;
     case ANXDIAG_PC_CFCOUNT:
-        say("  The card describes %lu configuration table %s.  All of\n"
-            "  them are read, not just the first: an entry can describe a\n"
-            "  memory configuration, or an access width this driver cannot\n"
-            "  use, and the next one then still works.\n",
-            v, (ULONG)(APTR)(v == 1 ? "entry" : "entries"));
+        say("  %lu configuration table %s read.  The walk can go past the\n"
+            "  first -- an entry can describe a memory configuration, or an\n"
+            "  access width this driver cannot use -- and stops at the first\n"
+            "  usable 8-bit I/O entry, the end of the table or its limit of\n"
+            "  32, so the card may offer more than were read.\n",
+            v, (ULONG)(APTR)(v == 1 ? "entry was" : "entries were"));
         return;
     case ANXDIAG_PC_CFPICK:
         if (v == ANXDIAG_ABSENT)
@@ -504,10 +509,10 @@ static VOID cnd_step(const AnxDiagStep *st)
             v & 0x3f, (v >> 8) & 0xff, (v >> 16) & 0xff);
         if (((v >> 24) & 0xffUL) == 1)
         {
-            say("  It is the ONLY configuration the card offers, and it asks\n"
-                "  for 16-bit accesses while refusing 8-bit ones.  Every\n"
-                "  register path here is byte-wide, so a card that answers\n"
-                "  nothing below is refusing the width, not the address.\n");
+            say("  No entry read offers 8-bit I/O: the best of them asks for\n"
+                "  16-bit accesses while refusing 8-bit ones.  Every register\n"
+                "  path here is byte-wide, so a card that answers nothing\n"
+                "  below is refusing the width, not the address.\n");
         }
         return;
     case ANXDIAG_PC_IOWIN:
