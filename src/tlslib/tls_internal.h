@@ -152,6 +152,17 @@ typedef struct TLSResumeEntry
     UBYTE   re_Master[TLS_MASTER_SECRET_SIZE];
     UWORD   re_TicketLength;
     UBYTE   re_Ticket[TLS_RESUME_TICKET_MAX];
+
+    /*
+     * The roots the verified handshake was checked against, by index key and
+     * a digest of their exact DER (F-300 D2).  ts_Fingerprint covers the
+     * index only, so two stores with the same subjects at the same lengths
+     * share it; an offer re-reads each root from the current store and
+     * compares.  Zero roots on a verified entry is refused, never offered.
+     */
+    UBYTE   re_RootCount;
+    ULONG   re_RootKey[TLS_MAX_ROOTS];
+    ULONG   re_RootDigest[TLS_MAX_ROOTS];
 } TLSResumeEntry;
 
 /*
@@ -477,6 +488,16 @@ VOID  tls_packet_pool_delete(NX_PACKET_POOL *pool);
 LONG  tls_store_open(TLSStore *store, const char *path);
 VOID  tls_store_close(TLSStore *store);
 ULONG tls_store_count(const TLSStore *store);
+
+/*
+ * A digest of a root's exact DER, never 0; and the digest of the root the
+ * current store holds under `key`, read through tls_store_fetch() into
+ * `scratch`, or 0 when it has none or the store changed since TLSOpen()
+ * (F-300 D2).
+ */
+ULONG tls_store_der_digest(const UCHAR *der, ULONG length);
+ULONG tls_store_root_digest(TLSStore *store, ULONG key, UCHAR *scratch,
+                            ULONG size);
 #if defined(TLS_STORE_TEST)
 /* test_tls_store.c: the handshake's root read, without a handshake. */
 ULONG tls_store_test_fetch(TLSStore *store, ULONG key, UCHAR *buffer,

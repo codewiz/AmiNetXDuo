@@ -6,8 +6,10 @@
  * read A's offsets out of B's bytes.  The stores are real ACS1 files on disk
  * and the certificate bytes are opaque here: the fetch does not parse them.
  *
- * NOT covered, and not fixed by this: two stores with an identical index and
- * different certificate bytes at equal length still look the same (F-300 D2).
+ * Two stores with an identical index and different certificate bytes at equal
+ * length have the same fingerprint, which covers the index only; the root's
+ * digest, which tls_resume.c binds a verified session to, tells them apart
+ * (F-300 D2).
  *
  * SPDX-License-Identifier: MIT
  */
@@ -172,6 +174,12 @@ static const Root store_b[] = {
     { 0x30000000UL, "BBBB-root-three-der-bytes" },
 };
 
+/* A with root three's bytes changed at the same length: the same index. */
+static const Root store_d[] = {
+    { 0x20000000UL, "AAAA-root-two-der" },
+    { 0x30000000UL, "DDDD-root-three-der-bytes" },
+};
+
 /* A with root three replaced by a longer one: same count, other offsets. */
 static const Root store_c[] = {
     { 0x20000000UL, "AAAA-root-two-der" },
@@ -223,6 +231,30 @@ int main(void)
     write_store(path, store_a, 2);
     n = tls_store_test_fetch(&store, 0x30000000UL, der, sizeof(der));
     CHECK(n == strlen(store_a[1].der) && memcmp(der, store_a[1].der, n) == 0);
+
+    /* D2: the same index with different bytes.  The fingerprint cannot tell
+       the stores apart; the root digest can. */
+    {
+        TLSStore d;
+        ULONG    fp_a  = store.ts_Fingerprint;
+        ULONG    dig_a = tls_store_root_digest(&store, 0x30000000UL, der,
+                                               sizeof(der));
+
+        CHECK(dig_a == tls_store_der_digest((const UCHAR *)store_a[1].der,
+                                            (ULONG)strlen(store_a[1].der)));
+        CHECK(tls_store_root_digest(&store, 0x40000000UL, der, sizeof(der)) == 0);
+
+        memset(&d, 0, sizeof(d));
+        write_store(path, store_d, 2);
+        CHECK(tls_store_open(&d, path) == TLS_OK);
+        CHECK(d.ts_Fingerprint == fp_a);            /* the index is the same */
+        CHECK(tls_store_root_digest(&d, 0x30000000UL, der, sizeof(der)) != dig_a);
+        CHECK(tls_store_root_digest(&d, 0x20000000UL, der, sizeof(der)) ==
+              tls_store_der_digest((const UCHAR *)store_a[0].der,
+                                   (ULONG)strlen(store_a[0].der)));
+        tls_store_close(&d);
+        write_store(path, store_a, 2);
+    }
 
     /* The file gone. */
     unlink(path);

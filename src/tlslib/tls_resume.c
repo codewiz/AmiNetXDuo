@@ -61,11 +61,13 @@ VOID tls_trace(const char *fmt, ...)
 /*
  * The on-disk mirror.  The magic is the format version: 'ATS2' held sessions
  * negotiated without the extended master secret, which are exactly the ones
- * now refused.  An unrecognised magic is ignored, not an error.
+ * now refused.  'ATS3' held no root binding, so its verified sessions could
+ * not be checked against the current store (F-300 D2).  An unrecognised
+ * magic is ignored, not an error.
  */
-#define TLS_SESSIONS_MAGIC          0x41545333UL    /* 'ATS3' */
+#define TLS_SESSIONS_MAGIC          0x41545334UL    /* 'ATS4' */
 #define TLS_SESSIONS_HEADER         16UL
-#define TLS_SESSIONS_RECORD         424UL   /* 168 + TLS_RESUME_TICKET_MAX */
+#define TLS_SESSIONS_RECORD         444UL   /* 172 + TICKET_MAX + 8 * ROOTS */
 
 /*
  * The direct entry points, not the nx_/tx_ spellings: those map to the
@@ -303,11 +305,19 @@ static VOID tls_resume_encode(const TLSResumeEntry *e, UBYTE *rec)
     tls_r_put16(&rec[118], e->re_TicketLength);
     tls_r_copy(&rec[120], e->re_Master, TLS_MASTER_SECRET_SIZE);
     tls_r_copy(&rec[168], e->re_Ticket, TLS_RESUME_TICKET_MAX);
+    rec[168 + TLS_RESUME_TICKET_MAX] = e->re_RootCount;
+    for (i = 0; i < TLS_MAX_ROOTS; i++)
+    {
+        tls_r_put32(&rec[172 + TLS_RESUME_TICKET_MAX + 8 * i], e->re_RootKey[i]);
+        tls_r_put32(&rec[176 + TLS_RESUME_TICKET_MAX + 8 * i],
+                    e->re_RootDigest[i]);
+    }
 
     /* The record layout and the structure must not drift apart.  The file is
        read back by a different build of this same library. */
-    _Static_assert((168UL + TLS_RESUME_TICKET_MAX) == TLS_SESSIONS_RECORD,
-                   "TLS_SESSIONS_RECORD must match the ticket size");
+    _Static_assert((172UL + TLS_RESUME_TICKET_MAX + 8UL * TLS_MAX_ROOTS) ==
+                   TLS_SESSIONS_RECORD,
+                   "TLS_SESSIONS_RECORD must match the ticket and root sizes");
 }
 
 static BOOL tls_resume_decode(TLSResumeEntry *e, const UBYTE *rec)
@@ -331,15 +341,26 @@ static BOOL tls_resume_decode(TLSResumeEntry *e, const UBYTE *rec)
     e->re_TicketLength = tls_r_be16(&rec[118]);
     tls_r_copy(e->re_Master, &rec[120], TLS_MASTER_SECRET_SIZE);
     tls_r_copy(e->re_Ticket, &rec[168], TLS_RESUME_TICKET_MAX);
+    e->re_RootCount = rec[168 + TLS_RESUME_TICKET_MAX];
+    for (i = 0; i < TLS_MAX_ROOTS; i++)
+    {
+        e->re_RootKey[i]    = tls_r_be32(&rec[172 + TLS_RESUME_TICKET_MAX + 8 * i]);
+        e->re_RootDigest[i] = tls_r_be32(&rec[176 + TLS_RESUME_TICKET_MAX + 8 * i]);
+    }
 
     /* Anything the file claims that the structure cannot hold is a corrupt
        file, not a session.  Refuse the record rather than clamping it. */
     if (e->re_Host[0] == '\0' ||
         e->re_SidLength > TLS_RESUME_SID_MAX ||
-        e->re_TicketLength > TLS_RESUME_TICKET_MAX)
+        e->re_TicketLength > TLS_RESUME_TICKET_MAX ||
+        e->re_RootCount > TLS_MAX_ROOTS)
     {
         return FALSE;
     }
+
+    /* A verified session names the roots it was checked against. */
+    if ((e->re_Flags & TLSRE_VERIFIED) != 0 && e->re_RootCount == 0)
+        return FALSE;
 
     /*
      * The live trust key is never zero, so a zero-key record is a truncated or
@@ -506,6 +527,36 @@ ULONG tls_resume_count(struct TLSLibBase *base)
     return count;
 }
 
+/*
+ * A resumed handshake checks no certificate, so a verified session is offered
+ * only while the current store holds the same roots, byte for byte, as the
+ * handshake that verified it (F-300 D2).  Each is read from the store as the
+ * handshake would read it; one absent or different and nothing is offered.
+ * The entry stays: the store it matches may be named again.
+ */
+static BOOL tls_resume_roots_current(TLSConnection *conn,
+                                     const TLSResumeEntry *entry)
+{
+    ULONG i;
+
+    if ((entry->re_Flags & TLSRE_VERIFIED) == 0)
+        return TRUE;
+
+    if (entry->re_RootCount == 0 || entry->re_RootCount > TLS_MAX_ROOTS ||
+        conn->tc_Store == NULL || conn->tc_RootDer == NULL)
+        return FALSE;
+
+    for (i = 0; i < entry->re_RootCount; i++)
+    {
+        if (tls_store_root_digest(conn->tc_Store, entry->re_RootKey[i],
+                                  conn->tc_RootDer, TLS_ROOT_DER_MAX) !=
+            entry->re_RootDigest[i])
+            return FALSE;
+    }
+
+    return TRUE;
+}
+
 VOID tls_resume_prepare(TLSConnection *conn)
 {
     struct TLSLibBase *base;
@@ -556,6 +607,9 @@ VOID tls_resume_prepare(TLSConnection *conn)
         tls_bzero(entry, sizeof(TLSResumeEntry));
         entry = NULL;
     }
+
+    if (entry != NULL && !tls_resume_roots_current(conn, entry))
+        entry = NULL;
 
     if (entry != NULL)
     {
@@ -712,7 +766,14 @@ VOID tls_resume_record(TLSConnection *conn)
          * not cached, or a resumed handshake carries the authentication of neither
          * connection (the triple handshake).  The other half is tls_resume_accept().
          */
-        if ((have_ticket || have_sid) && tls_resume_secret_bound(s))
+        /* A verified session is bound to the roots its chain was checked
+           against; with none loaded there is nothing to bind it to. */
+        BOOL bindable    = (BOOL)(((conn->tc_Flags & TLSF_VERIFY) == 0 ||
+                                   (conn->tc_RootsLoaded > 0 &&
+                                    conn->tc_RootsLoaded <= TLS_MAX_ROOTS))
+                                  ? TRUE : FALSE);
+
+        if ((have_ticket || have_sid) && tls_resume_secret_bound(s) && bindable)
         {
             entry = tls_resume_slot(table, (const char *)conn->tc_HostName,
                                     conn->tc_Port, tls_resume_flags(conn),
@@ -731,6 +792,20 @@ VOID tls_resume_record(TLSConnection *conn)
             entry->re_Flags       = tls_resume_flags(conn);
             entry->re_MaxChain    = (UBYTE)conn->tc_RemoteCount;
             entry->re_TrustKey    = tls_resume_trust_key(conn);
+
+            if ((conn->tc_Flags & TLSF_VERIFY) != 0)
+            {
+                ULONG r;
+
+                for (r = 0; r < conn->tc_RootsLoaded; r++)
+                {
+                    entry->re_RootKey[r]    = conn->tc_RootKey[r];
+                    entry->re_RootDigest[r] = tls_store_der_digest(
+                        conn->tc_Root[r].nx_secure_x509_certificate_data,
+                        conn->tc_Root[r].nx_secure_x509_certificate_data_length);
+                }
+                entry->re_RootCount = (UBYTE)conn->tc_RootsLoaded;
+            }
 
             tls_r_copy(entry->re_Master,
                        s->nx_secure_tls_key_material.nx_secure_tls_master_secret,

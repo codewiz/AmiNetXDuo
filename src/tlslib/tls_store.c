@@ -391,6 +391,31 @@ ULONG tls_store_test_fetch(TLSStore *store, ULONG key, UCHAR *buffer,
 }
 #endif
 
+ULONG tls_store_der_digest(const UCHAR *der, ULONG length)
+{
+    ULONG hash = TLS_FNV_OFFSET;
+    ULONG i;
+
+    hash ^= length;
+    hash *= TLS_FNV_PRIME;
+
+    for (i = 0; i < length; i++)
+    {
+        hash ^= (ULONG)der[i];
+        hash *= TLS_FNV_PRIME;
+    }
+
+    return (hash == 0) ? TLS_FNV_PRIME : hash;
+}
+
+ULONG tls_store_root_digest(TLSStore *store, ULONG key, UCHAR *scratch,
+                            ULONG size)
+{
+    ULONG length = tls_store_fetch(store, key, scratch, size);
+
+    return (length == 0) ? 0 : tls_store_der_digest(scratch, length);
+}
+
 /* ------------------------------------------ the lazy certificate check -- */
 
 /*

@@ -496,8 +496,56 @@ static void fixtures_init(void)
 }
 
 /*
+ * The trust store's side of the root binding (F-300 D2).  tls_store.c is not
+ * linked here: the digest is the same FNV-1a, and the store holds one root
+ * whose bytes a test can change, or take away, without touching the index.
+ */
+#define H_ROOT_KEY      0x51000000UL
+#define H_ROOT_LEN      24
+
+static UCHAR h_root_der[H_ROOT_LEN];        /* what the handshake loaded   */
+static UCHAR h_store_der[H_ROOT_LEN];       /* what the store holds now    */
+static int   h_store_has_root;
+static int   h_root_reads;
+static UCHAR h_root_scratch[TLS_ROOT_DER_MAX];
+
+ULONG tls_store_der_digest(const UCHAR *der, ULONG length)
+{
+    ULONG hash = 2166136261UL;
+    ULONG i;
+
+    hash ^= length;
+    hash *= 16777619UL;
+    for (i = 0; i < length; i++)
+    {
+        hash ^= (ULONG)der[i];
+        hash *= 16777619UL;
+    }
+
+    return (hash == 0) ? 16777619UL : hash;
+}
+
+ULONG tls_store_root_digest(TLSStore *store, ULONG key, UCHAR *scratch,
+                            ULONG size)
+{
+    (VOID)store;
+    h_root_reads++;
+    if (!h_store_has_root || key != H_ROOT_KEY || size < H_ROOT_LEN)
+        return 0;
+    memcpy(scratch, h_store_der, H_ROOT_LEN);
+    return tls_store_der_digest(scratch, H_ROOT_LEN);
+}
+
+static void store_holds(char tag)
+{
+    memset(h_store_der, tag, sizeof(h_store_der));
+    h_store_has_root = 1;
+}
+
+/*
  * A connection as tls_conn.c leaves it: resumption on, persisting to the
- * given file, checked against a store with the given fingerprint.
+ * given file, checked against a store with the given fingerprint, and one
+ * root loaded by the verified handshake.
  */
 static TLSStore h_store;
 
@@ -519,6 +567,14 @@ static void conn_init(const char *host, UWORD port, const char *path,
 
     h_store.ts_Fingerprint = fingerprint;
     h_conn.tc_Store        = (fingerprint != 0) ? &h_store : NULL;
+
+    memset(h_root_der, 'A', sizeof(h_root_der));
+    h_conn.tc_RootsLoaded = 1;
+    h_conn.tc_RootKey[0]  = H_ROOT_KEY;
+    h_conn.tc_Root[0].nx_secure_x509_certificate_data        = h_root_der;
+    h_conn.tc_Root[0].nx_secure_x509_certificate_data_length = H_ROOT_LEN;
+    h_conn.tc_RootDer     = h_root_scratch;
+    store_holds('A');
 
     strncpy((char *)h_conn.tc_HostName, host, sizeof(h_conn.tc_HostName) - 1);
     h_conn.tc_HostNameLength = (USHORT)strlen(host);
@@ -597,7 +653,7 @@ static void test_mirror_round_trip(void)
     tls_resume_record(&h_conn);
 
     CHECK(tls_resume_count(&h_base) == 1);
-    CHECK(file_size(h_path_a) == 16 + 424);
+    CHECK(file_size(h_path_a) == 16 + 444);
 
     /* A reboot: the cache is gone, the file is not. */
     base_reset();
@@ -693,10 +749,10 @@ static void test_truncated_file(void)
     conn_take_ticket(192, 3600);
     tls_resume_record(&h_conn);
 
-    CHECK(file_size(h_path_a) == 16 + 2 * 424);
+    CHECK(file_size(h_path_a) == 16 + 2 * 444);
 
     /* Cut the second record in half.  The header still claims two. */
-    whole = 16 + 424 + 200;
+    whole = 16 + 444 + 200;
     bytes = malloc((size_t)whole);
     CHECK(bytes != NULL);
     if (bytes == NULL)
@@ -857,7 +913,7 @@ static void test_no_ems_is_not_cached(void)
     tls_resume_record(&h_conn);
 
     CHECK(tls_resume_count(&h_base) == 1);
-    CHECK(file_size(h_path_a) == 16 + 424);
+    CHECK(file_size(h_path_a) == 16 + 444);
 }
 
 /*
@@ -1100,6 +1156,142 @@ static void test_resumed_finished_failure_releases_packet(void)
 }
 
 /*
+ * F-300 D2.  The fingerprint covers the store's index only, so a store with
+ * the same subjects at the same lengths and different bytes shares it, and
+ * the trust key with it.  The session names the root bytes it was verified
+ * against; an offer reads them back from the store as it is now.
+ */
+static void test_root_binding(void)
+{
+    TLSResumeEntry *e;
+
+    printf("tls_resume: a verified session is bound to its roots' bytes\n");
+
+    base_reset();
+    conn_init("example.com", 443, "", 0xAAAA0001UL);
+    h_conn.tc_ResumeFlags &= ~TLSR_PERSIST;
+    conn_take_ticket(192, 3600);
+    tls_resume_record(&h_conn);
+    CHECK(tls_resume_count(&h_base) == 1);
+    e = &h_base.tb_Sessions[0];
+    CHECK(e->re_RootCount == 1 && e->re_RootKey[0] == H_ROOT_KEY);
+    CHECK(e->re_RootDigest[0] == tls_store_der_digest(h_root_der, H_ROOT_LEN));
+
+    /* The same store: offered, after reading the root once. */
+    conn_init("example.com", 443, "", 0xAAAA0001UL);
+    h_root_reads = 0;
+    tls_resume_prepare(&h_conn);
+    CHECK((h_conn.tc_ResumeFlags & TLSR_OFFERED) != 0);
+    CHECK(h_root_reads == 1);
+
+    /* THE CASE: same index, so same fingerprint and trust key, and the root's
+       bytes differ at the same length.  Not offered. */
+    conn_init("example.com", 443, "", 0xAAAA0001UL);
+    store_holds('B');
+    tls_resume_prepare(&h_conn);
+    CHECK((h_conn.tc_ResumeFlags & TLSR_OFFERED) == 0);
+    CHECK(tls_resume_count(&h_base) == 1);          /* kept for store A */
+
+    /* The root gone from the store: not offered. */
+    conn_init("example.com", 443, "", 0xAAAA0001UL);
+    h_store_has_root = 0;
+    tls_resume_prepare(&h_conn);
+    CHECK((h_conn.tc_ResumeFlags & TLSR_OFFERED) == 0);
+
+    /* Store A named again: offered. */
+    conn_init("example.com", 443, "", 0xAAAA0001UL);
+    tls_resume_prepare(&h_conn);
+    CHECK((h_conn.tc_ResumeFlags & TLSR_OFFERED) != 0);
+
+    /* A resumed handshake's new ticket keeps the binding, although that
+       handshake loaded no root. */
+    conn_init("example.com", 443, "", 0xAAAA0001UL);
+    h_conn.tc_ResumeFlags &= ~TLSR_PERSIST;
+    h_conn.tc_ResumeFlags |= TLSR_RESUMED;
+    h_conn.tc_RootsLoaded  = 0;
+    conn_take_ticket(96, 7200);
+    tls_resume_record(&h_conn);
+    CHECK(e->re_RootCount == 1 && e->re_TicketLength == 96);
+    CHECK(e->re_RootDigest[0] == tls_store_der_digest(h_root_der, H_ROOT_LEN));
+
+    /* A verified handshake with no root loaded has nothing to bind: not
+       cached.  An unverified one needs none, and is offered with no read. */
+    base_reset();
+    conn_init("example.com", 443, "", 0xAAAA0001UL);
+    h_conn.tc_ResumeFlags &= ~TLSR_PERSIST;
+    h_conn.tc_RootsLoaded  = 0;
+    conn_take_ticket(192, 3600);
+    tls_resume_record(&h_conn);
+    CHECK(tls_resume_count(&h_base) == 0);
+
+    base_reset();
+    conn_init("example.com", 443, "", 0xAAAA0001UL);
+    h_conn.tc_ResumeFlags &= ~TLSR_PERSIST;
+    h_conn.tc_Flags       &= ~(ULONG)TLSF_VERIFY;
+    h_conn.tc_RootsLoaded  = 0;
+    conn_take_ticket(192, 3600);
+    tls_resume_record(&h_conn);
+    CHECK(tls_resume_count(&h_base) == 1);
+    conn_init("example.com", 443, "", 0xAAAA0001UL);
+    h_conn.tc_Flags &= ~(ULONG)TLSF_VERIFY;
+    h_store_has_root = 0;
+    h_root_reads = 0;
+    tls_resume_prepare(&h_conn);
+    CHECK((h_conn.tc_ResumeFlags & TLSR_OFFERED) != 0);
+    CHECK(h_root_reads == 0);
+}
+
+/*
+ * The previous format held no root binding.  An 'ATS3' file is ignored, and
+ * an 'ATS4' record that says it was verified and names no root is refused.
+ */
+static void test_unbound_files_are_ignored(void)
+{
+    FILE *fh;
+
+    printf("tls_resume: an 'ATS3' file or an unbound record is not offered\n");
+
+    unlink(h_path_a);
+    base_reset();
+    conn_init("example.com", 443, h_path_a, 0xCAFEBABEUL);
+    conn_take_ticket(192, 3600);
+    tls_resume_record(&h_conn);
+
+    fh = fopen(h_path_a, "r+b");
+    CHECK(fh != NULL);
+    if (fh != NULL)
+    {
+        fwrite("ATS3", 1, 4, fh);
+        fclose(fh);
+    }
+    base_reset();
+    conn_init("example.com", 443, h_path_a, 0xCAFEBABEUL);
+    tls_resume_prepare(&h_conn);
+    CHECK((h_conn.tc_ResumeFlags & TLSR_OFFERED) == 0);
+    CHECK(tls_resume_count(&h_base) == 0);
+
+    unlink(h_path_a);
+    base_reset();
+    conn_init("example.com", 443, h_path_a, 0xCAFEBABEUL);
+    conn_take_ticket(192, 3600);
+    tls_resume_record(&h_conn);
+
+    fh = fopen(h_path_a, "r+b");
+    CHECK(fh != NULL);
+    if (fh != NULL)
+    {
+        fseek(fh, 16 + 168 + TLS_RESUME_TICKET_MAX, SEEK_SET);  /* root count */
+        fputc(0, fh);
+        fclose(fh);
+    }
+    base_reset();
+    conn_init("example.com", 443, h_path_a, 0xCAFEBABEUL);
+    tls_resume_prepare(&h_conn);
+    CHECK((h_conn.tc_ResumeFlags & TLSR_OFFERED) == 0);
+    CHECK(tls_resume_count(&h_base) == 0);
+}
+
+/*
  * A resumed handshake checks nothing, so the cache key must name the trust
  * decision completely.  Each row changes exactly one thing about the caller
  * and expects no offer.
@@ -1317,7 +1509,7 @@ static void test_evict(void)
     conn_init("example.com", 443, h_path_a, 0xAAAA0001UL);
     conn_take_ticket(192, 3600);
     tls_resume_record(&h_conn);
-    CHECK(file_size(h_path_a) == 16 + 424);
+    CHECK(file_size(h_path_a) == 16 + 444);
 
     conn_init("example.com", 443, h_path_a, 0xAAAA0001UL);
     tls_resume_evict(&h_conn);
@@ -1763,6 +1955,8 @@ int main(void)
     test_resumed_finished_failure_releases_packet();
 
     test_trust_key_discriminates();
+    test_root_binding();
+    test_unbound_files_are_ignored();
     test_no_host_name();
 
     test_expired_entry_is_wiped();
