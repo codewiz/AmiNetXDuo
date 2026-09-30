@@ -14,9 +14,9 @@
 #include "netdev_trace.h"
 #include "dp8390.h"
 #include "netdev_dtree.h"
+#include "netdev_clock.h"
 #if NETDEV_HAS_ZORRO
 #include "netdev_cache.h"
-#include "netdev_clock.h"
 #include <libraries/configregs.h>
 #endif
 
