@@ -198,6 +198,19 @@ static BOOL httpd_leap(LONG year)
                ? TRUE : FALSE;
 }
 
+/* The length of a month, with February adjusted for a leap year.  Parsed days
+   are checked against this so a date the civil roll would silently move into
+   the next month is refused instead. */
+static LONG httpd_days_in_month(LONG month, LONG year)
+{
+    static const LONG mdays[12] =
+        { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+
+    if (month == 2 && httpd_leap(year))
+        return 29;
+    return mdays[month - 1];
+}
+
 static ULONG httpd_days_from_civil(LONG y, LONG mo, LONG d)
 {
     static const ULONG cum[12] =
@@ -283,6 +296,12 @@ BOOL httpd_parse_rfc1123(const char *text, struct DateStamp *ds)
         text++;
     year = (LONG)httpd_digits(&text, 4);
     if (year < 1978 || year > 2100)
+        return FALSE;
+    /* The day must exist in that month: days_from_civil would otherwise roll
+       an invalid day (a 29th in a non-leap February, any 30th or 31st
+       February, and 31 April) silently into the next month, and a PROPPATCH
+       would write that wrong date. */
+    if (day > httpd_days_in_month(month, year))
         return FALSE;
     while (*text == ' ')
         text++;

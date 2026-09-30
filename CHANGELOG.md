@@ -9,6 +9,11 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `httpd` refuses a WebDAV date whose day does not exist in its month. The
+  parser accepted any day up to 31 and the civil roll moved an invalid day
+  silently into the next month: a 29th in a non-leap February, any 30th or
+  31st February, and 31 April, so a PROPPATCH could write the rolled date; a
+  day past the month now fails the parse.
 - `ShowNetStatus` EVENTS labels the value of a device-open failure as the
   library's status code, not an OpenDevice error. The number is an
   AMI_NET_ERR_* value, so the label named a quantity no emitter supplies.
