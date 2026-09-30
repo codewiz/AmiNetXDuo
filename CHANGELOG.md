@@ -9,6 +9,11 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `netdb` answers `AMI_CFG_ERR_NOMEM` when a database file is read but its
+  buffer cannot be allocated, instead of substituting the built-in defaults
+  and answering success. A hosts, networks, protocols or services file that
+  runs out of memory now leaves its table unloaded and names it in the result;
+  the load had previously reported that fallback read as a successful load.
 - `iperf` decodes a datagram id without negating the most negative value. A
   wire id of 0x80000000 is -2147483648, whose negation does not fit a 32-bit
   long and an optimizing build could fold it into anything; the id is now

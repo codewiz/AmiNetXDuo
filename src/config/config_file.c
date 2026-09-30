@@ -195,6 +195,8 @@ static APTR read_file_at(const char *path, ULONG *size_out)
     if (buf == NULL)
     {
         AMI_ERROR("config: %s: out of memory (%ld bytes)", path, (long)size);
+        if (size_out != NULL)
+            *size_out = AMI_CFG_READ_NOMEM;
         Close(file);
         return NULL;
     }

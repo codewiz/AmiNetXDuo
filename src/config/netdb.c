@@ -282,6 +282,15 @@ static VOID netdb_load_one(NetdbTable *table, NetdbKind kind,
 
     buf = (char *)ami_cfg_read_file(path, &size);
 
+    if (buf == NULL && size == AMI_CFG_READ_NOMEM)
+    {
+        /* The file was read but its buffer could not be allocated.  Leave the
+           table unloaded so ami_netdb_unloaded() names it and the load answers
+           AMI_CFG_ERR_NOMEM, rather than substituting the built-ins and
+           reporting a load that did not happen. */
+        return;
+    }
+
     if (buf == NULL || size == 0)
     {
         ULONG len = ami_cfg_strlen(builtin);

@@ -31,12 +31,22 @@ APTR ami_alloc_flags(ULONG size, ULONG memf)
 /* Allocations left before one fails; -1 = none fails. */
 static long stub_fail_in = -1;
 
+/* Fail the next allocation once, then resume.  stub_fail_in fails this and
+   every later one, which cannot isolate one allocation in a sequence. */
+static int stub_fail_once;
+
 APTR ami_alloc(ULONG size)
 {
     void *p;
 
     if (size == 0)
         return NULL;
+
+    if (stub_fail_once)
+    {
+        stub_fail_once = 0;
+        return NULL;
+    }
 
     if (stub_fail_in == 0)
         return NULL;
@@ -162,7 +172,11 @@ APTR ami_cfg_read_file(const char *path, ULONG *size_out)
             char  *buf = (char *)ami_alloc((ULONG)len + 1);
 
             if (buf == NULL)
+            {
+                if (size_out != NULL)
+                    *size_out = AMI_CFG_READ_NOMEM;
                 return NULL;
+            }
 
             memcpy(buf, fixtures[i].text, len + 1);
             if (size_out != NULL)
@@ -2759,6 +2773,47 @@ static void test_netdb(void)
     CHECK(ami_alloc_count() == 0);
 }
 
+/*
+ * A read that ran out of memory is reported, not silently replaced by the
+ * built-ins (F-095).  A missing file falls back to the built-ins; a present
+ * file whose buffer could not be allocated leaves the table unloaded and the
+ * load answers AMI_CFG_ERR_NOMEM, so a lookup cannot mistake the built-ins
+ * for the user's own entries.
+ */
+static void test_netdb_read_nomem(void)
+{
+    LONG rc;
+
+    printf("netdb: read out of memory\n");
+
+    ami_netdb_free();
+    clear_fixtures();
+    set_fixture(AMI_CFG_FILE_HOSTS, "10.0.0.1 hn\n");
+    set_fixture(AMI_CFG_FILE_NETWORKS, "hn 10\n");
+    set_fixture(AMI_CFG_FILE_PROTOCOLS, "hn 6\n");
+    set_fixture(AMI_CFG_FILE_SERVICES, "hn 80/tcp\n");
+
+    /* Fail only the hosts read's allocation: the other three load. */
+    stub_fail_once = 1;
+    rc = ami_netdb_load();
+    stub_fail_once = 0;
+
+    CHECK(rc == AMI_CFG_ERR_NOMEM);
+    CHECK((ami_netdb_unloaded() & (1UL << AMI_NETDB_HOSTS)) != 0);
+    CHECK(ami_netdb_host_by_name("hn") == NULL);
+    CHECK(ami_netdb_host_by_name("localhost") == NULL);
+
+    CHECK(ami_netdb_net_entry(0) != NULL);
+    CHECK(ami_netdb_proto_entry(0) != NULL);
+    CHECK(ami_netdb_serv_entry(0) != NULL);
+
+    /* Loaded is loaded: a later call does not re-run the failing read. */
+    CHECK(ami_netdb_load() == AMI_CFG_OK);
+
+    ami_netdb_free();
+    CHECK(ami_alloc_count() == 0);
+}
+
 static void test_netdb_missing_files(void)
 {
     const AmiNetdbEntry *e;
@@ -3346,6 +3401,7 @@ int main(int argc, char **argv)
     test_keyword_line();
     test_netdb_checker();
     test_netdb_nomem();
+    test_netdb_read_nomem();
     test_netdb_missing_files();
     test_netdb_garbage();
     test_service_discovery();
