@@ -443,6 +443,7 @@ static VOID check_addressing(const char *path, const AmiIfConfig *ifc)
 static VOID check_gateway(const AmiConfig *cfg)
 {
     const char *path;
+    char        iface_path[TOOL_NAME_LEN * 2];
     ULONG       line;
     char        text[16];
 
@@ -467,15 +468,38 @@ static VOID check_gateway(const AmiConfig *cfg)
     }
 
     /* Which file it came from, so the finding can name the one to edit.
-       load_gateway() reads the compatibility file first and it wins, so ask
-       it before the Roadshow routes file; a GATEWAY= taken from an interface
-       file has no name here and stays line 0. */
+       load_gateway() reads the compatibility file first and it wins, then the
+       Roadshow routes file, then falls back to a GATEWAY= in the first
+       interface file.  ami_cfg_default_gateway_line_file() replays that
+       acceptance -- a bare GATEWAY=, DEFAULT= or DEFAULTGATEWAY=, first wins --
+       so the named line is the one the loader took, and a GATEWAY on a line
+       that also carries a DESTINATION is not mistaken for the default. */
     path = "DEVS:Internet/default_gateway";
-    line = keyword_line(path, "GATEWAY");
+    line = ami_cfg_default_gateway_line_file(path);
     if (line == 0)
     {
         path = "DEVS:Internet/routes";
-        line = keyword_line(path, "GATEWAY");
+        line = ami_cfg_default_gateway_line_file(path);
+    }
+    if (line == 0)
+    {
+        UWORD i;
+
+        /* Neither file set the default, so load_gateway() fell back to a
+           GATEWAY= in the first interface file.  Name that file; the interface
+           keyword has no DEFAULT=/VIA spelling, so a plain keyword search is
+           exact here. */
+        for (i = 0; i < cfg->interface_count; i++)
+        {
+            if (cfg->interfaces[i].gateway != 0)
+            {
+                tool_join_path(iface_path, sizeof(iface_path),
+                               CNC_DIR_INTERFACES, cfg->interfaces[i].name);
+                path = iface_path;
+                line = keyword_line(path, "GATEWAY");
+                break;
+            }
+        }
     }
 
     if ((cfg->default_gateway >> 24) == 127UL ||

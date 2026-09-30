@@ -9,6 +9,15 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `CheckNetConfig` names the file a default-gateway finding was read from even
+  when that file is an interface file. `load_gateway()` falls back to a
+  `GATEWAY=` in the first interface file when neither
+  `DEVS:Internet/default_gateway` nor `DEVS:Internet/routes` sets a default, and
+  the check reported that as a finding in `routes` at line 0, naming a file that
+  had nothing to do with it. The check now replays the loader's own acceptance
+  for the default -- a bare `GATEWAY=`, `DEFAULT=` or `DEFAULTGATEWAY=`, first
+  wins, and a `GATEWAY` beside a `DESTINATION` is a specific route, not the
+  default -- so the named file and line are the ones the loader took.
 - `CheckNetConfig` names the file a default-gateway finding was read from, not
   the one the loader read last. `load_gateway()` reads
   `DEVS:Internet/default_gateway` first and that value wins, then

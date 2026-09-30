@@ -2860,6 +2860,52 @@ static void test_keyword_line(void)
     }
 }
 
+static void test_default_gateway_line(void)
+{
+    char buf[512];
+
+    printf("default gateway line\n");
+
+    /* A bare GATEWAY= is the default route (F-158). */
+    strcpy(buf, "device=a2065.device\nunit=0\nGATEWAY = 192.168.1.1\n");
+    CHECK(ami_cfg_default_gateway_line(buf) == 3);
+
+    /* DEFAULT= and DEFAULTGATEWAY= are Roadshow's spellings for the same. */
+    strcpy(buf, "DEFAULT = 192.168.1.1\n");
+    CHECK(ami_cfg_default_gateway_line(buf) == 1);
+    strcpy(buf, "defaultgateway 192.168.1.1\n");
+    CHECK(ami_cfg_default_gateway_line(buf) == 1);
+
+    /* A GATEWAY on a line that also carries a DESTINATION is a specific route,
+       not the default; the later bare GATEWAY is the default's own line. */
+    strcpy(buf, "destination=10.0.0.0 netmask=255.0.0.0 gateway=10.0.0.1\n"
+                "gateway=192.168.1.1\n");
+    CHECK(ami_cfg_default_gateway_line(buf) == 2);
+
+    /* VIA never sets the default. */
+    strcpy(buf, "via 192.168.1.1\n");
+    CHECK(ami_cfg_default_gateway_line(buf) == 0);
+
+    /* First wins: the earlier default-setting line is the one the loader took. */
+    strcpy(buf, "default=192.168.1.1\n"
+                "gateway=10.0.0.1\n");
+    CHECK(ami_cfg_default_gateway_line(buf) == 1);
+
+    /* An unparseable value does not set the default. */
+    strcpy(buf, "default=not-an-address\n"
+                "gateway=192.168.1.1\n");
+    CHECK(ami_cfg_default_gateway_line(buf) == 2);
+
+    /* Only a specific route: nothing set the default. */
+    strcpy(buf, "destination=10.0.0.0 netmask=255.0.0.0 gateway=10.0.0.1\n");
+    CHECK(ami_cfg_default_gateway_line(buf) == 0);
+
+    /* The file form reads through ami_cfg_read_file() (the fixture). */
+    clear_fixtures();
+    set_fixture(AMI_CFG_FILE_GATEWAY, "GATEWAY = 127.0.0.1\n");
+    CHECK(ami_cfg_default_gateway_line_file(AMI_CFG_FILE_GATEWAY) == 1);
+}
+
 static void test_netdb(void)
 {
     const AmiNetdbEntry *e;
@@ -3609,6 +3655,7 @@ int main(int argc, char **argv)
     test_tcp_handler();
     test_netdb();
     test_keyword_line();
+    test_default_gateway_line();
     test_netdb_checker();
     test_netdb_alias_cut();
     test_netdb_nomem();

@@ -784,6 +784,16 @@ ULONG ami_cfg_address6_line_file(const char *path, const char *ifname,
                                  const ULONG want[AMI_CFG_IP6_WORDS],
                                  UWORD occur);
 
+/* The 1-based line of `buf` where the DEFAULT gateway is first set, counted as
+   the parser counts lines, or 0.  Mirrors cfg_parse_routes(): a bare
+   GATEWAY=<addr> (no DESTINATION on the same line), DEFAULT=<addr>, or
+   DEFAULTGATEWAY=<addr>, first wins.  `buf` is a whole file's text, split in
+   place. */
+ULONG ami_cfg_default_gateway_line(char *buf);
+/* The same for a file, read through ami_cfg_read_file(); 0 when it cannot be
+   read. */
+ULONG ami_cfg_default_gateway_line_file(const char *path);
+
 /*
  * One line of a netdb file judged by the loader's rules, for CheckNetConfig
  * (src/config/netdb_check.c, F-094).  word, when not NULL, gets the column the

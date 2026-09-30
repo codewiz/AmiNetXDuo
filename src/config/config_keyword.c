@@ -151,3 +151,102 @@ ULONG ami_cfg_address6_line_file(const char *path, const char *ifname,
 
     return found;
 }
+
+/*
+ * The line of `buf` where the DEFAULT gateway is first set, or 0.  Must mirror
+ * cfg_parse_routes()'s default handling, because a routes/default_gateway file
+ * sets the default three ways and a keyword grep finds none of the other two:
+ * a bare GATEWAY=<addr> (no DESTINATION on the same line), DEFAULT=<addr>, or
+ * DEFAULTGATEWAY=<addr>.  A GATEWAY on a line that also carries a DESTINATION
+ * is a specific route and does not set the default; VIA never does.  The
+ * loader reads DEVS:Internet/default_gateway then DEVS:Internet/routes and the
+ * first line to set the default wins, so the caller asks the first file, then
+ * the second, and takes the first nonzero answer (F-158).  `buf` is split in
+ * place, like every caller of ami_cfg_next_line().
+ */
+ULONG ami_cfg_default_gateway_line(char *buf)
+{
+    char  *cursor = buf;
+    char  *line;
+    ULONG  lineno = 0;
+
+    if (buf == NULL)
+        return 0;
+
+    while ((line = ami_cfg_next_line(&cursor)) != NULL)
+    {
+        char *pos;
+        char *key;
+        char *value;
+        ULONG gateway    = 0;
+        BOOL  have_gw    = FALSE;
+        BOOL  gw_spelled = FALSE;
+        BOOL  have_dst   = FALSE;
+        BOOL  is_default = FALSE;
+
+        lineno++;
+
+        ami_cfg_strip_comment(line, "#;");
+        line = ami_cfg_trim(line);
+        if (*line == '\0')
+            continue;
+
+        pos = line;
+        while (ami_cfg_next_pair(&pos, &key, &value))
+        {
+            if (ami_cfg_stricmp(key, "gateway") == 0 ||
+                ami_cfg_stricmp(key, "via") == 0)
+            {
+                if (ami_config_parse_ip(value, &gateway) && gateway != 0UL)
+                {
+                    have_gw = TRUE;
+                    if (ami_cfg_stricmp(key, "gateway") == 0)
+                        gw_spelled = TRUE;
+                }
+            }
+            else if (ami_cfg_stricmp(key, "default") == 0 ||
+                     ami_cfg_stricmp(key, "defaultgateway") == 0)
+            {
+                is_default = TRUE;
+                if (*value != '\0' && ami_config_parse_ip(value, &gateway) &&
+                    gateway != 0UL)
+                    have_gw = TRUE;
+            }
+            else if (ami_cfg_stricmp(key, "dst") == 0 ||
+                     ami_cfg_stricmp(key, "destination") == 0 ||
+                     ami_cfg_stricmp(key, "hostdst") == 0 ||
+                     ami_cfg_stricmp(key, "hostdestination") == 0 ||
+                     ami_cfg_stricmp(key, "netdst") == 0 ||
+                     ami_cfg_stricmp(key, "netdestination") == 0)
+            {
+                have_dst = TRUE;
+            }
+        }
+
+        if (is_default)
+        {
+            if (have_gw)
+                return lineno;
+        }
+        else if (!have_dst && have_gw && gw_spelled)
+        {
+            return lineno;
+        }
+    }
+
+    return 0;
+}
+
+ULONG ami_cfg_default_gateway_line_file(const char *path)
+{
+    char  *buf = (char *)ami_cfg_read_file(path, NULL);
+    ULONG  found;
+
+    if (buf == NULL)
+        return 0;
+
+    found = ami_cfg_default_gateway_line(buf);
+    ami_free(buf);
+
+    return found;
+}
