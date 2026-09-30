@@ -85,7 +85,9 @@ int main(int argc, char **argv)
         device = (const char *)args[ARG_DEVICE];
     if (args[ARG_UNIT] != 0)
         unit = (ULONG)*(LONG *)args[ARG_UNIT];
-    if (args[ARG_CARD] != 0)
+    /* CARD "" asks for no card: no tag goes to the driver, so none is named
+       below either (F-191). */
+    if (args[ARG_CARD] != 0 && *(const char *)args[ARG_CARD] != '\0')
         card = (const char *)args[ARG_CARD];
 
     port    = CreateMsgPort();
@@ -105,7 +107,7 @@ int main(int argc, char **argv)
     tags[tag].ti_Tag  = S2_CopyFromBuff;
     tags[tag].ti_Data = (ULONG)nds_copy;
     tag++;
-    if (card != NULL && *card != '\0')
+    if (card != NULL)
     {
         tags[tag].ti_Tag  = ANXD_S2_CARD_TYPE;
         tags[tag].ti_Data = (ULONG)card;
