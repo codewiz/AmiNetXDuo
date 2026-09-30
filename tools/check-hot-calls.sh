@@ -40,7 +40,6 @@ _ami_sana2_rx_resolve_length
 _ami_sana2_copy_to_buff
 _ami_sana2_rx_should_block
 _ami_bpf_tap_rx
-_bsd_recv_iov
 _bsd_recv_tcp
 _bsd_packet_length
 _ami_sana2_rx_complete
@@ -94,6 +93,9 @@ _ami_sana2_rx_arm
 #   _ami_sana2_rx_direct  SANA-II tag hook, called by the device by pointer
 #   _ami_sana2_rx_filled  the same
 #   _n68k_copy_bytes      the bulk copy itself
+#   _bsd_recv_iov         once per recv/recvfrom/recvmsg API call, not per
+#                         frame; LTO shares its ~2.7 KB body across the three
+#                         entry points while its per-frame helpers stay inline
 
 if [ ! -f "$LIB" ]; then
     echo "hot_calls=skipped reason=no_library path=$LIB"
