@@ -2373,14 +2373,6 @@ static LONG ami_ns_interface_remove_locked(UWORD index, BOOL force)
         (VOID)netstack_interface_dhcp_stop(index, TRUE);
 #endif
 
-#ifdef AMINETXDUO_BPF
-    /*
-     * src/bpf/ holds the AmiSana2If as an opaque cookie, so it has to stop
-     * being reachable before the memory goes.
-     */
-    ami_netstack_capture_detach_one(ns, index);
-#endif
-
     caller = ami_netstack_enter_alloc();
     if (caller == NULL)
         return AMI_NET_ERR_KERNEL;
@@ -2435,6 +2427,12 @@ static LONG ami_ns_interface_remove_locked(UWORD index, BOOL force)
                  (long)index, (long)status);
         return AMI_NET_ERR_STATE;
     }
+
+#ifdef AMINETXDUO_BPF
+    /* Keep capture available if the detach failed.  Its opaque SANA-II
+       cookie stays alive until ami_sana2_close() below. */
+    ami_netstack_capture_detach_one(ns, index);
+#endif
 
     /*
      * CloseDevice() and the reply-port teardown are Exec I/O, so they happen
