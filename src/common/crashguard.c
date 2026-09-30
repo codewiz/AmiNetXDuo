@@ -11,7 +11,6 @@
 #include "aminetxduo/crashguard.h"
 #include "aminetxduo/compat.h"
 
-#include <exec/alerts.h>
 #include <exec/execbase.h>
 #include <exec/memory.h>
 #include <exec/tasks.h>
@@ -323,14 +322,13 @@ const char *ami_crash_alert_name(ULONG num)
  * so breaks the Forbid() the caller relied on, and allocates from the list
  * that is broken -- a second Guru inside the first.
  *
- * So the report always does only what is safe anywhere: it records the alert
- * in static storage and prints it with RawDoFmt()/RawPutChar(), which
- * allocate nothing and never wait.  The file, and AMI_ERROR() with the log
- * hook behind it, are used at once only when the context is provably a
- * Process in user mode with neither Forbid() nor Disable() held, and the
- * alert is not Exec's own (its lists are what is suspect).  Otherwise the
- * record waits, and the next safe point writes it:
- * ami_crash_remove_alert_hook().
+ * No context proves otherwise: a double free is reported from a Process in
+ * user mode with nothing held, and the allocator behind Open() is the thing
+ * that is broken.  So the report does only what is safe anywhere: it records
+ * the alert in static storage and prints it with RawDoFmt()/RawPutChar(),
+ * which allocate nothing and never wait.  The file, and AMI_ERROR() with the
+ * log hook behind it, wait for ami_crash_remove_alert_hook(), after its
+ * drain, in the Process that removes the hook.
  */
 #ifndef RawPutChar
 #  define RawPutChar(c) \
@@ -366,34 +364,26 @@ static VOID ami_alert_say(const char *fmt, ...)
     va_end(args);
 }
 
-/* Can DOS, and the log hook, be used right now? */
-static BOOL ami_alert_context_safe(ULONG num)
+/* The deferred half: the log, with its hook, and DH0:crash.txt.  Only from
+   ami_crash_remove_alert_hook().  A record the file could not take stays
+   pending for the next removal. */
+static VOID ami_alert_flush(VOID)
 {
-    struct Task *task = SysBase->ThisTask;
+    BPTR fh;
 
-    if (((UWORD)SetSR(0, 0) & 0x2000) != 0)     /* supervisor: an interrupt */
-        return FALSE;
-    if (SysBase->TDNestCnt >= 0 || SysBase->IDNestCnt >= 0)
-        return FALSE;                           /* Forbid() or Disable()    */
-    if (task == NULL || task->tc_Node.ln_Type != NT_PROCESS)
-        return FALSE;
-    if ((num & 0x7FFF0000UL) == (AN_ExecLib & 0x7FFF0000UL))
-        return FALSE;                           /* Exec's own structures    */
+    AMI_ERROR("*** GURU %08lx: %s", (LONG)ami_alert_rec.num,
+              (LONG)ami_crash_alert_name(ami_alert_rec.num));
+    AMI_ERROR("    task %08lx \"%s\"", (LONG)ami_alert_rec.task,
+              (LONG)ami_alert_rec.name);
 
-    return TRUE;
-}
+    fh = Open((STRPTR)"DH0:crash.txt", MODE_NEWFILE);
+    if (fh == 0)
+        return;
 
-static VOID ami_alert_write_file(VOID)
-{
-    BPTR fh = Open((STRPTR)"DH0:crash.txt", MODE_NEWFILE);
-
-    if (fh != 0)
-    {
-        FPuts(fh, (STRPTR)"GURU: ");
-        FPuts(fh, (STRPTR)ami_crash_alert_name(ami_alert_rec.num));
-        FPuts(fh, (STRPTR)"\n");
-        Close(fh);
-    }
+    FPuts(fh, (STRPTR)"GURU: ");
+    FPuts(fh, (STRPTR)ami_crash_alert_name(ami_alert_rec.num));
+    FPuts(fh, (STRPTR)"\n");
+    Close(fh);
     ami_alert_rec.pending = FALSE;
 }
 
@@ -422,21 +412,10 @@ VOID ami_alert_report(ULONG num)
     ami_alert_rec.name[i] = '\0';
     ami_alert_rec.pending = TRUE;
 
-    if (ami_alert_context_safe(num))
-    {
-        AMI_ERROR("*** GURU %08lx: %s", (LONG)num,
+    ami_alert_say("[ERR ] *** GURU %08lx: %s\n", (LONG)num,
                   (LONG)ami_crash_alert_name(num));
-        AMI_ERROR("    task %08lx \"%s\"", (LONG)task,
+    ami_alert_say("[ERR ]     task %08lx \"%s\"\n", (LONG)task,
                   (LONG)ami_alert_rec.name);
-        ami_alert_write_file();
-    }
-    else
-    {
-        ami_alert_say("[ERR ] *** GURU %08lx: %s\n", (LONG)num,
-                      (LONG)ami_crash_alert_name(num));
-        ami_alert_say("[ERR ]     task %08lx \"%s\"\n", (LONG)task,
-                      (LONG)ami_alert_rec.name);
-    }
 
     ami_alert_reporting = FALSE;
 }
@@ -594,7 +573,7 @@ VOID ami_crash_remove_alert_hook(VOID)
 
     ami_alert_draining = FALSE;
 
-    /* A Guru that could not write its record where it happened (F-081). */
+    /* A Guru's log and file, deferred from where it happened (F-081). */
     if (ami_alert_rec.pending)
-        ami_alert_write_file();
+        ami_alert_flush();
 }
