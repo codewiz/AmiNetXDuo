@@ -112,7 +112,8 @@ extern struct Device *TimerBase;
  * frame: locale.library may load its preferences through DOS.  A plain Task
  * cannot, so an open from one keeps the offset the last Process read; with
  * no locale.library at all it stays 0 and bh_tstamp is the clock as it is
- * (F-219).  One LONG, so a reader sees the old value or the new one.
+ * (F-219).  One LONG, so a reader sees the old value or the new one.  It is
+ * the Locale zone, not a DST-adjusted one; see ami_bpf_utc_secs().
  */
 static LONG ami_bpf_gmt_west;
 

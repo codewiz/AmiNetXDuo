@@ -142,6 +142,11 @@ VOID ami_bpf_now(ULONG *sec, ULONG *usec);
  * `since78` is GetSysTime()'s seconds since 1978, `west` locale.library's
  * loc_GMTOffset, minutes west of Greenwich.  A result that would fall before
  * 1970 is clamped to it rather than wrapped.
+ *
+ * Corrected against the configured Locale offset, and that is all: the 3.x
+ * struct Locale has no daylight-saving field.  A clock moved forward for DST,
+ * by hand or by a third-party tool, while the Locale zone stays at standard
+ * time gives stamps one hour off, as httpdate.c's conversion does.
  */
 static inline ULONG ami_bpf_utc_secs(ULONG since78, LONG west)
 {
