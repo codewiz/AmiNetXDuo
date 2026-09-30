@@ -34,6 +34,8 @@ static void expect_u32(const char *what, unsigned long got, unsigned long want)
 
 static void a_rev(void)
 {
+    /* GENET v5 uses the v3+ RBUF layout: base 0x300 + overflow 0x94. */
+    expect_u32("rev: v5 RBUF overflow counter", GENET_RBUF_OVFL_CNT, 0x394);
     expect_u32("rev: a Pi 4 reads 6, which is 5", genet_rev_major(0x06000000UL), 5);
     expect_u32("rev: 5 reads as 4", genet_rev_major(0x05000000UL), 4);
     expect_u32("rev: 0 is 1", genet_rev_major(0), 1);
