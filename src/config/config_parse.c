@@ -861,11 +861,11 @@ LONG ami_cfg_parse_interface(const char *name, char *buf, AmiIfConfig *out)
                 break;
 
             case IF_KEY_IPTYPE:
-                /* Numeric IPTYPE is the SANA-II packet type; alphabetic is
-                   the AmiTCP-style address mode. */
+                /* Numeric SANA-II packet types are accepted for file
+                   compatibility but ignored; alphabetic is the address mode. */
                 if (ami_cfg_parse_ulong(value, &n))
                 {
-                    AMI_DEBUG("config: %s: SANA-II IPTYPE %lu (sana2 layer)",
+                    AMI_DEBUG("config: %s: numeric IPTYPE %lu ignored",
                               out->name, (unsigned long)n);
                     ami_cfg_problem_code(lineno, AMI_CFG_PROBLEM_NOTE,
                                          AMI_CFG_SAYS_NUMERIC_IPTYPE_IGNORED,
