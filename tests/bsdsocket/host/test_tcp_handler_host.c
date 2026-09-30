@@ -120,7 +120,7 @@ static struct
 
     LONG            recv_plan[4];
     unsigned        recv_planned, recv_calls;
-    LONG            send_plan[4];
+    LONG            send_plan[5];
     unsigned        send_planned, send_calls;
     ULONG           sent_total;
 
