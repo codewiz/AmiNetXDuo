@@ -568,6 +568,35 @@ static void test_switching_protocols_is_final(void)
     CHECK(head.complete);
     CHECK(fetch_head_status(&head) == 101);
 
+    /* 100, 102 and 103 in a row, then the answer: all three are restarted
+       past and the final response is read whole, body after it. */
+    {
+        static const char seq[] =
+            "HTTP/1.1 100 Continue\r\n\r\n"
+            "HTTP/1.1 102 Processing\r\n\r\n"
+            "HTTP/1.1 103 Early Hints\r\nLink: </s.css>\r\n\r\n"
+            "HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n"
+            "body";
+        unsigned long n = sizeof(seq) - 1;
+
+        at = 0;
+        interim = 0;
+        fetch_head_start(&head, buf, sizeof(buf));
+        for (;;)
+        {
+            at += fetch_head_feed(&head, (const unsigned char *)seq + at,
+                                  n - at);
+            if (!head.complete || !fetch_head_interim(fetch_head_status(&head)))
+                break;
+            interim++;
+            fetch_head_start(&head, buf, sizeof(buf));
+        }
+        CHECK(interim == 3);
+        CHECK(fetch_head_status(&head) == 200);
+        CHECK(fetch_head_field(&head, "link:") == 0);
+        CHECK(strcmp(seq + at, "body") == 0);
+    }
+
     /* The others in 1xx are still interim. */
     CHECK(fetch_head_interim(100));
     CHECK(fetch_head_interim(102));
