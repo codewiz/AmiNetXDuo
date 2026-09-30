@@ -429,6 +429,20 @@ UINT _nxe_dhcp_interface_request_client_ip(NX_DHCP *dhcp_ptr, UINT iface_index,
     return NX_SUCCESS;
 }
 
+/* The lease the client asks for (option 51).  Recorded, not traced: the
+   call-order trace above answers "stopped then started again", and a lease
+   request is not part of that enable/start/stop/discover sequence. */
+UINT _nxe_dhcp_interface_request_lease(NX_DHCP *dhcp_ptr, UINT iface_index,
+                                       ULONG lease_seconds)
+{
+    (VOID)dhcp_ptr;
+    (VOID)iface_index;
+
+    nsh.dhcp_request_lease = lease_seconds;
+
+    return NX_SUCCESS;
+}
+
 /*
  * ami_ns_dhcp_discover_now() deactivates, shortens and reactivates the DHCP
  * client's own timer so the first DISCOVER leaves at the next tick instead of

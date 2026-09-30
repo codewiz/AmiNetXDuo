@@ -981,6 +981,7 @@ if(NOT CMAKE_CROSSCOMPILING)
     set(NETSTACK_HOST_TU
         "${CMAKE_SOURCE_DIR}/src/sana2/sana2_policy.c"
         "${CMAKE_SOURCE_DIR}/src/netstack/netstack.c"
+        "${CMAKE_SOURCE_DIR}/src/netstack/netstack_mask.c"
         "${CMAKE_SOURCE_DIR}/src/netstack/netstack_caller.c"
         "${CMAKE_SOURCE_DIR}/src/netstack/netstack_claim.c"
         "${CMAKE_SOURCE_DIR}/src/netstack/netstack_lock.c"

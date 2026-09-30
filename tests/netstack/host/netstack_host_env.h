@@ -66,6 +66,7 @@ typedef struct NetStackHostEnv
     ULONG   dhcp_discovers;         /* the DISCOVER kick, a timer re-arm     */
     ULONG   dhcp_request_addr;
     UINT    dhcp_request_skip;      /* the skip_discover argument            */
+    ULONG   dhcp_request_lease;     /* the option 51 lease seconds asked for */
 
     /* The call order, so "stopped, then started again" is answerable rather
        than inferred from two counters.  'e' enable, 's' start, 'x' stop,
