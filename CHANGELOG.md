@@ -9,6 +9,11 @@ version at the top when it merges.
 
 ## Unreleased
 
+- A configuration read that runs out of memory resolving its `DEVS:` path no
+  longer falls back to the system drawer. On a machine that also runs
+  Roadshow, the unredirected `DEVS:` path is that stack's file, so an
+  allocation failure could silently load another stack's routes, name servers
+  or interfaces; the read and the interface scan now report the failure.
 - `netdb` answers `AMI_CFG_ERR_NOMEM` when a database file is read but its
   buffer cannot be allocated, instead of substituting the built-in defaults
   and answering success. A hosts, networks, protocols or services file that

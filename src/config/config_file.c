@@ -111,15 +111,25 @@ const char *ami_cfg_resolve(const char *path, char *buf, ULONG buflen)
  * The resolved name, in a buffer from the pool rather than the stack: this
  * runs under bsd_lib_open(), whose depth is what every Shell command's 4 KB
  * has to leave room for (tools/check-stack-frames.sh), and 128 bytes there
- * is 128 bytes off every command.  NULL means the pool is empty, and the
- * caller uses the name as given.
+ * is 128 bytes off every command.
+ *
+ * NULL means two different things, which the caller tells apart through
+ * *oom: the pool could not give the buffer (OOM, *oom set), or no redirect is
+ * needed and the caller uses the name as given (*oom clear).  The caller must
+ * NOT fall back to the name as given on OOM: on a machine that also runs
+ * Roadshow, the name as given is that stack's file, the very thing the
+ * redirect exists to avoid.
  */
-static char *resolved_path(const char *path)
+static char *resolved_path(const char *path, BOOL *oom)
 {
     char *where = (char *)ami_alloc((ULONG)AMI_CFG_PATH_LEN);
 
     if (where == NULL)
+    {
+        if (oom != NULL)
+            *oom = TRUE;
         return NULL;
+    }
 
     if (ami_cfg_resolve(path, where, (ULONG)AMI_CFG_PATH_LEN) == path)
     {
@@ -138,6 +148,7 @@ APTR ami_cfg_read_file(const char *path, ULONG *size_out)
 {
     char *where;
     APTR  result;
+    BOOL  oom = FALSE;
 
     if (size_out != NULL)
         *size_out = 0;
@@ -145,7 +156,18 @@ APTR ami_cfg_read_file(const char *path, ULONG *size_out)
     if (path == NULL)
         return NULL;
 
-    where  = resolved_path(path);
+    where = resolved_path(path, &oom);
+    if (oom)
+    {
+        /* The redirect buffer could not be allocated.  The name as given is
+           the system DEVS:, so falling back to it could read another stack's
+           file.  Report the allocation failure the way the read-buffer case
+           does. */
+        if (size_out != NULL)
+            *size_out = AMI_CFG_READ_NOMEM;
+        return NULL;
+    }
+
     result = read_file_at((where != NULL) ? where : path, size_out);
 
     if (where != NULL)
@@ -245,11 +267,22 @@ BOOL ami_cfg_scan_interfaces(AmiConfig *cfg, AmiCfgIfaceSink sink)
     BPTR                  lock;
     char                 *where;
     const char           *dir;
+    BOOL                  oom = FALSE;
 
     if (cfg == NULL || sink == NULL)
         return FALSE;
 
-    where = resolved_path(AMI_CFG_DIR_NETINTERFACES);
+    where = resolved_path(AMI_CFG_DIR_NETINTERFACES, &oom);
+    if (oom)
+    {
+        AMI_ERROR("config: out of memory resolving the interface drawer");
+        ami_cfg_problem_file(AMI_CFG_DIR_NETINTERFACES);
+        ami_cfg_problem_code(0, AMI_CFG_PROBLEM_ERROR,
+                             AMI_CFG_SAYS_INTERFACE_DRAWER_OUT_OF_MEMORY,
+                             AMI_CFG_ADVICE_THIS_IS_MEMORY_NOT);
+        ami_cfg_problem_file(NULL);
+        return FALSE;
+    }
     dir   = (where != NULL) ? where : AMI_CFG_DIR_NETINTERFACES;
     lock  = Lock((STRPTR)dir, ACCESS_READ);
     if (lock == 0)
