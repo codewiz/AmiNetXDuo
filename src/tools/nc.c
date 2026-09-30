@@ -791,6 +791,12 @@ int main(int argc, char **argv)
 
             rc = nc_shovel(sb, sock, &opt);
 
+            /* Each caller's socket is closed when it is done with, not
+               overwritten by the next accept: -k leaked one per caller and
+               the close below only ever saw the last (F-182). */
+            (VOID)tool_sock_close(sb, sock);
+            sock = -1;
+
             if (!opt.keep || tool_break())
                 break;
         }
