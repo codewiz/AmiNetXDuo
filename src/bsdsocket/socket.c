@@ -969,8 +969,20 @@ VOID bsd_close_all(struct AmiSocketBase *base)
         if (bsd_fd_free(base, fd) != 0)
             base->sb_Table[fd] = NULL;
 
-        if (bracketed && sock != BSD_FD_RESERVED)
+        if (sock == BSD_FD_RESERVED)
+            continue;
+
+        if (bracketed)
             bsd_socket_release(base, sock);
+        else
+        {
+            /* Left alive with its NetX callbacks installed, which reach this
+               base through as_Owner long after the base is gone (F-059):
+               ownership passes to another holder, or to nobody. */
+            Forbid();
+            bsd_owner_drop(base, sock);
+            Permit();
+        }
     }
 
     if (!bracketed)
@@ -2807,7 +2819,14 @@ LONG bsd_CloseSocket(register LONG sock_fd __asm("d0"),
     }
     else
     {
-        AMI_WARN("bsdsocket: CloseSocket(%ld) with the kernel down. "
+        /* No bracket, so no release: the socket leaks with its callbacks
+           installed.  They must not keep signalling this base, which can be
+           closed and freed before they fire (F-059). */
+        Forbid();
+        bsd_owner_drop(SocketBase, sock);
+        Permit();
+
+        AMI_WARN("bsdsocket: CloseSocket(%ld) with no ThreadX bracket. "
                  "The socket leaks", (long)sock_fd);
     }
 

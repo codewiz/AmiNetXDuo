@@ -86,6 +86,27 @@ if(NOT CMAKE_CROSSCOMPILING AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
     target_link_options(test_scope_epoch PRIVATE -Wl,--gc-sections)
     add_test(NAME scope_slot_epoch COMMAND test_scope_epoch)
 
+    # socket.c: CloseSocket() and bsd_close_all() without a ThreadX bracket
+    # leave no leaked socket naming the closing base (F-059).
+    add_executable(test_unbracketed_close host/test_unbracketed_close_host.c)
+    target_include_directories(test_unbracketed_close PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/host/shim"
+        "${CMAKE_SOURCE_DIR}/src/bsdsocket"
+        "${CMAKE_SOURCE_DIR}/include"
+        "${AMINETXDUO_THREADX}/common/inc"
+        "${AMINETXDUO_THREADX}/ports/linux/gnu/inc"
+        "${AMINETXDUO_NETXDUO}/common/inc"
+        "${AMINETXDUO_NETXDUO}/ports/linux/gnu/inc"
+        "${CMAKE_SOURCE_DIR}/port/netxduo-amiga/inc")
+    target_compile_options(test_unbracketed_close PRIVATE
+        -include "${CMAKE_CURRENT_SOURCE_DIR}/host/shim/host_prelude.h"
+        -ffunction-sections -fdata-sections -Wno-pointer-to-int-cast)
+    target_compile_definitions(test_unbracketed_close PRIVATE
+        AMINETXDUO_MULTICAST AMINETXDUO_IPV6 AMINETXDUO_CMSG
+        NX_INCLUDE_USER_DEFINE_FILE)
+    target_link_options(test_unbracketed_close PRIVATE -Wl,--gc-sections)
+    add_test(NAME unbracketed_close COMMAND test_unbracketed_close)
+
     if(AMINETXDUO_IPV6 AND NOT AMINETXDUO_CMSG)
         add_executable(test_in6_option_level
             host/test_in6_option_level_host.c)
