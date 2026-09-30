@@ -9,6 +9,9 @@ version at the top when it merges.
 
 ## Unreleased
 
+- A command that cannot find an interface by name no longer lists the
+  interfaces whose card never opened. The lookup skips a cleared slot, so the
+  list under "no such interface" no longer offers a name the search refused.
 - `httpd` uses the proper reason phrases for 304, 426 and 502 responses
   instead of printing `Unknown` in those status lines.
 - `telnet` reads from the socket between chunks of scripted input, not only

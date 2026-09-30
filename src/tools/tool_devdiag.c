@@ -373,7 +373,12 @@ LONG tool_find_interface(const char *name)
     else
     {
         for (i = 0; i < cfg->interface_count; i++)
+        {
+            /* A cleared `configured` is not an answer, as in the search. */
+            if (!cfg->interfaces[i].configured)
+                continue;
             tool_printf("      %s\n", (LONG)cfg->interfaces[i].name);
+        }
     }
 
     return -1;
