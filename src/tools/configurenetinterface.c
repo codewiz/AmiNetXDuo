@@ -235,9 +235,10 @@ static BOOL dhcp_bound(struct Library *base, LONG index)
 /*
  * Wait up to `seconds` for the client on `index` to reach
  * NETSTATUS_DHCPRAW_BOUND. The RAW state is watched, not nsd_State: BOUND,
- * RENEWING and REBINDING are all NETSTATUS_DHCP_BOUND.
+ * RENEWING and REBINDING are all NETSTATUS_DHCP_BOUND.  1 bound, 0 the wait
+ * ran out (the client keeps asking), -1 Ctrl-C (F-146).
  */
-static BOOL wait_for_lease(struct Library *base, LONG index, ULONG seconds)
+static LONG wait_for_lease(struct Library *base, LONG index, ULONG seconds)
 {
     ULONG waited;
 
@@ -246,13 +247,13 @@ static BOOL wait_for_lease(struct Library *base, LONG index, ULONG seconds)
         const NetStatusDhcp *d = dhcp_row(base, index);
 
         if (d != NULL && d->nsd_RawState == NETSTATUS_DHCPRAW_BOUND)
-            return TRUE;
+            return 1;
 
         if (tool_delay_ticks(25))       /* half a second. Ctrl-C ends it */
-            return FALSE;
+            return -1;
     }
 
-    return FALSE;
+    return 0;
 }
 
 /* "192.168.1.5" or "192.168.1.5/24"; a prefix length is written to *mask and
@@ -990,6 +991,7 @@ int main(int argc, char **argv)
     if (want_dhcp)
     {
         BOOL  renewing = dhcp_bound(base, index);
+        LONG  leased;
         ULONG op       = renewing ? NETCTRL_DHCP_RENEW : NETCTRL_DHCP_START;
 
         if (control(base, op, index, address, 0, 0,
@@ -1019,14 +1021,18 @@ int main(int argc, char **argv)
             return RETURN_FAIL;
         }
 
-        if (!wait_for_lease(base, index, timeout))
+        leased = wait_for_lease(base, index, timeout);
+        if (leased <= 0)
         {
-            tool_error("%s: no answer from a DHCP server within %lu seconds",
-                       (LONG)name, timeout);
-            tool_explain_dhcp(name);
+            /* The wait ended, not the request: the client keeps asking, and
+               nothing after the DHCP step was applied. */
+            if (leased < 0)
+                tool_fault(ERROR_BREAK);
+            else
+                tool_explain_dhcp_waiting(name, timeout);
             tool_netstatus_close(base);
             FreeArgs(rda);
-            return RETURN_FAIL;
+            return (leased < 0) ? RETURN_WARN : RETURN_FAIL;
         }
 
         if (find_index(base, name) >= 0 && (row = iface_row(index)) != NULL)
@@ -1262,7 +1268,8 @@ int main(int argc, char **argv)
             if (find_index(base, name) >= 0 && (row = iface_row(index)) != NULL)
                 say("%s: MTU %lu\n", (LONG)name, row->nsi_MTU);
             else
-                say("%s: MTU %lu\n", (LONG)name, mtu);
+                say("%s: MTU %lu was asked for; the MTU in use could not be "
+                    "read back\n", (LONG)name, mtu);   /* F-148 */
         }
 
         if (late_state)
