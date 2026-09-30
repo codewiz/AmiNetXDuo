@@ -98,6 +98,13 @@ int main(void)
         CHECK(route6_find_router(r6, 3, 2, 2, NULL, FALSE, out) == 0);   /* past max */
     }
 
+    {   /* F-147: IPv6 in the running library, or no answer. */
+        CHECK(route6_stack_ipv6(1, NETSTATUS_SYS_IPV6) == 1);
+        CHECK(route6_stack_ipv6(1, 0) == 0);
+        CHECK(route6_stack_ipv6(0, 0) == -1);      /* no row */
+        CHECK(route6_stack_ipv6(-1, 0) == -1);     /* the query failed */
+    }
+
     printf("RESULT route_match checks=%d failures=%d\n", checks, failures);
     return failures != 0;
 }

@@ -100,4 +100,17 @@ static inline LONG route6_find_router(const NetStatusRoute6 *r, LONG n,
     return 0;
 }
 
+/*
+ * Whether the running library has IPv6, from a NETSTATUS_SYSTEM query that
+ * returned n rows: 1 yes, 0 built without it, -1 the query failed and it
+ * cannot be told (F-147).
+ */
+static inline LONG route6_stack_ipv6(LONG n, ULONG sys_flags)
+{
+    if (n <= 0)
+        return -1;
+
+    return (sys_flags & NETSTATUS_SYS_IPV6) ? 1 : 0;
+}
+
 #endif

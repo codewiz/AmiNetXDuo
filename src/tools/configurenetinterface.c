@@ -408,17 +408,16 @@ static const char *state_word(LONG state)
     }
 }
 
-/* TRUE when the running library has IPv6 in it at all. */
-static BOOL stack_has_ipv6(struct Library *base)
+/* 1 when the running library has IPv6 in it at all, 0 when it was built
+   without, -1 when it would not say (route6_stack_ipv6). */
+static LONG stack_has_ipv6(struct Library *base)
 {
-    if (tool_netstatus_query(base, NETSTATUS_SYSTEM, &cni_v6,
-                             sizeof(cni_v6.system), sizeof(NetStatusSystem))
-            <= 0)
-    {
-        return FALSE;
-    }
+    LONG n = tool_netstatus_query(base, NETSTATUS_SYSTEM, &cni_v6,
+                                  sizeof(cni_v6.system),
+                                  sizeof(NetStatusSystem));
 
-    return (cni_v6.system.e.nss_Flags & NETSTATUS_SYS_IPV6) ? TRUE : FALSE;
+    return route6_stack_ipv6(n, (n > 0) ? (ULONG)cni_v6.system.e.nss_Flags
+                                        : 0UL);
 }
 
 /* "fe80::1%eth0", which AddNetRoute takes and this command has no use for. */
@@ -921,6 +920,29 @@ int main(int argc, char **argv)
     }
 
     /*
+     * GATEWAY6 against a library without IPv6 -- a full-build command on a
+     * minimal or micro library -- is refused here, before anything below
+     * changes the interface, so a mixed request is not half applied (F-147).
+     */
+    if (have_gateway6)
+    {
+        LONG v6 = stack_has_ipv6(base);
+
+        if (v6 <= 0)
+        {
+            if (v6 == 0)
+                tool_error("this bsdsocket.library was built without IPv6, "
+                           "so there is no IPv6 route to change");
+            else
+                tool_error("the network did not say whether it has IPv6, so "
+                           "nothing was changed");
+            tool_netstatus_close(base);
+            FreeArgs(rda);
+            return RETURN_FAIL;
+        }
+    }
+
+    /*
      * ONLINE before the rest of the call, which is the order Roadshow
      * documents: an interface that was off the wire is put back on it, and
      * everything below then applies to a live interface rather than failing
@@ -1089,15 +1111,6 @@ int main(int argc, char **argv)
         char  gwtext[CNI_IP6_STRLEN];
 
         tool_format_ip6(cni_gateway6, gwtext, sizeof(gwtext));
-
-        if (!stack_has_ipv6(base))
-        {
-            tool_error("this bsdsocket.library was built without IPv6, so "
-                       "there is no IPv6 route to change");
-            tool_netstatus_close(base);
-            FreeArgs(rda);
-            return RETURN_FAIL;
-        }
 
         /* Asked for what it already has: keep it rather than remove and
            re-add, which would drop the route for the moment in between.  A
