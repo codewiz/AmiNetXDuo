@@ -9,6 +9,10 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `telnet` flushes a carriage return held from the previous byte before it
+  starts to read an IAC command. A CR followed by an escaped 0xFF (IAC IAC)
+  put the 0xFF out first and then dropped the CR when the segment ended; the
+  bare CR now comes out ahead of the byte.
 - `sntp` writes its request's transmit fraction in NTP's binary fraction,
   2^32 units to the second, not raw microseconds. A request sent half a second
   past the second read as a fraction of a millisecond into it, so a capture or

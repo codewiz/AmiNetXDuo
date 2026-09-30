@@ -269,6 +269,18 @@ static LONG tn_demux(TnState *st, const UBYTE *buf, LONG len)
             case TN_DATA:
                 if (c == TN_IAC)
                 {
+                    /*
+                     * An IAC decides the held CR too: it is neither LF nor
+                     * NUL, so the CR is a bare carriage return and must go out
+                     * before the command or the escaped 0xFF it introduces.
+                     * Left unflushed, CR IAC IAC puts the 0xFF first and then
+                     * drops the CR when the segment ends.
+                     */
+                    if (st->saw_cr)
+                    {
+                        st->saw_cr = FALSE;
+                        tn_clean[out++] = '\r';
+                    }
                     st->parse = TN_SAW_IAC;
                     break;
                 }
