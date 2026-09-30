@@ -513,15 +513,23 @@ static VOID iperf_slice_accept(IperfRun *run)
                                  &tv, (LONG)sizeof(tv)) != 0)
             run->plan.blocking = 0;
     }
-    if (!run->plan.blocking)
-        (VOID)tool_sock_ioctl(run->sb, s, TOOL_FIONBIO, &nonblock);
+    /* The run owns the socket from here, so a failure below is closed by
+       iperf_end() like any other. */
+    run->sock = s;
+
+    /* Neither bound took: fail rather than run an unbounded recv(). */
+    if (!run->plan.blocking &&
+        tool_sock_ioctl(run->sb, s, TOOL_FIONBIO, &nonblock) != 0)
+    {
+        iperf_fail(run, "nonblocking", tool_sock_errno(run->sb));
+        return;
+    }
 
     /* The idle test's reference until the first byte starts the clock. */
     run->t_lastact = ami_millis();
     (VOID)tool_sock_addr_get(&from, &run->res.peer);
     run->res.peer_port = tool_sock_addr_port(&from);
 
-    run->sock  = s;
     run->state = ST_RECV;
 }
 
