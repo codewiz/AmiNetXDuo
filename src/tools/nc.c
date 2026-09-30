@@ -158,6 +158,43 @@ static BOOL parse_range(const char *text, UWORD *lo, UWORD *hi)
  * waits on both. When standard input ends the write half is shut down rather
  * than the whole socket, so `nc host 80 <request.txt` still reads the answer.
  */
+/*
+ * A stream send of all `len` bytes (F-183): a short send used to drop the
+ * rest.  Returns 1 when all went, 0 on a failed send (errno as the stack left
+ * it), -1 on Ctrl-C.  tool_break() is checked before every send and retry,
+ * so a break is seen here and not retried past; an EINTR that was not a
+ * break is simply retried.  Datagrams do not come here: one send() is one
+ * datagram.
+ */
+static LONG nc_send_stream(struct Library *sb, LONG sock, const UBYTE *out,
+                           LONG len)
+{
+    LONG sent = 0;
+
+    while (sent < len)
+    {
+        LONG n;
+
+        if (tool_break())
+            return -1;
+
+        n = tool_sock_send(sb, sock, &out[sent], len - sent);
+
+        if (n > 0)
+        {
+            sent += n;
+            continue;
+        }
+
+        if (n < 0 && tool_sock_errno(sb) == TOOL_EINTR)
+            continue;
+
+        return 0;
+    }
+
+    return 1;
+}
+
 static LONG nc_shovel(struct Library *sb, LONG sock, const NcOptions *opt)
 {
     ToolInput   in;
@@ -231,11 +268,22 @@ static LONG nc_shovel(struct Library *sb, LONG sock, const NcOptions *opt)
                     len = o;
                 }
 
-                /* Both modes reach here on a connected socket, datagram
-                   included, so one send() covers all four cases. */
-                n = tool_sock_send(sb, sock, out, len);
+                /* Both modes reach here on a connected socket.  A datagram
+                   is one send(), whole or not at all; a stream sends the
+                   rest of a short write too (F-183). */
+                if (opt->udp)
+                    n = (tool_sock_send(sb, sock, out, len) == len) ? 1 : 0;
+                else
+                    n = nc_send_stream(sb, sock, out, len);
 
-                if (n != len)
+                if (n < 0)
+                {
+                    rc = RETURN_WARN;
+                    tool_fault(ERROR_BREAK);
+                    break;
+                }
+
+                if (n == 0)
                 {
                     tool_error("cannot send: %s",
                                (LONG)tool_sock_errstr(tool_sock_errno(sb)));
