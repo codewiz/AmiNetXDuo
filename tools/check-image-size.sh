@@ -103,12 +103,14 @@ BUDGETS=(
     # the ring, callbacks, PHY and watchdog moved into a schedulable service
     # task.  The extra ownership and lifecycle serialization buy bounded
     # interrupt latency rather than another data-path feature, 2026-09-20.
-    "default:src/netdev/anxgenet.device:29000"
+    # 29,088 on e806188f after the audited device fixes.
+    "default:src/netdev/anxgenet.device:29120"
     "default:src/wifipi/anxwifipi.device:56000"
     # +832 bytes for Roadshow's native users/groups ReadArgs syntax, strict
     # /N validation and bounded member-vector sizing: existing UID/GID maps
     # survive installing this usergroup.library without trusting malformed DBs.
-    "default:src/usergroup/usergroup.library:10000"
+    # 10,172 on e806188f after the audited parser fixes.
+    "default:src/usergroup/usergroup.library:10240"
     "default:src/tlslib/tls.library:198000"
     # 225,876 -> 226,216 on 2026-09-17: the write queue behind the SANA-II
     # ring and its launcher (a round trip in flight for every card: A1200
