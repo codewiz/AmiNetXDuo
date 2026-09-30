@@ -1086,13 +1086,24 @@ static VOID show_memory(const ToolStats *st)
  * TCPSOCKETS / UDPSOCKETS. Without ALL only sockets with a peer are listed;
  * ALL adds every listener and every idle datagram socket.
  */
-static VOID show_tcp_sockets(const ToolSnapshot *snap, BOOL all)
+static VOID show_tcp_sockets(const ToolSnapshot *snap, BOOL have_live, BOOL all)
 {
     char  peer[AMI_CFG_NAME_LEN];
     UWORD i;
     UWORD shown = 0;
 
     tool_printf("\nTCP sockets\n");
+
+    /* The snapshot is static across REPEAT passes, so a pass after the stack
+       stopped still holds the previous pass's sockets.  No live snapshot means
+       no socket list: say so instead of replaying it or claiming "(none)"
+       (F-125). */
+    if (!have_live)
+    {
+        tool_printf("  the stack is not readable from here\n");
+        return;
+    }
+
     tool_printf("Local     Foreign                         State\n");
 
     for (i = 0; i < snap->sock_count; i++)
@@ -1139,12 +1150,20 @@ static VOID show_tcp_sockets(const ToolSnapshot *snap, BOOL all)
         tool_printf("(list truncated at %ld sockets)\n", (LONG)TOOL_MAX_SOCK);
 }
 
-static VOID show_udp_sockets(const ToolSnapshot *snap, BOOL all)
+static VOID show_udp_sockets(const ToolSnapshot *snap, BOOL have_live, BOOL all)
 {
     UWORD i;
     UWORD shown = 0;
 
     tool_printf("\nUDP sockets\n");
+
+    /* Same stale-snapshot window as the TCP list (F-125). */
+    if (!have_live)
+    {
+        tool_printf("  the stack is not readable from here\n");
+        return;
+    }
+
     tool_printf("Local     Queued\n");
 
     for (i = 0; i < snap->sock_count; i++)
@@ -1887,9 +1906,9 @@ static LONG report(const Wanted *w, const AmiConfig *cfg, BOOL from_disk)
     if (w->memory)
         show_memory(&stats);
     if (w->tcpsockets)
-        show_tcp_sockets(&snap, w->all);
+        show_tcp_sockets(&snap, have_live, w->all);
     if (w->udpsockets)
-        show_udp_sockets(&snap, w->all);
+        show_udp_sockets(&snap, have_live, w->all);
     if (w->users)
         show_users(stack_running);
 

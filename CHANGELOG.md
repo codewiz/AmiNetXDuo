@@ -26,6 +26,10 @@ version at the top when it merges.
   carry would wrap past `ULONG_MAX` can no longer collapse to a near-zero
   deadline and fire at once; it keeps the terminal path and waits the full
   duration.
+- `ShowNetStatus` no longer reprints the previous pass's socket list once the
+  stack has stopped. Its `TCP SOCKETS` / `UDP SOCKETS` sections now say the
+  stack is not readable when there is no live snapshot, instead of showing stale
+  sockets or a misleading `(none)`.
 - `AMINETXDUO_MAX_INTERFACES` above 32 is now a compile error; the DHCP
   resolver's pending-interface set is one 32-bit word and cannot name an
   index past bit 31.
