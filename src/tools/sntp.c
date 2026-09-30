@@ -447,11 +447,17 @@ static BOOL sntp_exchange(struct Library *sbase, LONG sock, ULONG timeout,
         /*
          * The transmit timestamp is our own clock, which can be decades out.
          * Its only job is to come back in the originate field, and RFC 4330
-         * lets a client use any unique value.
+         * lets a client use any unique value.  It is still an NTP timestamp,
+         * so the fraction is 2^32 units to the second, not raw microseconds.
+         * micro * 2^32 / 10^6 is micro * 4294 + micro * 15114 / 15625; the
+         * integer part fits 32 bits, and the remainder is micro minus
+         * ceil(micro * 511 / 15625), so the whole is exact with no 64-bit
+         * helper.
          */
         clock_get(&sent_secs, &sent_micro);
         sent_secs += SNTP_NTP_TO_AMIGA;
-        sent_frac  = sent_micro;
+        sent_frac = sent_micro * 4294UL
+                  + (sent_micro - (sent_micro * 511UL + 15624UL) / 15625UL);
 
         for (i = 0; i < (ULONG)SNTP_MSG_SIZE; i++)
             msg[i] = 0;

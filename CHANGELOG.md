@@ -9,6 +9,11 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `sntp` writes its request's transmit fraction in NTP's binary fraction,
+  2^32 units to the second, not raw microseconds. A request sent half a second
+  past the second read as a fraction of a millisecond into it, so a capture or
+  a server log of the request did not name the time it left; the exchange never
+  depended on the value, only echoing it back.
 - `arp` refuses `UNIT` on an IPv4 `SET`. The IPv4 ARP cache is one table for
   the whole machine, not one per interface, so a `UNIT` named no interface
   and the entry was added without it. The command answers an error instead of
