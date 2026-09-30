@@ -576,10 +576,9 @@ static VOID check_resolver(const AmiConfig *cfg)
         ULONG      server = cfg->resolver.nameserver[i];
         char       text[16];
         const char *path;
-        char       iface_path[TOOL_NAME_LEN * 2];
         ULONG      line;
-        BOOL       truncated_seen = FALSE;
-        UWORD      j;
+        UWORD      occur = 0;
+        UWORD      k;
 
         if (network_holding(cfg, server) >= 0)
             continue;               /* directly reachable */
@@ -589,40 +588,32 @@ static VOID check_resolver(const AmiConfig *cfg)
         /*
          * Which file supplied this name server, so the finding names the one to
          * edit.  load_resolver() parses name_resolution first, then fills a
-         * still-empty resolver from hosts, then from the first interface file
-         * with a NAMESERVER (AmiTCP_NG's installer writes it there).  Replay
-         * that order; a value in no nameable file (the file changed since load)
-         * names the primary file at line 0 rather than a stale line.
+         * still-empty resolver from hosts, then from an interface file
+         * (AmiTCP_NG's installer writes it there).  The first two are single
+         * fixed files and replay exactly.  The interface fallback does not:
+         * resolver_from_one() scans the raw drawer in enumeration order and
+         * takes a NAMESERVER from any file -- even one ami_cfg_take_interface()
+         * rejected -- while cfg->interfaces[] holds only accepted files,
+         * alphabetically sorted, so the exact file is not recoverable here.
+         * Name the drawer, not a guessed file.
          */
+        for (k = 0; k < i; k++)
+            if (cfg->resolver.nameserver[k] == server)
+                occur++;            /* a duplicated value: its own occurrence */
+
         path = "DEVS:Internet/name_resolution";
-        line = ami_cfg_nameserver_line_file(path, server);
+        line = ami_cfg_nameserver_line_file(path, server, occur);
 
         if (line == 0)
         {
             path = "DEVS:Internet/hosts";
-            line = ami_cfg_nameserver_line_file(path, server);
-        }
-
-        for (j = 0; line == 0 && j < cfg->interface_count; j++)
-        {
-            if (ami_cfg_ifname_may_be_truncated(cfg->interfaces[j].name))
-            {
-                truncated_seen = TRUE;  /* its real file name is unknown */
-                continue;
-            }
-            tool_join_path(iface_path, sizeof(iface_path),
-                           CNC_DIR_INTERFACES, cfg->interfaces[j].name);
-            line = ami_cfg_nameserver_line_file(iface_path, server);
-            if (line != 0)
-                path = iface_path;
+            line = ami_cfg_nameserver_line_file(path, server, occur);
         }
 
         if (line == 0)
         {
-            /* Not in any nameable file: name the drawer when a truncated
-               interface name hides the true source, else the primary file. */
-            path = truncated_seen ? CNC_DIR_INTERFACES
-                                  : "DEVS:Internet/name_resolution";
+            path = CNC_DIR_INTERFACES;  /* drawer: exact file not provable */
+            line = 0;
         }
 
         ami_config_format_ip(server, text, sizeof(text));

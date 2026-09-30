@@ -825,15 +825,16 @@ ULONG ami_cfg_interface_gateway_line(char *buf, ULONG want);
    read. */
 ULONG ami_cfg_interface_gateway_line_file(const char *path, ULONG want);
 
-/* The 1-based line of `buf` whose NAMESERVER the resolver parser keeps as
-   `want`, counted as the parser counts lines, or 0.  Mirrors
-   ami_cfg_parse_resolver()'s NAMESERVER case (first key=value pair spells
-   NAMESERVER, value parses as an IP); returns the first line whose parsed value
-   equals `want` (F-158).  `buf` is a whole file's text, split in place. */
-ULONG ami_cfg_nameserver_line(char *buf, ULONG want);
+/* The 1-based line of the `occur`-th (0-based) NAMESERVER whose value the
+   resolver parser keeps as `want`, counted as the parser counts lines, or 0.
+   Mirrors ami_cfg_parse_resolver()'s NAMESERVER case (first key=value pair
+   spells NAMESERVER, value parses as an IP); a duplicated value is named at its
+   own line via `occur` (F-158).  `buf` is a whole file's text, split in
+   place. */
+ULONG ami_cfg_nameserver_line(char *buf, ULONG want, UWORD occur);
 /* The same for a file, read through ami_cfg_read_file(); 0 when it cannot be
    read. */
-ULONG ami_cfg_nameserver_line_file(const char *path, ULONG want);
+ULONG ami_cfg_nameserver_line_file(const char *path, ULONG want, UWORD occur);
 
 /* TRUE when `name` sits at the parser's interface-name ceiling, so it may be a
    longer filename truncated to AMI_CFG_IFNAME_MAX characters; a reconstructed

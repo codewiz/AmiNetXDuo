@@ -3033,41 +3033,322 @@ static void test_nameserver_line(void)
        re-reads a fresh buffer: ami_cfg_nameserver_line() splits it in place. */
     strcpy(buf, "nameserver 192.168.1.1\n"
                 "nameserver 8.8.8.8\n");
-    CHECK(ami_cfg_nameserver_line(buf, a) == 1);
+    CHECK(ami_cfg_nameserver_line(buf, a, 0) == 1);
     strcpy(buf, "nameserver 192.168.1.1\n"
                 "nameserver 8.8.8.8\n");
-    CHECK(ami_cfg_nameserver_line(buf, b) == 2);
+    CHECK(ami_cfg_nameserver_line(buf, b, 0) == 2);
 
     /* The keyword is case-insensitive. */
     strcpy(buf, "NAMESERVER=192.168.1.1\n");
-    CHECK(ami_cfg_nameserver_line(buf, a) == 1);
+    CHECK(ami_cfg_nameserver_line(buf, a, 0) == 1);
 
     /* A value that does not parse is skipped, so a later valid one is named. */
     strcpy(buf, "nameserver not-an-ip\n"
                 "nameserver 192.168.1.1\n");
-    CHECK(ami_cfg_nameserver_line(buf, a) == 2);
+    CHECK(ami_cfg_nameserver_line(buf, a, 0) == 2);
 
     /* No NAMESERVER with the kept value: 0. */
     strcpy(buf, "nameserver 8.8.8.8\n");
-    CHECK(ami_cfg_nameserver_line(buf, a) == 0);
+    CHECK(ami_cfg_nameserver_line(buf, a, 0) == 0);
 
     /* The resolver parser reads only the first key=value pair on a line, so a
        NAMESERVER in the second position was never the one it kept. */
     strcpy(buf, "domain example.com nameserver 192.168.1.1\n");
-    CHECK(ami_cfg_nameserver_line(buf, a) == 0);
+    CHECK(ami_cfg_nameserver_line(buf, a, 0) == 0);
 
     /* A comment and a blank line do not change the count. */
     strcpy(buf, "# leading comment\n"
                 "\n"
                 "nameserver 192.168.1.1\n");
-    CHECK(ami_cfg_nameserver_line(buf, a) == 3);
+    CHECK(ami_cfg_nameserver_line(buf, a, 0) == 3);
+
+    /* A duplicated value is named at its OWN line: `occur` steps over the
+       earlier equal-valued NAMESERVER, and runs out rather than wrapping. */
+    strcpy(buf, "nameserver 8.8.8.8\n"
+                "nameserver 192.168.1.1\n"
+                "nameserver 8.8.8.8\n");
+    CHECK(ami_cfg_nameserver_line(buf, b, 0) == 1);
+    strcpy(buf, "nameserver 8.8.8.8\n"
+                "nameserver 192.168.1.1\n"
+                "nameserver 8.8.8.8\n");
+    CHECK(ami_cfg_nameserver_line(buf, b, 1) == 3);
+    strcpy(buf, "nameserver 8.8.8.8\n"
+                "nameserver 192.168.1.1\n"
+                "nameserver 8.8.8.8\n");
+    CHECK(ami_cfg_nameserver_line(buf, b, 2) == 0);
 
     /* The file form, through the fixture reader. */
     set_fixture(AMI_CFG_FILE_NAMERES,
                 "nameserver 8.8.8.8\n"
-                "nameserver 192.168.1.1\n");
-    CHECK(ami_cfg_nameserver_line_file(AMI_CFG_FILE_NAMERES, a) == 2);
-    CHECK(ami_cfg_nameserver_line_file(AMI_CFG_FILE_NAMERES, b) == 1);
+                "nameserver 192.168.1.1\n"
+                "nameserver 8.8.8.8\n");
+    CHECK(ami_cfg_nameserver_line_file(AMI_CFG_FILE_NAMERES, a, 0) == 2);
+    CHECK(ami_cfg_nameserver_line_file(AMI_CFG_FILE_NAMERES, b, 0) == 1);
+    CHECK(ami_cfg_nameserver_line_file(AMI_CFG_FILE_NAMERES, b, 1) == 3);
+}
+
+/* A verbatim replay of config_file.c load_resolver().  Every part it needs --
+   ami_cfg_read_file (mocked), ami_cfg_parse_resolver, and
+   ami_config_resolver_from_interfaces -- is linked into this test; only
+   config_file.c's AmigaDOS plumbing is absent, so the real precedence runs
+   here without linking it (F-158d). */
+static void load_resolver_replay(AmiConfig *cfg)
+{
+    char *buf;
+
+    buf = (char *)ami_cfg_read_file(AMI_CFG_FILE_NAMERES, NULL);
+    if (buf != NULL)
+    {
+        ami_cfg_parse_resolver(buf, &cfg->resolver,
+                               cfg->hostname, sizeof(cfg->hostname));
+        ami_free(buf);
+    }
+
+    if (cfg->resolver.nameserver_count == 0 || cfg->hostname[0] == '\0')
+    {
+        buf = (char *)ami_cfg_read_file(AMI_CFG_FILE_HOSTS, NULL);
+        if (buf != NULL)
+        {
+            AmiResolverConfig extra;
+
+            ami_cfg_zero(&extra, sizeof(extra));
+            ami_cfg_parse_resolver(buf, &extra,
+                                   (cfg->hostname[0] == '\0')
+                                       ? cfg->hostname : NULL,
+                                   sizeof(cfg->hostname));
+
+            if (cfg->resolver.nameserver_count == 0)
+            {
+                UWORD i;
+
+                cfg->resolver.nameserver_count = extra.nameserver_count;
+                for (i = 0; i < extra.nameserver_count; i++)
+                {
+                    cfg->resolver.nameserver[i]     = extra.nameserver[i];
+                    cfg->resolver.nameserver_use[i] = extra.nameserver_use[i];
+                }
+            }
+            if (cfg->resolver.domain[0] == '\0')
+                ami_cfg_copy_string(cfg->resolver.domain,
+                                    sizeof(cfg->resolver.domain), extra.domain);
+
+            ami_free(buf);
+        }
+    }
+
+    ami_config_resolver_from_interfaces(cfg);
+
+    if (cfg->hostname[0] != '\0')
+        cfg->hostname_source = (UWORD)AMI_HOSTNAME_NAMERES;
+}
+
+/* Replay of check_resolver()'s provenance walk for one loaded name server:
+   which file/line it came from.  The reachability gate is outside this walk;
+   the walk is exactly the one checknetconfig.c runs -- name_resolution first,
+   then hosts to fill a still-empty resolver, then the interface drawer (whose
+   exact file is not recoverable, so it is named at line 0).  `occur` counts
+   earlier equal values, so a duplicated value is named at its own line. */
+static void resolver_provenance(const AmiConfig *cfg, UWORD i,
+                                const char **path, ULONG *line)
+{
+    ULONG server = cfg->resolver.nameserver[i];
+    UWORD occur  = 0;
+    UWORD k;
+
+    for (k = 0; k < i; k++)
+        if (cfg->resolver.nameserver[k] == server)
+            occur++;
+
+    *path = AMI_CFG_FILE_NAMERES;
+    *line = ami_cfg_nameserver_line_file(*path, server, occur);
+
+    if (*line == 0)
+    {
+        *path = AMI_CFG_FILE_HOSTS;
+        *line = ami_cfg_nameserver_line_file(*path, server, occur);
+    }
+
+    if (*line == 0)
+    {
+        *path = AMI_CFG_DIR_NETINTERFACES;   /* the drawer: file unprovable */
+        *line = 0;
+    }
+}
+
+/*
+ * End-to-end: the real loader commits the resolver (precedence, gap-fill, and
+ * the rejected-file quirk), and the provenance walk names the same value the
+ * loader accepted -- file and line -- not some first-keyword match (F-158d).
+ */
+static void test_nameserver_provenance(void)
+{
+    AmiConfig   cfg;
+    const char *path;
+    ULONG       line;
+
+    printf("nameserver provenance (end-to-end)\n");
+
+    ami_config_set_reporter(collect, NULL);
+
+    /* 1. Competing sources: name_resolution beats hosts beats the drawer. */
+    memset(&cfg, 0, sizeof(cfg));
+    clear_fixtures();
+    clear_drawer();
+    set_fixture(AMI_CFG_FILE_NAMERES, "nameserver 8.8.8.8\n");
+    set_fixture(AMI_CFG_FILE_HOSTS,   "NAMESERVER 4.4.4.4\n");
+    stage_interface("eth0", 0);
+    set_fixture("DEVS:NetInterfaces/eth0",
+                "DEVICE=ariadne.device\nUNIT=0\nCONFIGURE=DHCP\n"
+                "NAMESERVER=1.1.1.1\n");
+
+    ami_config_load_interfaces(&cfg);
+    load_resolver_replay(&cfg);
+    CHECK(cfg.resolver.nameserver_count == 1);
+    CHECK_IP(cfg.resolver.nameserver[0], 8, 8, 8, 8);
+
+    resolver_provenance(&cfg, 0, &path, &line);
+    CHECK(strcmp(path, AMI_CFG_FILE_NAMERES) == 0);
+    CHECK(line == 1);
+
+    ami_config_free(&cfg);
+
+    /* 2. Hosts fallback: no name_resolution, the netdb file supplies it. */
+    memset(&cfg, 0, sizeof(cfg));
+    clear_fixtures();
+    clear_drawer();
+    set_fixture(AMI_CFG_FILE_HOSTS, "NAMESERVER 4.4.4.4\n");
+
+    ami_config_load_interfaces(&cfg);
+    load_resolver_replay(&cfg);
+    CHECK(cfg.resolver.nameserver_count == 1);
+    CHECK_IP(cfg.resolver.nameserver[0], 4, 4, 4, 4);
+
+    resolver_provenance(&cfg, 0, &path, &line);
+    CHECK(strcmp(path, AMI_CFG_FILE_HOSTS) == 0);
+    CHECK(line == 1);
+
+    ami_config_free(&cfg);
+
+    /* 3. A malformed NAMESERVER in name_resolution is skipped, so the hosts
+          value -- which the loader actually kept -- is named, not the bad line. */
+    memset(&cfg, 0, sizeof(cfg));
+    clear_fixtures();
+    clear_drawer();
+    set_fixture(AMI_CFG_FILE_NAMERES, "nameserver not-an-ip\n");
+    set_fixture(AMI_CFG_FILE_HOSTS,   "NAMESERVER 4.4.4.4\n");
+
+    ami_config_load_interfaces(&cfg);
+    load_resolver_replay(&cfg);
+    CHECK(cfg.resolver.nameserver_count == 1);
+    CHECK_IP(cfg.resolver.nameserver[0], 4, 4, 4, 4);
+
+    resolver_provenance(&cfg, 0, &path, &line);
+    CHECK(strcmp(path, AMI_CFG_FILE_HOSTS) == 0);
+    CHECK(line == 1);
+
+    ami_config_free(&cfg);
+
+    /* 4. A duplicated value is named at its own line, not the first one. */
+    memset(&cfg, 0, sizeof(cfg));
+    clear_fixtures();
+    clear_drawer();
+    set_fixture(AMI_CFG_FILE_NAMERES,
+                "nameserver 8.8.8.8\n"
+                "nameserver 4.4.4.4\n"
+                "nameserver 8.8.8.8\n");
+
+    ami_config_load_interfaces(&cfg);
+    load_resolver_replay(&cfg);
+    CHECK(cfg.resolver.nameserver_count == 3);
+    CHECK_IP(cfg.resolver.nameserver[0], 8, 8, 8, 8);
+    CHECK_IP(cfg.resolver.nameserver[1], 4, 4, 4, 4);
+    CHECK_IP(cfg.resolver.nameserver[2], 8, 8, 8, 8);
+
+    resolver_provenance(&cfg, 0, &path, &line);
+    CHECK(strcmp(path, AMI_CFG_FILE_NAMERES) == 0);
+    CHECK(line == 1);
+    resolver_provenance(&cfg, 1, &path, &line);
+    CHECK(strcmp(path, AMI_CFG_FILE_NAMERES) == 0);
+    CHECK(line == 2);
+    resolver_provenance(&cfg, 2, &path, &line);
+    CHECK(strcmp(path, AMI_CFG_FILE_NAMERES) == 0);
+    CHECK(line == 3);
+
+    ami_config_free(&cfg);
+
+    /* 5. Interface fallback: the exact file is not provable, so the drawer. */
+    memset(&cfg, 0, sizeof(cfg));
+    clear_fixtures();
+    clear_drawer();
+    stage_interface("eth0", 0);
+    set_fixture("DEVS:NetInterfaces/eth0",
+                "DEVICE=ariadne.device\nUNIT=0\nCONFIGURE=DHCP\n"
+                "NAMESERVER=1.1.1.1\n");
+
+    ami_config_load_interfaces(&cfg);
+    load_resolver_replay(&cfg);
+    CHECK(cfg.resolver.nameserver_count == 1);
+    CHECK_IP(cfg.resolver.nameserver[0], 1, 1, 1, 1);
+
+    resolver_provenance(&cfg, 0, &path, &line);
+    CHECK(strcmp(path, AMI_CFG_DIR_NETINTERFACES) == 0);
+    CHECK(line == 0);
+
+    ami_config_free(&cfg);
+
+    /* 6. A file ami_cfg_take_interface() rejects still supplies a NAMESERVER,
+          because resolver_from_one() scans the raw drawer.  The value is real
+          (the loader kept it) but the file is not in cfg->interfaces[], so the
+          drawer is the honest answer. */
+    memset(&cfg, 0, sizeof(cfg));
+    clear_fixtures();
+    clear_drawer();
+    stage_interface("bad0", 0);
+    set_fixture("DEVS:NetInterfaces/bad0", "NAMESERVER=2.2.2.2\n");
+
+    ami_config_load_interfaces(&cfg);
+    load_resolver_replay(&cfg);
+    CHECK(cfg.interface_count == 0);           /* rejected: no DEVICE */
+    CHECK(cfg.resolver.nameserver_count == 1); /* but the resolver took it */
+    CHECK_IP(cfg.resolver.nameserver[0], 2, 2, 2, 2);
+
+    resolver_provenance(&cfg, 0, &path, &line);
+    CHECK(strcmp(path, AMI_CFG_DIR_NETINTERFACES) == 0);
+    CHECK(line == 0);
+
+    ami_config_free(&cfg);
+
+    /* 7. Differing order: the loader scans zeth0 first and keeps 3.3.3.3, but
+          cfg->interfaces[] is alphabetical (aeth0 first).  A reconstruction
+          from the sorted array would name aeth0 -- the wrong file -- so the
+          drawer is what a provenance search may claim. */
+    memset(&cfg, 0, sizeof(cfg));
+    clear_fixtures();
+    clear_drawer();
+    stage_interface("zeth0", 0);
+    set_fixture("DEVS:NetInterfaces/zeth0",
+                "DEVICE=ariadne.device\nUNIT=0\nCONFIGURE=DHCP\n"
+                "NAMESERVER=3.3.3.3\n");
+    stage_interface("aeth0", 1);
+    set_fixture("DEVS:NetInterfaces/aeth0",
+                "DEVICE=ariadne.device\nUNIT=1\nCONFIGURE=DHCP\n"
+                "NAMESERVER=4.4.4.4\n");
+
+    ami_config_load_interfaces(&cfg);
+    load_resolver_replay(&cfg);
+    CHECK(cfg.interface_count == 2);
+    CHECK(strcmp(cfg.interfaces[0].name, "aeth0") == 0);   /* sorted first */
+    CHECK(cfg.resolver.nameserver_count == 1);
+    CHECK_IP(cfg.resolver.nameserver[0], 3, 3, 3, 3);      /* scan-first, zeth0 */
+
+    resolver_provenance(&cfg, 0, &path, &line);
+    CHECK(strcmp(path, AMI_CFG_DIR_NETINTERFACES) == 0);
+    CHECK(line == 0);
+
+    ami_config_free(&cfg);
+    ami_config_set_reporter(NULL, NULL);
+    clear_fixtures();
+    clear_drawer();
 }
 
 static void test_netdb(void)
@@ -3822,6 +4103,7 @@ int main(int argc, char **argv)
     test_default_gateway_line();
     test_interface_gateway_line();
     test_nameserver_line();
+    test_nameserver_provenance();
     test_netdb_checker();
     test_netdb_alias_cut();
     test_netdb_nomem();

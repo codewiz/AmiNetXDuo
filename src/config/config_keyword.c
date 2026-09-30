@@ -333,16 +333,18 @@ BOOL ami_cfg_ifname_may_be_truncated(const char *name)
 }
 
 /*
- * The 1-based line of `buf` whose NAMESERVER the resolver parser keeps as
- * `want`, counted as the parser counts lines, or 0.  Mirrors
- * ami_cfg_parse_resolver()'s NAMESERVER case: the first key=value pair on a
- * line must spell NAMESERVER (case-insensitive) and its value must parse as an
- * IP; the parser keeps each such line in order up to AMI_CFG_MAX_NAMESERVERS.
- * Returns the first line whose parsed value equals `want`, so a diagnostic
- * names the exact line the loader took (F-158).  `buf` is a whole file's text,
- * split in place, like every caller of ami_cfg_next_line().
+ * The 1-based line of the `occur`-th (0-based) NAMESERVER whose value the
+ * resolver parser keeps as `want`, counted as the parser counts lines, or 0.
+ * Mirrors ami_cfg_parse_resolver()'s NAMESERVER case: the first key=value pair
+ * on a line must spell NAMESERVER (case-insensitive) and its value must parse
+ * as an IP; the parser keeps each such line in order up to
+ * AMI_CFG_MAX_NAMESERVERS.  `occur` steps over earlier NAMESERVERs with the
+ * same value, so a duplicated value is named at its own line, not the first
+ * one, and 0 means either the value is absent or fewer than occur+1 of it were
+ * kept (F-158).  `buf` is a whole file's text, split in place, like every
+ * caller of ami_cfg_next_line().
  */
-ULONG ami_cfg_nameserver_line(char *buf, ULONG want)
+ULONG ami_cfg_nameserver_line(char *buf, ULONG want, UWORD occur)
 {
     char  *cursor = buf;
     char  *line;
@@ -373,14 +375,21 @@ ULONG ami_cfg_nameserver_line(char *buf, ULONG want)
         if (ami_cfg_stricmp(key, "nameserver") != 0)
             continue;
 
-        if (ami_config_parse_ip(value, &ip) && ip == want)
-            return lineno;
+        if (!ami_config_parse_ip(value, &ip))
+            continue;
+
+        if (ip == want)
+        {
+            if (occur == 0)
+                return lineno;
+            occur--;
+        }
     }
 
     return 0;
 }
 
-ULONG ami_cfg_nameserver_line_file(const char *path, ULONG want)
+ULONG ami_cfg_nameserver_line_file(const char *path, ULONG want, UWORD occur)
 {
     char  *buf = (char *)ami_cfg_read_file(path, NULL);
     ULONG  found;
@@ -388,7 +397,7 @@ ULONG ami_cfg_nameserver_line_file(const char *path, ULONG want)
     if (buf == NULL)
         return 0;
 
-    found = ami_cfg_nameserver_line(buf, want);
+    found = ami_cfg_nameserver_line(buf, want, occur);
     ami_free(buf);
 
     return found;
