@@ -112,12 +112,25 @@ static void test_set_and_send(void)
 {
     NX_SECURE_TLS_SESSION session;
     UCHAR                 packet[64];
+    UCHAR                 max_name[NX_SECURE_TLS_ALPN_PROTOCOL_MAX + 1];
+    UCHAR                 too_long[NX_SECURE_TLS_ALPN_PROTOCOL_MAX + 2];
     ULONG                 offset = 0;
     USHORT                written = 0;
 
     printf("tls_alpn: the ClientHello extension is the offer, byte for byte\n");
 
     memset(&session, 0, sizeof(session));
+
+    max_name[0] = NX_SECURE_TLS_ALPN_PROTOCOL_MAX;
+    memset(&max_name[1], 'x', NX_SECURE_TLS_ALPN_PROTOCOL_MAX);
+    too_long[0] = NX_SECURE_TLS_ALPN_PROTOCOL_MAX + 1;
+    memset(&too_long[1], 'x', NX_SECURE_TLS_ALPN_PROTOCOL_MAX + 1);
+    CHECK(_nx_secure_tls_alpn_protocol_set(&session, too_long,
+                                           sizeof(too_long)) ==
+          NX_SECURE_TLS_INVALID_PACKET);
+    CHECK(session.nx_secure_tls_alpn_protocol_list == NX_NULL);
+    CHECK(_nx_secure_tls_alpn_protocol_set(&session, max_name,
+                                           sizeof(max_name)) == NX_SUCCESS);
 
     CHECK(_nx_secure_tls_alpn_protocol_set(&session, offer_h2_http11,
                                            OFFER_LENGTH) == NX_SUCCESS);

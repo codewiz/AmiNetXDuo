@@ -96,6 +96,8 @@ UINT _nx_secure_tls_alpn_protocol_set(NX_SECURE_TLS_SESSION *tls_session,
                                       const UCHAR *protocol_list,
                                       USHORT protocol_list_length)
 {
+UINT offset;
+
     if (tls_session == NX_NULL)
     {
         return(NX_PTR_ERROR);
@@ -114,6 +116,18 @@ UINT _nx_secure_tls_alpn_protocol_set(NX_SECURE_TLS_SESSION *tls_session,
     if (!nx_secure_tls_alpn_list_valid(protocol_list, protocol_list_length))
     {
         return(NX_SECURE_TLS_INVALID_PACKET);
+    }
+
+    /* Local selections have a fixed-size destination.  Reject an offer we
+       could send but could never accept back from a conforming peer.  Keep
+       the wire validator above RFC-sized: a remote name may be longer. */
+    for (offset = 0; offset < protocol_list_length;
+         offset += 1u + protocol_list[offset])
+    {
+        if (protocol_list[offset] > NX_SECURE_TLS_ALPN_PROTOCOL_MAX)
+        {
+            return(NX_SECURE_TLS_INVALID_PACKET);
+        }
     }
 
     tls_session -> nx_secure_tls_alpn_protocol_list = protocol_list;
