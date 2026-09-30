@@ -343,6 +343,7 @@ static struct
     APTR    task;
     char    name[AMI_ALERT_NAME_LEN];
     BOOL    pending;                    /* recorded, not yet in crash.txt    */
+    ULONG   seq;                        /* bumped by every record            */
 } ami_alert_rec;
 
 static volatile BOOL ami_alert_reporting;   /* a Guru inside the report      */
@@ -369,22 +370,40 @@ static VOID ami_alert_say(const char *fmt, ...)
    pending for the next removal. */
 static VOID ami_alert_flush(VOID)
 {
-    BPTR fh;
+    ULONG num;
+    APTR  task;
+    ULONG seq;
+    char  name[AMI_ALERT_NAME_LEN];
+    ULONG i;
+    BPTR  fh;
 
-    AMI_ERROR("*** GURU %08lx: %s", (LONG)ami_alert_rec.num,
-              (LONG)ami_crash_alert_name(ami_alert_rec.num));
-    AMI_ERROR("    task %08lx \"%s\"", (LONG)ami_alert_rec.task,
-              (LONG)ami_alert_rec.name);
+    /* A copy: a Guru can land while this writes, and it would otherwise be
+       written half over the older one and then forgotten. */
+    Disable();
+    num  = ami_alert_rec.num;
+    task = ami_alert_rec.task;
+    seq  = ami_alert_rec.seq;
+    for (i = 0; i < AMI_ALERT_NAME_LEN; i++)
+        name[i] = ami_alert_rec.name[i];
+    Enable();
+
+    AMI_ERROR("*** GURU %08lx: %s", (LONG)num, (LONG)ami_crash_alert_name(num));
+    AMI_ERROR("    task %08lx \"%s\"", (LONG)task, (LONG)name);
 
     fh = Open((STRPTR)"DH0:crash.txt", MODE_NEWFILE);
     if (fh == 0)
-        return;
+        return;                         /* still pending: the next removal */
 
     FPuts(fh, (STRPTR)"GURU: ");
-    FPuts(fh, (STRPTR)ami_crash_alert_name(ami_alert_rec.num));
+    FPuts(fh, (STRPTR)ami_crash_alert_name(num));
     FPuts(fh, (STRPTR)"\n");
     Close(fh);
-    ami_alert_rec.pending = FALSE;
+
+    /* Done only if no newer Guru replaced the record meanwhile. */
+    Disable();
+    if (ami_alert_rec.seq == seq)
+        ami_alert_rec.pending = FALSE;
+    Enable();
 }
 
 /* `used': the only caller is the `jsr _ami_alert_report' in the trampoline's
@@ -410,6 +429,7 @@ VOID ami_alert_report(ULONG num)
     for (i = 0; i + 1 < AMI_ALERT_NAME_LEN && name[i] != '\0'; i++)
         ami_alert_rec.name[i] = name[i];
     ami_alert_rec.name[i] = '\0';
+    ami_alert_rec.seq++;
     ami_alert_rec.pending = TRUE;
 
     ami_alert_say("[ERR ] *** GURU %08lx: %s\n", (LONG)num,
@@ -540,19 +560,34 @@ VOID ami_crash_remove_alert_hook(VOID)
     APTR   old;
     APTR   was;
 
-    /* Taking the stub, restoring the vector and closing the stub's counted
-       way in are one step. */
-    Disable();
-    stub = ami_alert_stub;
-    if (stub == NULL)
+    /*
+     * With no hook to take, this removal still waits out another one's drain,
+     * so its caller does not unload the image under it, and then writes a
+     * record still pending, owning the drain while it does.  With a hook,
+     * taking the stub, restoring the vector and closing the stub's counted
+     * way in are one step.
+     */
+    for (;;)
     {
+        Disable();
+        stub = ami_alert_stub;
+        if (stub != NULL)
+            break;
+        if (!ami_alert_draining)
+        {
+            if (!ami_alert_rec.pending)
+            {
+                Enable();
+                return;
+            }
+            ami_alert_draining = TRUE;
+            Enable();
+            ami_alert_flush();
+            ami_alert_draining = FALSE;
+            return;
+        }
         Enable();
-
-        /* Another removal is draining.  Wait for it too, so this caller
-           does not unload the image under a Guru still in it. */
-        while (ami_alert_draining)
-            Delay(1);
-        return;
+        Delay(1);
     }
     ami_alert_stub     = NULL;
     ami_alert_draining = TRUE;
@@ -565,9 +600,9 @@ VOID ami_crash_remove_alert_hook(VOID)
     CacheClearU();
     Enable();
 
-    /* A Guru already counted in, perhaps in the report and waiting in DOS,
-       leaves through EXIT before this returns and the image can be unloaded.
-       Callers are Processes, as the report's own DOS calls require. */
+    /* A Guru already counted in, perhaps still in the report, leaves through
+       EXIT before this returns and the image can be unloaded.  Callers are
+       Processes: the flush below uses DOS. */
     while (ami_alert_inflight != 0)
         Delay(1);
 
