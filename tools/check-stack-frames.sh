@@ -185,7 +185,9 @@ COMMAND_BUDGETS=(
     "sntp:704"
     "telnet:832"
     "tftp:1344"
-    "traceroute:832"
+    # The locally linked 64-bit time divider adds the real __udivmoddi4 path:
+    # 904 bytes on 6cd380be, still well inside a 4 KB Shell stack.
+    "traceroute:960"
     "wbgrab:448"
     "whois:896"
 )
