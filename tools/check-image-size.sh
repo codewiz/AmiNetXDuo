@@ -74,7 +74,12 @@ BUDGETS=(
     # 365,468 with per-interface TCP ACK policy (#109): config parsing and
     # publishing the WiFi/default-or-explicit ceiling into each NX_INTERFACE;
     # 365,316 once the device-name helpers live once, in sana2_policy.c.
-    "default:src/bsdsocket/bsdsocket.library:366000"
+    # 370,828 on e806188f after the F-series correctness fixes: +5,420 over
+    # 5f737c30 across 273 commits.  A same-flags rebuild confirmed this is
+    # code growth, not diagnostic strings (+60 B of strings >= 8 chars).
+    # No feature-preserving cut was identified; HOT_O2=OFF saves ~3.5 KB but
+    # changes the measured RX/TX optimization policy.  Keep that trade separate.
+    "default:src/bsdsocket/bsdsocket.library:371000"
     # 41,412 after stateless receive-checksum verification was added to the
     # EL3 and word/long NE2000 direct paths, 2026-09-15.  43,620 with
     # ANXD_CMD_RX_BATCH in the shell (claim, completion, staging copy, the
@@ -135,11 +140,14 @@ BUDGETS=(
     # 237,348 with the #67 dormant-slot eviction (see the default row),
     # 2026-09-26.
     # 238,240 with the bounded S2_OFFLINE (#90, see the default row).
-    "minimal:src/bsdsocket/bsdsocket.library:239000"
+    # 242,624 on e806188f with the same F-series fixes as the full build.
+    "minimal:src/bsdsocket/bsdsocket.library:243000"
     "minimal:src/netdev/anxnet.device:46000"
-    "minimal:src/netdev/anxgenet.device:29000"
+    # 29,088 on e806188f after the audited device fixes.
+    "minimal:src/netdev/anxgenet.device:29120"
     "minimal:src/wifipi/anxwifipi.device:56000"
-    "minimal:src/usergroup/usergroup.library:10000"
+    # 10,172 on e806188f after the audited parser fixes.
+    "minimal:src/usergroup/usergroup.library:10240"
     # First budgeted as a shipping profile at 0.28.9: 181,012 bytes.  Raised
     # to 197,632 in beta2: the private status/control implementation is 16 KB
     # and cannot be removed because AddNetInterface, Online and Offline use it.
@@ -155,11 +163,12 @@ BUDGETS=(
     # 203,264 with the #67 dormant-slot eviction (see the default row),
     # 2026-09-26.
     # 204,052 with the bounded S2_OFFLINE (#90, see the default row).
-    "micro:src/bsdsocket/bsdsocket.library:205000"
+    # 208,132 on e806188f with the same F-series fixes as the full build.
+    "micro:src/bsdsocket/bsdsocket.library:208500"
     "micro:src/netdev/anxnet.device:46000"
-    "micro:src/netdev/anxgenet.device:29000"
+    "micro:src/netdev/anxgenet.device:29120"
     "micro:src/wifipi/anxwifipi.device:56000"
-    "micro:src/usergroup/usergroup.library:10000"
+    "micro:src/usergroup/usergroup.library:10240"
 )
 
 budgeted=0
