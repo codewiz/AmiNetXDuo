@@ -2900,10 +2900,67 @@ static void test_default_gateway_line(void)
     strcpy(buf, "destination=10.0.0.0 netmask=255.0.0.0 gateway=10.0.0.1\n");
     CHECK(ami_cfg_default_gateway_line(buf) == 0);
 
+    /* An empty DEFAULT= does not set the default; the later bare GATEWAY does. */
+    strcpy(buf, "default=\n"
+                "gateway=192.168.1.1\n");
+    CHECK(ami_cfg_default_gateway_line(buf) == 2);
+
+    /* A line carrying both spellings sets the default, whichever wins the value,
+       so the line is named -- cfg_parse_routes() takes is_default first. */
+    strcpy(buf, "destination=10.0.0.0 default=192.168.1.1\n");
+    CHECK(ami_cfg_default_gateway_line(buf) == 1);
+
     /* The file form reads through ami_cfg_read_file() (the fixture). */
     clear_fixtures();
     set_fixture(AMI_CFG_FILE_GATEWAY, "GATEWAY = 127.0.0.1\n");
     CHECK(ami_cfg_default_gateway_line_file(AMI_CFG_FILE_GATEWAY) == 1);
+}
+
+static void test_interface_gateway_line(void)
+{
+    char  buf[512];
+    ULONG a;
+    ULONG b;
+
+    printf("interface gateway line\n");
+
+    CHECK(ami_config_parse_ip("127.0.0.1", &a));
+    CHECK(ami_config_parse_ip("10.0.0.1", &b));
+
+    /* The LAST parseable GATEWAY is the one the parser kept (IF_KEY_GATEWAY). */
+    strcpy(buf, "gateway=10.0.0.1\n"
+                "gateway=127.0.0.1\n");
+    CHECK(ami_cfg_interface_gateway_line(buf, a) == 2);
+
+    /* An earlier invalid GATEWAY is skipped, so the valid one's line is named. */
+    strcpy(buf, "gateway=not-an-ip\n"
+                "gateway=127.0.0.1\n");
+    CHECK(ami_cfg_interface_gateway_line(buf, a) == 2);
+
+    /* A parseable value the parser overwrote is not named as the kept one. */
+    strcpy(buf, "gateway=10.0.0.1\n"
+                "gateway=127.0.0.1\n");
+    CHECK(ami_cfg_interface_gateway_line(buf, b) == 1);
+
+    /* The last line that carries the kept value wins. */
+    strcpy(buf, "gateway=127.0.0.1\n"
+                "gateway=10.0.0.1\n"
+                "gateway=127.0.0.1\n");
+    CHECK(ami_cfg_interface_gateway_line(buf, a) == 3);
+
+    /* GATEWAY6 is another keyword and never matches. */
+    strcpy(buf, "gateway6=fe80::1\n"
+                "gateway=127.0.0.1\n");
+    CHECK(ami_cfg_interface_gateway_line(buf, a) == 2);
+
+    /* No GATEWAY with the kept value: 0. */
+    strcpy(buf, "gateway=10.0.0.1\n");
+    CHECK(ami_cfg_interface_gateway_line(buf, a) == 0);
+
+    /* The truncation gate: a name at the 15-character ceiling is ambiguous. */
+    CHECK(!ami_cfg_ifname_may_be_truncated("eth0"));
+    CHECK(!ami_cfg_ifname_may_be_truncated("12345678901234"));
+    CHECK(ami_cfg_ifname_may_be_truncated("123456789012345"));
 }
 
 static void test_netdb(void)
@@ -3656,6 +3713,7 @@ int main(int argc, char **argv)
     test_netdb();
     test_keyword_line();
     test_default_gateway_line();
+    test_interface_gateway_line();
     test_netdb_checker();
     test_netdb_alias_cut();
     test_netdb_nomem();

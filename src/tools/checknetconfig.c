@@ -486,17 +486,30 @@ static VOID check_gateway(const AmiConfig *cfg)
         UWORD i;
 
         /* Neither file set the default, so load_gateway() fell back to a
-           GATEWAY= in the first interface file.  Name that file; the interface
-           keyword has no DEFAULT=/VIA spelling, so a plain keyword search is
-           exact here. */
+           GATEWAY= in the first interface file.  The parser keeps the LAST
+           GATEWAY whose value parses (IF_KEY_GATEWAY), so name that line, not
+           the first GATEWAY keyword -- which could be an invalid value the
+           parser skipped.  But the interface name is truncated to 15
+           characters; a name at that ceiling may not be the file's real name,
+           so the reconstructed path names a different or nonexistent file, and
+           the drawer is the truthful source then. */
         for (i = 0; i < cfg->interface_count; i++)
         {
             if (cfg->interfaces[i].gateway != 0)
             {
-                tool_join_path(iface_path, sizeof(iface_path),
-                               CNC_DIR_INTERFACES, cfg->interfaces[i].name);
-                path = iface_path;
-                line = keyword_line(path, "GATEWAY");
+                if (ami_cfg_ifname_may_be_truncated(cfg->interfaces[i].name))
+                {
+                    path = CNC_DIR_INTERFACES;
+                    line = 0;
+                }
+                else
+                {
+                    tool_join_path(iface_path, sizeof(iface_path),
+                                   CNC_DIR_INTERFACES, cfg->interfaces[i].name);
+                    path = iface_path;
+                    line = ami_cfg_interface_gateway_line_file(
+                               path, cfg->interfaces[i].gateway);
+                }
                 break;
             }
         }

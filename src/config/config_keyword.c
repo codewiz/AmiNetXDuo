@@ -250,3 +250,76 @@ ULONG ami_cfg_default_gateway_line_file(const char *path)
 
     return found;
 }
+
+/*
+ * The line of `buf` whose GATEWAY the interface parser keeps as `want`, or 0.
+ * Must mirror ami_cfg_parse_interface()'s IF_KEY_GATEWAY case, where a GATEWAY
+ * whose value parses overwrites out->gateway each time, so the LAST parseable
+ * value wins: an earlier GATEWAY -- valid or not -- is overwritten or left
+ * alone.  A plain keyword search would name the first GATEWAY line, which may
+ * be an invalid value the parser skipped (F-158).  `buf` is split in place,
+ * like every caller of ami_cfg_next_line().
+ */
+ULONG ami_cfg_interface_gateway_line(char *buf, ULONG want)
+{
+    char  *cursor = buf;
+    char  *line;
+    ULONG  lineno = 0;
+    ULONG  found  = 0;
+
+    if (buf == NULL)
+        return 0;
+
+    while ((line = ami_cfg_next_line(&cursor)) != NULL)
+    {
+        char *pos;
+        char *key;
+        char *value;
+
+        lineno++;
+
+        ami_cfg_strip_comment(line, "#;");
+        line = ami_cfg_trim(line);
+        if (*line == '\0')
+            continue;
+
+        pos = line;
+        while (ami_cfg_next_pair(&pos, &key, &value))
+        {
+            ULONG ip;
+
+            if (ami_cfg_stricmp(key, "gateway") != 0)
+                continue;
+
+            if (ami_config_parse_ip(value, &ip) && ip == want)
+                found = lineno;         /* last accepted wins, as IF_KEY_GATEWAY */
+        }
+    }
+
+    return found;
+}
+
+ULONG ami_cfg_interface_gateway_line_file(const char *path, ULONG want)
+{
+    char  *buf = (char *)ami_cfg_read_file(path, NULL);
+    ULONG  found;
+
+    if (buf == NULL)
+        return 0;
+
+    found = ami_cfg_interface_gateway_line(buf, want);
+    ami_free(buf);
+
+    return found;
+}
+
+/*
+ * TRUE when `name` sits at the parser's interface-name ceiling, so it may be a
+ * longer filename truncated to AMI_CFG_IFNAME_MAX characters.  A reconstructed
+ * DEVS:NetInterfaces/<name> path then cannot be trusted to be the file the
+ * loader read, because the loader read the ORIGINAL name (F-158).
+ */
+BOOL ami_cfg_ifname_may_be_truncated(const char *name)
+{
+    return name != NULL && ami_cfg_strlen(name) >= AMI_CFG_IFNAME_MAX;
+}

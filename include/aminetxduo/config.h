@@ -794,6 +794,23 @@ ULONG ami_cfg_default_gateway_line(char *buf);
    read. */
 ULONG ami_cfg_default_gateway_line_file(const char *path);
 
+/* The 1-based line of `buf` whose GATEWAY the interface parser keeps as `want`,
+   counted as the parser counts lines, or 0.  Mirrors ami_cfg_parse_interface()'s
+   IF_KEY_GATEWAY case: a GATEWAY whose value parses overwrites out->gateway each
+   time, so the LAST parseable value wins; an earlier GATEWAY, valid or not, is
+   overwritten or left alone (F-158).  `buf` is a whole file's text, split in
+   place. */
+ULONG ami_cfg_interface_gateway_line(char *buf, ULONG want);
+/* The same for a file, read through ami_cfg_read_file(); 0 when it cannot be
+   read. */
+ULONG ami_cfg_interface_gateway_line_file(const char *path, ULONG want);
+
+/* TRUE when `name` sits at the parser's interface-name ceiling, so it may be a
+   longer filename truncated to AMI_CFG_IFNAME_MAX characters; a reconstructed
+   DEVS:NetInterfaces/<name> path then cannot be trusted to be the file the
+   loader read (F-158). */
+BOOL ami_cfg_ifname_may_be_truncated(const char *name);
+
 /*
  * One line of a netdb file judged by the loader's rules, for CheckNetConfig
  * (src/config/netdb_check.c, F-094).  word, when not NULL, gets the column the
