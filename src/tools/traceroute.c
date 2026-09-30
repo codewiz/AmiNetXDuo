@@ -58,6 +58,13 @@ enum
 #define TR_MAX_SIZE         (TR_MAX_PACKET - TR_HEADERS)
 #define TR_CEILING_HOPS     255UL
 
+/*
+ * The per-probe wait is compared with a signed 32-bit difference (see the
+ * probe loop), so `wait * 10000UL` tenths of a millisecond must stay within
+ * the signed half-range 2^31: WAIT is capped at 214748 seconds.
+ */
+#define TR_CEILING_WAIT     ((0x7FFFFFFFUL) / 10000UL)
+
 /* ICMP, the four types this command reads. ICMPv6 renumbered all four. */
 #define ICMP_ECHOREPLY      0
 #define ICMP_UNREACH        3
@@ -86,7 +93,7 @@ static UBYTE tr_reply[2048];
  */
 extern struct Device *TimerBase;        /* compat.c, for ReadEClock()        */
 
-static ULONG            tr_ticks_per_tenth_ms;
+static ULONG            tr_rate;        /* full EClock rate, ticks/second    */
 static struct EClockVal tr_epoch;
 
 static BOOL tr_clock_open(VOID)
@@ -99,25 +106,39 @@ static BOOL tr_clock_open(VOID)
         return FALSE;
 
     rate = ReadEClock(&tr_epoch);
-    tr_ticks_per_tenth_ms = rate / 10000UL;     /* ~71 ticks per 0.1 ms */
-    if (tr_ticks_per_tenth_ms == 0)
-        tr_ticks_per_tenth_ms = 1;
+    tr_rate = (rate != 0UL) ? rate : 709379UL;  /* PAL fallback, as compat.c */
 
     return TRUE;
 }
 
 static ULONG tr_now(VOID)
 {
-    struct EClockVal ev;
+    struct EClockVal   ev;
+    ULONG              hi, lo;
+    unsigned long long delta;
 
     if (TimerBase == NULL)
         return 0;
 
     ReadEClock(&ev);
 
-    /* The low word alone: at ~710 kHz it wraps every ~100 minutes, and the
-       subtraction stays correct across one wrap. */
-    return (ev.ev_lo - tr_epoch.ev_lo) / tr_ticks_per_tenth_ms;
+    /* The full 64-bit EClock delta, not the low word alone: ev_lo wraps every
+       ~100 minutes at ~710 kHz, so a subtraction from the epoch captured at
+       open is right once and wrong afterwards.  Dividing by the full measured
+       rate, not rate/10000, keeps a tenth of a millisecond exact (the
+       truncated divisor ran the clock ~1.3% fast).  The 32-bit result wraps
+       every ~4.97 days; the probe loop's signed modular difference survives a
+       wait that straddles that wrap. */
+    lo = ev.ev_lo - tr_epoch.ev_lo;
+    hi = ev.ev_hi - tr_epoch.ev_hi;
+    if (ev.ev_lo < tr_epoch.ev_lo)
+        hi -= 1UL;                      /* borrow from the low subtraction */
+
+    delta = ((unsigned long long)hi << 32) | (unsigned long long)lo;
+
+    /* ticks * 10000 / rate, in 64 bits: the product fits any run a command
+       can live. */
+    return (ULONG)((delta * 10000ULL) / (unsigned long long)tr_rate);
 }
 
 /* --------------------------------------------------------------- checksum, */
@@ -464,6 +485,12 @@ int main(int argc, char **argv)
         queries = TR_DEFAULT_QUERIES;
     if (wait == 0)
         wait = TR_DEFAULT_WAIT;
+    if (wait > TR_CEILING_WAIT)
+    {
+        tool_error("WAIT is at most %lu seconds", TR_CEILING_WAIT);
+        FreeArgs(rda);
+        return RETURN_ERROR;
+    }
 
     if (packetsize < TR_MIN_PACKET || packetsize > TR_MAX_PACKET)
     {
@@ -657,8 +684,11 @@ int main(int argc, char **argv)
                 }
 
                 /*
-                 * Signed difference, not `now >= deadline`: the EClock's low
-                 * word wraps about every hundred minutes.
+                 * Signed difference, not `now >= deadline`: tr_now() is a
+                 * 32-bit tenths-of-a-millisecond counter (it wraps every
+                 * ~4.97 days), and a WAIT at or under TR_CEILING_WAIT keeps
+                 * this difference inside the signed half-range even when the
+                 * probe straddles the wrap.
                  */
                 if ((LONG)(now - deadline) >= 0)
                     break;

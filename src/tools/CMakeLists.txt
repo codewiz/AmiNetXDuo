@@ -1035,6 +1035,40 @@ if(NOT CMAKE_CROSSCOMPILING)
     target_compile_options(test_netstatus_selectors PRIVATE -Wall -Wextra)
     set_target_properties(test_netstatus_selectors PROPERTIES C_STANDARD 11)
 
+    # traceroute caps WAIT at the signed half-range and reads a 64-bit EClock
+    # delta, so the deadline and its wrap-safe comparison hold (F-204).  The
+    # clock is exercised verbatim: extract_tr_clock.py pulls tr_now() and
+    # tr_clock_open() out of traceroute.c into a generated .inc, and the test
+    # compiles those real functions against a stubbed ReadEClock, so it never
+    # re-types the arithmetic it is proving.  Only the host test needs the .inc
+    # and a host build can run Python, so it is regenerated at build time --
+    # unlike the httpd pages, which are committed because an m68k build must
+    # not need the generator.
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+
+    add_custom_command(
+        OUTPUT  "${CMAKE_CURRENT_BINARY_DIR}/tr_clock.inc"
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/test/extract_tr_clock.py"
+                "${CMAKE_CURRENT_SOURCE_DIR}/traceroute.c"
+                "${CMAKE_CURRENT_BINARY_DIR}/tr_clock.inc"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/traceroute.c"
+                "${CMAKE_CURRENT_SOURCE_DIR}/test/extract_tr_clock.py"
+        COMMENT "Extracting traceroute's EClock block for the host test")
+
+    add_executable(test_traceroute_wait
+        test/test_traceroute_wait.c
+        "${CMAKE_CURRENT_BINARY_DIR}/tr_clock.inc")
+
+    target_include_directories(test_traceroute_wait PRIVATE
+        "${CMAKE_CURRENT_BINARY_DIR}")
+
+    target_compile_definitions(test_traceroute_wait PRIVATE
+        AMINETXDUO_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+
+    target_compile_options(test_traceroute_wait PRIVATE -Wall -Wextra)
+    set_target_properties(test_traceroute_wait PROPERTIES C_STANDARD 11)
+
     add_executable(test_toolpcap
         test/test_toolpcap.c
         toolpcap.c)
@@ -1126,6 +1160,7 @@ if(NOT CMAKE_CROSSCOMPILING)
     add_test(NAME bpffilter_programs COMMAND test_bpffilter)
     add_test(NAME tool_counter_surface COMMAND test_leasesurface)
     add_test(NAME netstatus_selector  COMMAND test_netstatus_selectors)
+    add_test(NAME traceroute_wait    COMMAND test_traceroute_wait)
     add_test(NAME tools_arg_templates COMMAND test_argtemplates enums)
     add_test(NAME tools_arg_contract  COMMAND test_argtemplates contract)
     add_test(NAME tools_arg_usage     COMMAND test_argtemplates usage)

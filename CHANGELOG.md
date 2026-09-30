@@ -9,6 +9,16 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `traceroute` measures a per-probe wait from the whole EClock and caps `WAIT`
+  at 214748 seconds instead of reading the timer's low word alone. The wait is
+  multiplied by 10000 to tenths of a millisecond and compared with a signed
+  32-bit difference, but the clock was the low word, which wraps every ~100
+  minutes: a wait straddling that wrap, however short, never reached its
+  deadline and over-waited, and a `WAIT` whose span reached 2^31 read the probe
+  as already timed out and ended it immediately. The clock now divides a full
+  64-bit EClock delta by the full measured rate to an exact tenth of a
+  millisecond (a truncated divisor ran the wait ~1.3% short), its 32-bit result
+  wraps only every ~4.97 days, and `WAIT` is capped below the signed half-range.
 - `arp` no longer reports an IPv6 address as off-link when the routing table
   could not be read. `tool_routes6()` returned success for both a genuine empty
   table and a `NETSTATUS_ROUTES6` selector the library does not know, so `arp`
