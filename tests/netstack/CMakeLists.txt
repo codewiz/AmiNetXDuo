@@ -1043,6 +1043,19 @@ if(NOT CMAKE_CROSSCOMPILING)
 
     add_test(NAME expunge_joint COMMAND test_expunge_joint)
 
+    # A route command's default gateway against a DHCP reconcile landing
+    # between its NetX call and its override (F-017).  Only
+    # netstack_gateway_apply.c, #included, over stubbed gateway calls.
+    add_executable(test_gateway_override
+        host/test_gateway_override_host.c
+        "${CMAKE_SOURCE_DIR}/src/netstack/netstack_gateway.c")
+
+    target_include_directories(test_gateway_override PRIVATE ${NETSTACK_HOST_INCLUDES})
+    target_compile_definitions(test_gateway_override PRIVATE ${NETSTACK_HOST_DEFINES})
+    target_compile_options(test_gateway_override PRIVATE ${NETSTACK_HOST_OPTIONS})
+
+    add_test(NAME gateway_override COMMAND test_gateway_override)
+
     # An interface whose SANA-II device keeps requests in it: the removal says
     # AMI_NET_ERR_RETAINED, the held unit is not reopened, the pool is kept
     # and netstack_can_unload() waits for the last hold.  src/sana2's retained

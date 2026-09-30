@@ -132,8 +132,20 @@ VOID ami_ns_gateway_reconcile(AmiNetStack *ns, UWORD skip,
                  "after %s", reason);
 }
 
-/* A successful route command is authoritative until another route command
-   changes it.  DHCP can neither replace it nor resurrect a deleted default. */
+/*
+ * A successful route command is authoritative until another route command
+ * changes it.  DHCP can neither replace it nor resurrect a deleted default.
+ *
+ * The caller's NetX call comes first and the mode is published here after
+ * it, so a reconcile can land between the two: the put of nx_ip_protection
+ * that ends the caller's set or clear hands the mutex to a DHCP reconcile
+ * queued behind it, and the DHCP thread outranks an adopted caller, so it
+ * runs at once, still sees AMI_NS_GATEWAY_AUTO and installs the lease's
+ * gateway over the one just set, or back over the one just deleted (F-017).
+ * So the mode is applied again once published: reconcile acts on it and on
+ * the live gateway, which undoes whatever landed in between.  Callers hold a
+ * ThreadX bracket, which reconcile requires.
+ */
 VOID netstack_gateway_override_set(ULONG gateway)
 {
     AmiNetStack *ns = ami_netstack_raw();
@@ -143,6 +155,8 @@ VOID netstack_gateway_override_set(ULONG gateway)
 
     ns->ns_GatewayFixed = gateway;
     ns->ns_GatewayMode = (UBYTE)AMI_NS_GATEWAY_FIXED;
+
+    ami_ns_gateway_reconcile(ns, AMI_NS_GATEWAY_NO_IFACE, "a route command");
 }
 
 VOID netstack_gateway_override_clear(VOID)
@@ -154,4 +168,6 @@ VOID netstack_gateway_override_clear(VOID)
 
     ns->ns_GatewayFixed = 0UL;
     ns->ns_GatewayMode = (UBYTE)AMI_NS_GATEWAY_CLEARED;
+
+    ami_ns_gateway_reconcile(ns, AMI_NS_GATEWAY_NO_IFACE, "a route command");
 }
