@@ -33,6 +33,16 @@
 #define C68K_ASM_25519          1
 #endif
 
+/*
+ * Four bytes at any address, as the memory operand of an inline MOVE.L.
+ * "m" (*p) on a UCHAR * tells GCC the asm touches one byte, and it believed
+ * that: a byte written before a store could be returned as still written
+ * (F-100).  A struct of bytes is the right width and keeps byte alignment.
+ */
+#ifndef __ASSEMBLER__
+typedef struct { unsigned char c68k_b[4]; } C68K_LONG_AT;
+#endif
+
 #define C68K_PASTE2(a, b)       a ## b
 #define C68K_PASTE(a, b)        C68K_PASTE2(a, b)
 

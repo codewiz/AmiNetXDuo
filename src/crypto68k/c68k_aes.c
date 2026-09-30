@@ -200,7 +200,7 @@ static ULONG c68k_aes_load_be(const UCHAR *p)
 #ifdef __mc68020__
 ULONG   v;
 
-    __asm__ ("move.l %1,%0" : "=d" (v) : "m" (*p));
+    __asm__ ("move.l %1,%0" : "=d" (v) : "m" (*(const C68K_LONG_AT *)p));
 
     return(v);
 #else
@@ -213,7 +213,7 @@ static VOID c68k_aes_store_be(UCHAR *p, ULONG v)
 {
 
 #ifdef __mc68020__
-    __asm__ ("move.l %1,%0" : "=m" (*p) : "d" (v));
+    __asm__ ("move.l %1,%0" : "=m" (*(C68K_LONG_AT *)p) : "d" (v));
 #else
     p[0] = (UCHAR)(v >> 24);
     p[1] = (UCHAR)(v >> 16);

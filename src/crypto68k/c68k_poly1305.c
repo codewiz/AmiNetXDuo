@@ -32,7 +32,7 @@ static ULONG c68k_poly1305_load_le(const UCHAR *p)
 #ifdef __mc68020__
 ULONG   v;
 
-    __asm__ ("move.l %1,%0" : "=d" (v) : "m" (*p));
+    __asm__ ("move.l %1,%0" : "=d" (v) : "m" (*(const C68K_LONG_AT *)p));
     __asm__ ("rol.w #8,%0\n\tswap %0\n\trol.w #8,%0" : "+d" (v));
 
     return(v);

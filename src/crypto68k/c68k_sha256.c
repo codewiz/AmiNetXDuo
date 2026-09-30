@@ -20,6 +20,7 @@
  */
 
 #include "c68k_sha256.h"
+#include "c68k_variant.h"
 
 
 /* ------------------------------------------------------------- variant --- */
@@ -122,7 +123,7 @@ static ULONG c68k_sha256_load_be(const UCHAR *p)
 #ifdef __mc68020__
 ULONG   v;
 
-    __asm__ ("move.l %1,%0" : "=d" (v) : "m" (*p));
+    __asm__ ("move.l %1,%0" : "=d" (v) : "m" (*(const C68K_LONG_AT *)p));
 
     return(v);
 #else
