@@ -1,9 +1,9 @@
 /*
- * NETSTATUS_IFDEVICES: each interface's device path whole, where
- * NetStatusInterface's nsi_Device keeps 31 characters.  The published
- * 192-byte NetStatusInterface is unchanged; the path rides a selector of its
- * own, which an older library refuses with EINVAL.  The tool half is
- * tests/tools/host/test_tool_ifdev_host.c.
+ * F-088: which place named this machine, through the shipping netstatus.c.
+ * nss_HostSource (NETSTATUS_SYSTEM) stays the rank, 0..4, which every caller
+ * already built can read; NETSTATUS_HOSTSOURCE carries the source itself, so
+ * a new tool can say a name came from the hosts file.  The stubs are
+ * test_ifdevices_host.c's.
  *
  * SPDX-License-Identifier: MIT
  */
@@ -62,7 +62,7 @@ static VOID h_attach(UWORD i, const char *device)
     memcpy(h_cfg[i].device, device, n + 1);
 }
 
-static UBYTE h_buffer[sizeof(NetStatusHeader) +
+static UBYTE h_buffer[sizeof(NetStatusHeader) + sizeof(NetStatusSystem) +
                       NX_MAX_PHYSICAL_INTERFACES * sizeof(NetStatusIfDevice)];
 
 static NetStatusHeader *h_hdr = (NetStatusHeader *)h_buffer;
@@ -123,12 +123,12 @@ AmiBatonStats ami_baton_stats;
 
 static VOID h_unreachable(const char *what)
 {
-    printf("  FAIL %s was called on the IFDEVICES path\n", what);
+    printf("  FAIL %s was called on the host-source path\n", what);
     h_failures++;
 }
 
-const AmiConfig *netstack_config(VOID)
-{ h_unreachable("netstack_config"); return NULL; }
+static AmiConfig h_config;
+const AmiConfig *netstack_config(VOID) { return &h_config; }
 const AmiIfConfig *netstack_iface_config(UWORD i)
 { return (i < H_SLOTS && h_cfg[i].device[0] != '\0') ? &h_cfg[i] : NULL; }
 BOOL netstack_iface_mdns(UWORD i)
@@ -304,107 +304,103 @@ LONG netstack_mdns_browse_start(const char *t)
 LONG netstack_mdns_browse_stop(const char *t)
 { (VOID)t; h_unreachable("netstack_mdns_browse_stop"); return -1; }
 
-/* ------------------------------------------------- NETSTATUS_IFDEVICES --- */
+/* ------------------------------------------------ NETSTATUS_HOSTSOURCE --- */
 
-static VOID t_long_path_arrives_whole(VOID)
+static const NetStatusSystem *h_system(VOID)
+{
+    return (const NetStatusSystem *)NETSTATUS_ENTRIES(h_hdr);
+}
+
+static const NetStatusHostSource *h_source(VOID)
+{
+    return (const NetStatusHostSource *)NETSTATUS_ENTRIES(h_hdr);
+}
+
+/* One source as the running stack holds it: what each selector says. */
+static VOID h_ask(UWORD source, ULONG *legacy, ULONG *identity, ULONG *rank)
+{
+    h_reset();
+    memset(&h_config, 0, sizeof(h_config));
+    strcpy(h_config.hostname, "amiga");
+    h_config.hostname_source = source;
+
+    *legacy = *identity = *rank = 0xDEADUL;
+    if (h_query(NETSTATUS_SYSTEM, (ULONG)sizeof(h_buffer),
+                (UWORD)AMI_NETSTATUS_VERSION) == 1)
+        *legacy = h_system()->nss_HostSource;
+    if (h_query(NETSTATUS_HOSTSOURCE, (ULONG)sizeof(h_buffer),
+                (UWORD)AMI_NETSTATUS_VERSION) == 1 &&
+        h_hdr->nsh_Type == NETSTATUS_HOSTSOURCE &&
+        h_hdr->nsh_EntrySize == (UWORD)sizeof(NetStatusHostSource))
+    {
+        *identity = h_source()->nhs_Source;
+        *rank     = h_source()->nhs_Rank;
+    }
+}
+
+static VOID t_hosts_file_name(VOID)
+{
+    ULONG legacy, identity, rank;
+
+    h_ask((UWORD)AMI_HOSTNAME_HOSTS, &legacy, &identity, &rank);
+    CHECK(legacy == AMI_HOSTNAME_NAMERES,
+          "hosts: nss_HostSource is 4, what any older reader knows");
+    CHECK(identity == AMI_HOSTNAME_HOSTS && rank == AMI_HOSTNAME_NAMERES,
+          "hosts: the new selector says hosts, at name_resolution's rank");
+}
+
+static VOID t_every_other_source_unchanged(VOID)
+{
+    static const UWORD s[] =
+    {
+        AMI_HOSTNAME_NONE, AMI_HOSTNAME_INTERFACE, AMI_HOSTNAME_ENV,
+        AMI_HOSTNAME_DHCP, AMI_HOSTNAME_NAMERES
+    };
+    ULONG legacy, identity, rank;
+    UWORD i;
+    int   same = 1;
+
+    for (i = 0; i < sizeof(s) / sizeof(s[0]); i++)
+    {
+        h_ask(s[i], &legacy, &identity, &rank);
+        if (legacy != s[i] || identity != s[i] || rank != s[i])
+            same = 0;
+    }
+    CHECK(same, "0..4: nss_HostSource, the source and the rank all agree");
+}
+
+static VOID t_stack_down_is_enetdown(VOID)
 {
     LONG rc;
 
     h_reset();
-    h_attach(0, "a2065.device");
-    h_attach(1, h_long);
-
-    rc = h_query(NETSTATUS_IFDEVICES, (ULONG)sizeof(h_buffer),
+    h_base.sb_StackRefs = 0;
+    rc = h_query(NETSTATUS_HOSTSOURCE, (ULONG)sizeof(h_buffer),
                  (UWORD)AMI_NETSTATUS_VERSION);
-
-    CHECK(rc == (LONG)H_SLOTS, "one row per slot, as NETSTATUS_INTERFACES");
-    CHECK(h_hdr->nsh_Type == NETSTATUS_IFDEVICES, "the header names the selector");
-    CHECK(h_hdr->nsh_EntrySize == (UWORD)sizeof(NetStatusIfDevice),
-          "the header states the entry size");
-    CHECK(h_hdr->nsh_Available == H_SLOTS, "and the rows available");
-    CHECK(h_entry(1)->nsd_Index == 1, "row 1 is slot 1");
-    CHECK(strcmp(h_entry(1)->nsd_Device, h_long) == 0,
-          "a path over 31 characters arrives whole");
-    CHECK(strcmp(h_entry(0)->nsd_Device, "a2065.device") == 0,
-          "a short one as it is");
-    CHECK(h_entry(2)->nsd_Index == 2 && h_entry(2)->nsd_Device[0] == '\0',
-          "an unused slot is present and empty, not stale buffer");
+    CHECK(rc == -1 && h_error == AMI_ENETDOWN,
+          "no stack: ENETDOWN, not EINVAL, so a tool does not fall back");
 }
 
-/* The published record is not what carries it. */
-static VOID t_interface_record_is_unchanged(VOID)
-{
-    CHECK(sizeof(NetStatusInterface) == 192, "NetStatusInterface stays 192 bytes");
-    CHECK(sizeof(((NetStatusInterface *)0)->nsi_Device) == NETSTATUS_DEVICE_LEN,
-          "nsi_Device stays NETSTATUS_DEVICE_LEN");
-    CHECK(NETSTATUS_IFDEVICES == 22, "the selector number is 22");
-}
-
-/* Header-only asks "how many", as every variable-length selector does. */
-static VOID t_small_buffer_counts(VOID)
+static VOID t_short_buffer_is_einval(VOID)
 {
     LONG rc;
 
     h_reset();
-    h_attach(0, h_long);
-    h_attach(3, h_long);
-
-    rc = h_query(NETSTATUS_IFDEVICES, (ULONG)sizeof(NetStatusHeader),
+    rc = h_query(NETSTATUS_HOSTSOURCE, (ULONG)sizeof(NetStatusHeader),
                  (UWORD)AMI_NETSTATUS_VERSION);
-    CHECK(rc == 0, "a header-only buffer gets no rows");
-    CHECK(h_hdr->nsh_Available == H_SLOTS, "and learns how many there are");
-
-    rc = h_query(NETSTATUS_IFDEVICES,
-                 (ULONG)(sizeof(NetStatusHeader) + sizeof(NetStatusIfDevice) +
-                         sizeof(NetStatusIfDevice) / 2),
-                 (UWORD)AMI_NETSTATUS_VERSION);
-    CHECK(rc == 1, "a buffer for one and a half rows gets one");
-    CHECK(h_hdr->nsh_Count == 1 && h_hdr->nsh_Available == H_SLOTS,
-          "the count and the available differ");
-    CHECK(strcmp(h_entry(0)->nsd_Device, h_long) == 0, "the row is whole");
-    CHECK(((const UBYTE *)h_entry(1))[0] == 0xA5,
-          "and nothing is written past the buffer");
-
-    rc = h_query(NETSTATUS_IFDEVICES, (ULONG)sizeof(NetStatusHeader) - 1,
-                 (UWORD)AMI_NETSTATUS_VERSION);
-    CHECK(rc == -1 && h_error == AMI_EINVAL, "less than a header is EINVAL");
-}
-
-/* The version check is the same as every selector's. */
-static VOID t_version_mismatch_is_refused(VOID)
-{
-    LONG rc;
-
-    h_reset();
-    h_attach(0, h_long);
-
-    rc = h_query(NETSTATUS_IFDEVICES, (ULONG)sizeof(h_buffer),
-                 (UWORD)(AMI_NETSTATUS_VERSION - 1));
-    CHECK(rc == -1 && h_error == AMI_EINVAL, "an older header is EINVAL");
-}
-
-/* The number above the last selector is still EINVAL: what an older library
-   says to IFDEVICES, and what the tools fall back on.  24: 23 is
-   NETSTATUS_HOSTSOURCE. */
-static VOID t_unknown_selector_is_einval(VOID)
-{
-    LONG rc;
-
-    h_reset();
-    rc = h_query(24, (ULONG)sizeof(h_buffer), (UWORD)AMI_NETSTATUS_VERSION);
-    CHECK(rc == -1 && h_error == AMI_EINVAL, "an unknown selector is EINVAL");
+    CHECK(rc == -1 && h_error == AMI_EINVAL,
+          "a buffer with no room for the record is EINVAL");
 }
 
 int main(void)
 {
-    printf("NETSTATUS_IFDEVICES host tests\n");
+    printf("NETSTATUS_HOSTSOURCE host tests\n");
 
-    t_long_path_arrives_whole();
-    t_interface_record_is_unchanged();
-    t_small_buffer_counts();
-    t_version_mismatch_is_refused();
-    t_unknown_selector_is_einval();
+    t_hosts_file_name();
+    t_every_other_source_unchanged();
+    t_stack_down_is_enetdown();
+    t_short_buffer_is_einval();
 
-    printf("ifdevices checks=%lu failures=%lu\n", h_checks, h_failures);
+    printf("hostsource checks=%lu failures=%lu\n", h_checks, h_failures);
     return h_failures == 0 ? 0 : 1;
 }
