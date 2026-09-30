@@ -331,3 +331,65 @@ BOOL ami_cfg_ifname_may_be_truncated(const char *name)
 {
     return name != NULL && ami_cfg_strlen(name) >= AMI_CFG_IFNAME_MAX;
 }
+
+/*
+ * The 1-based line of `buf` whose NAMESERVER the resolver parser keeps as
+ * `want`, counted as the parser counts lines, or 0.  Mirrors
+ * ami_cfg_parse_resolver()'s NAMESERVER case: the first key=value pair on a
+ * line must spell NAMESERVER (case-insensitive) and its value must parse as an
+ * IP; the parser keeps each such line in order up to AMI_CFG_MAX_NAMESERVERS.
+ * Returns the first line whose parsed value equals `want`, so a diagnostic
+ * names the exact line the loader took (F-158).  `buf` is a whole file's text,
+ * split in place, like every caller of ami_cfg_next_line().
+ */
+ULONG ami_cfg_nameserver_line(char *buf, ULONG want)
+{
+    char  *cursor = buf;
+    char  *line;
+    ULONG  lineno = 0;
+
+    if (buf == NULL)
+        return 0;
+
+    while ((line = ami_cfg_next_line(&cursor)) != NULL)
+    {
+        char *pos;
+        char *key;
+        char *value;
+        ULONG ip;
+
+        lineno++;
+
+        ami_cfg_strip_comment(line, "#;");
+        line = ami_cfg_trim(line);
+        if (*line == '\0')
+            continue;
+
+        /* The resolver parser takes only the first pair on a line. */
+        pos = line;
+        if (!ami_cfg_next_pair(&pos, &key, &value))
+            continue;
+
+        if (ami_cfg_stricmp(key, "nameserver") != 0)
+            continue;
+
+        if (ami_config_parse_ip(value, &ip) && ip == want)
+            return lineno;
+    }
+
+    return 0;
+}
+
+ULONG ami_cfg_nameserver_line_file(const char *path, ULONG want)
+{
+    char  *buf = (char *)ami_cfg_read_file(path, NULL);
+    ULONG  found;
+
+    if (buf == NULL)
+        return 0;
+
+    found = ami_cfg_nameserver_line(buf, want);
+    ami_free(buf);
+
+    return found;
+}

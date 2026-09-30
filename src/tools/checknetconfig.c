@@ -551,8 +551,7 @@ static VOID check_gateway(const AmiConfig *cfg)
 
 static VOID check_resolver(const AmiConfig *cfg)
 {
-    static const char *const path = "DEVS:Internet/name_resolution";
-    UWORD                    i;
+    UWORD i;
 
     if (cfg->resolver.nameserver_count == 0)
     {
@@ -561,7 +560,7 @@ static VOID check_resolver(const AmiConfig *cfg)
             !any_static_address(cfg))
             return;
 
-        finding(path, 0, AMI_CFG_PROBLEM_WARN);
+        finding("DEVS:Internet/name_resolution", 0, AMI_CFG_PROBLEM_WARN);
         note("no name server is configured, so names like www.example.com "
              "cannot be looked up. Numeric addresses still work.");
         note("Put  NAMESERVER <address>  in that file, or run NetSetup. On a "
@@ -574,17 +573,61 @@ static VOID check_resolver(const AmiConfig *cfg)
 
     for (i = 0; i < cfg->resolver.nameserver_count; i++)
     {
-        ULONG server = cfg->resolver.nameserver[i];
-        char  text[16];
+        ULONG      server = cfg->resolver.nameserver[i];
+        char       text[16];
+        const char *path;
+        char       iface_path[TOOL_NAME_LEN * 2];
+        ULONG      line;
+        BOOL       truncated_seen = FALSE;
+        UWORD      j;
 
         if (network_holding(cfg, server) >= 0)
             continue;               /* directly reachable */
         if (cfg->default_gateway != 0)
             continue;               /* reachable through the router */
 
+        /*
+         * Which file supplied this name server, so the finding names the one to
+         * edit.  load_resolver() parses name_resolution first, then fills a
+         * still-empty resolver from hosts, then from the first interface file
+         * with a NAMESERVER (AmiTCP_NG's installer writes it there).  Replay
+         * that order; a value in no nameable file (the file changed since load)
+         * names the primary file at line 0 rather than a stale line.
+         */
+        path = "DEVS:Internet/name_resolution";
+        line = ami_cfg_nameserver_line_file(path, server);
+
+        if (line == 0)
+        {
+            path = "DEVS:Internet/hosts";
+            line = ami_cfg_nameserver_line_file(path, server);
+        }
+
+        for (j = 0; line == 0 && j < cfg->interface_count; j++)
+        {
+            if (ami_cfg_ifname_may_be_truncated(cfg->interfaces[j].name))
+            {
+                truncated_seen = TRUE;  /* its real file name is unknown */
+                continue;
+            }
+            tool_join_path(iface_path, sizeof(iface_path),
+                           CNC_DIR_INTERFACES, cfg->interfaces[j].name);
+            line = ami_cfg_nameserver_line_file(iface_path, server);
+            if (line != 0)
+                path = iface_path;
+        }
+
+        if (line == 0)
+        {
+            /* Not in any nameable file: name the drawer when a truncated
+               interface name hides the true source, else the primary file. */
+            path = truncated_seen ? CNC_DIR_INTERFACES
+                                  : "DEVS:Internet/name_resolution";
+        }
+
         ami_config_format_ip(server, text, sizeof(text));
 
-        finding(path, keyword_line(path, "NAMESERVER"), AMI_CFG_PROBLEM_WARN);
+        finding(path, line, AMI_CFG_PROBLEM_WARN);
         say("      the name server %s is not on this machine's network\n",
             (LONG)text);
         say("      and there is no default route to reach it through\n");

@@ -3018,6 +3018,58 @@ static void test_interface_gateway_line(void)
     CHECK(ami_cfg_ifname_may_be_truncated("123456789012345"));
 }
 
+static void test_nameserver_line(void)
+{
+    char  buf[512];
+    ULONG a;
+    ULONG b;
+
+    printf("nameserver line\n");
+
+    CHECK(ami_config_parse_ip("192.168.1.1", &a));
+    CHECK(ami_config_parse_ip("8.8.8.8", &b));
+
+    /* The line of the NAMESERVER whose value the parser kept.  Each call
+       re-reads a fresh buffer: ami_cfg_nameserver_line() splits it in place. */
+    strcpy(buf, "nameserver 192.168.1.1\n"
+                "nameserver 8.8.8.8\n");
+    CHECK(ami_cfg_nameserver_line(buf, a) == 1);
+    strcpy(buf, "nameserver 192.168.1.1\n"
+                "nameserver 8.8.8.8\n");
+    CHECK(ami_cfg_nameserver_line(buf, b) == 2);
+
+    /* The keyword is case-insensitive. */
+    strcpy(buf, "NAMESERVER=192.168.1.1\n");
+    CHECK(ami_cfg_nameserver_line(buf, a) == 1);
+
+    /* A value that does not parse is skipped, so a later valid one is named. */
+    strcpy(buf, "nameserver not-an-ip\n"
+                "nameserver 192.168.1.1\n");
+    CHECK(ami_cfg_nameserver_line(buf, a) == 2);
+
+    /* No NAMESERVER with the kept value: 0. */
+    strcpy(buf, "nameserver 8.8.8.8\n");
+    CHECK(ami_cfg_nameserver_line(buf, a) == 0);
+
+    /* The resolver parser reads only the first key=value pair on a line, so a
+       NAMESERVER in the second position was never the one it kept. */
+    strcpy(buf, "domain example.com nameserver 192.168.1.1\n");
+    CHECK(ami_cfg_nameserver_line(buf, a) == 0);
+
+    /* A comment and a blank line do not change the count. */
+    strcpy(buf, "# leading comment\n"
+                "\n"
+                "nameserver 192.168.1.1\n");
+    CHECK(ami_cfg_nameserver_line(buf, a) == 3);
+
+    /* The file form, through the fixture reader. */
+    set_fixture(AMI_CFG_FILE_NAMERES,
+                "nameserver 8.8.8.8\n"
+                "nameserver 192.168.1.1\n");
+    CHECK(ami_cfg_nameserver_line_file(AMI_CFG_FILE_NAMERES, a) == 2);
+    CHECK(ami_cfg_nameserver_line_file(AMI_CFG_FILE_NAMERES, b) == 1);
+}
+
 static void test_netdb(void)
 {
     const AmiNetdbEntry *e;
@@ -3769,6 +3821,7 @@ int main(int argc, char **argv)
     test_keyword_line();
     test_default_gateway_line();
     test_interface_gateway_line();
+    test_nameserver_line();
     test_netdb_checker();
     test_netdb_alias_cut();
     test_netdb_nomem();
