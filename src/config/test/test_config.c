@@ -2466,6 +2466,22 @@ static void test_netdb_checker(void)
 
     printf("netdb checker\n");
 
+    /* A one-character first token at the very end of a full line: the
+       keyword compare stops at its terminator (run under ASan to see it). */
+    {
+        char  line[256];
+        char  word[64];
+
+        memset(line, ' ', sizeof(line));
+        line[252] = 'D';
+        line[253] = ' ';
+        line[254] = 'x';
+        line[255] = '\0';
+        CHECK(ami_netdb_line_verdict(AMI_NETDB_HOSTS, line, word,
+                                     sizeof(word)) == AMI_NETDB_LINE_BAD);
+        CHECK(strcmp(word, "D") == 0);
+    }
+
     for (i = 0; i < sizeof(netdb_cases) / sizeof(netdb_cases[0]); i++)
     {
         const struct NetdbCase *c = &netdb_cases[i];

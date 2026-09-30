@@ -24,7 +24,11 @@ static VOID netdb_check_word(char *word, ULONG wordlen, const char *text)
         ami_cfg_copy_string(word, wordlen, text);
 }
 
-/* NAMESERVER=... as well as NAMESERVER ... */
+/*
+ * NAMESERVER=... as well as NAMESERVER ...  Never reads past the token: its
+ * terminator cannot equal a keyword letter, so a shorter token returns FALSE
+ * at its own '\0', and token[n] is read only once n letters have matched.
+ */
 static BOOL netdb_check_keyword(const char *token, const char *keyword)
 {
     ULONG n = ami_cfg_strlen(keyword);
