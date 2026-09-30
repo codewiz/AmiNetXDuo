@@ -845,6 +845,13 @@ static BOOL ask_static_details(Plan *plan)
     if (setup_aborted)
         return FALSE;
 
+    if (plan->have_gateway && plan->gateway == 0)
+    {
+        tool_printf("\n  0.0.0.0 is the unspecified address, not a router, so\n");
+        tool_printf("  it is not kept. Leave the router empty instead.\n");
+        plan->have_gateway = FALSE;
+    }
+
     if (plan->have_gateway &&
         ((plan->gateway & plan->netmask) != (plan->address & plan->netmask)))
     {
@@ -1045,6 +1052,14 @@ int main(int argc, char **argv)
         if (!ami_config_parse_ip((const char *)args[ARG_GATEWAY], &plan.gateway))
         {
             tool_error("GATEWAY=%s is not an address",
+                       (LONG)args[ARG_GATEWAY]);
+            FreeArgs(rda);
+            return RETURN_ERROR;
+        }
+        if (plan.gateway == 0)
+        {
+            /* A zero default gateway is rejected when the routes file loads. */
+            tool_error("GATEWAY=%s is 0.0.0.0, which is not a router address",
                        (LONG)args[ARG_GATEWAY]);
             FreeArgs(rda);
             return RETURN_ERROR;

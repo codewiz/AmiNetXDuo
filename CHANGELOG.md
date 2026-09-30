@@ -32,6 +32,8 @@ version at the top when it merges.
   sockets or a misleading `(none)`.
 - The tools check the running `bsdsocket.library` identity before calling
   DNS-list extension vectors that an older foreign stack may not provide.
+- `NetSetup` rejects `GATEWAY=0.0.0.0` and drops an interactively entered
+  zero router instead of writing an invalid default route.
 - `AMINETXDUO_MAX_INTERFACES` above 32 is now a compile error; the DHCP
   resolver's pending-interface set is one 32-bit word and cannot name an
   index past bit 31.
