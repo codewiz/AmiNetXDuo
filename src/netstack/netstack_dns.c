@@ -255,7 +255,9 @@ static VOID ami_ns_dns_prefer_apply(AmiNetStack *ns)
     for (i = 0; i < n; i++)
         slot[i] = copy[order[i]];
 
-    (VOID)tx_mutex_put(&ns->ns_Dns.nx_dns_mutex);
+    /* We own a valid mutex after the successful get above, which is the only
+       condition _tx_mutex_put() accepts and its only successful exit. */
+    AMI_NX_ONLY_SUCCESS(tx_mutex_put(&ns->ns_Dns.nx_dns_mutex));
 }
 
 /* Every server the DNS client is given comes through one of these two. */

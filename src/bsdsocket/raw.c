@@ -676,7 +676,7 @@ LONG bsd_raw_send_packet(struct AmiSocketBase *base, AmiSocket *sock,
         if (sock->as_HdrIncl &&
             bsd_raw_hdrincl_v6(handed, &dest, &protocol, &ttl, &tos) != 0)
         {
-            nx_packet_release(handed);
+            AMI_NX_CLEANUP(nx_packet_release(handed));
             return bsd_fail(base, AMI_EINVAL);
         }
 
