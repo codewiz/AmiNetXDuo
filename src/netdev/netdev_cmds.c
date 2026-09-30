@@ -643,60 +643,72 @@ static VOID cmd_track_type(NetdevOpener *op, struct IOSana2Req *io)
 {
     UWORD i;
     LONG free_slot = -1;
+    BYTE err = 0;
+    ULONG wire = 0;
 
+    /* The interrupt server walks this array on every frame, and another
+       BeginIO on this opener may be tracking too: one Disable covers the
+       lookup and the claim. */
+    Disable();
     for (i = 0; i < NETDEV_TRACK_MAX; i++)
     {
         if (op->op_Track[i].used)
         {
             if (op->op_Track[i].type == io->ios2_PacketType)
             {
-                netdev_reply(io, S2ERR_BAD_STATE, S2WERR_ALREADY_TRACKED);
-                return;
+                err  = S2ERR_BAD_STATE;
+                wire = S2WERR_ALREADY_TRACKED;
+                break;
             }
         }
         else if (free_slot < 0)
             free_slot = i;
     }
 
-    if (free_slot < 0)
+    if (err == 0 && free_slot < 0)
     {
-        netdev_reply(io, S2ERR_NO_RESOURCES, S2WERR_GENERIC_ERROR);
-        return;
+        err  = S2ERR_NO_RESOURCES;
+        wire = S2WERR_GENERIC_ERROR;
     }
 
-    /* The interrupt server walks this array on every frame. */
-    Disable();
-    cmd_zero((UBYTE *)&op->op_Track[free_slot],
-             sizeof(op->op_Track[free_slot]));
-    op->op_Track[free_slot].type = io->ios2_PacketType;
-    op->op_Track[free_slot].used = 1;
-    if ((UWORD)(free_slot + 1) > op->op_TrackHigh)
-        op->op_TrackHigh = (UWORD)(free_slot + 1);
+    if (err == 0)
+    {
+        cmd_zero((UBYTE *)&op->op_Track[free_slot],
+                 sizeof(op->op_Track[free_slot]));
+        op->op_Track[free_slot].type = io->ios2_PacketType;
+        op->op_Track[free_slot].used = 1;
+        if ((UWORD)(free_slot + 1) > op->op_TrackHigh)
+            op->op_TrackHigh = (UWORD)(free_slot + 1);
+    }
     Enable();
-    netdev_reply(io, 0, 0);
+    netdev_reply(io, err, wire);
 }
 
 static VOID cmd_untrack_type(NetdevOpener *op, struct IOSana2Req *io)
 {
     UWORD i;
+    BOOL found = FALSE;
 
+    Disable();
     for (i = 0; i < NETDEV_TRACK_MAX; i++)
     {
         if (op->op_Track[i].used &&
             op->op_Track[i].type == io->ios2_PacketType)
         {
-            Disable();
             op->op_Track[i].used = 0;
             while (op->op_TrackHigh != 0 &&
                    !op->op_Track[op->op_TrackHigh - 1].used)
                 op->op_TrackHigh--;
-            Enable();
-            netdev_reply(io, 0, 0);
-            return;
+            found = TRUE;
+            break;
         }
     }
+    Enable();
 
-    netdev_reply(io, S2ERR_BAD_STATE, S2WERR_NOT_TRACKED);
+    if (found)
+        netdev_reply(io, 0, 0);
+    else
+        netdev_reply(io, S2ERR_BAD_STATE, S2WERR_NOT_TRACKED);
 }
 
 static VOID cmd_type_stats(NetdevOpener *op, struct IOSana2Req *io)

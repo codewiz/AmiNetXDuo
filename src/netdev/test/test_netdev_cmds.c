@@ -76,8 +76,19 @@ static void expect_u32(const char *what, unsigned long got, unsigned long want)
 static int disable_depth;
 static int replies;
 
+/* Runs once, at the next outermost Disable(), before it takes effect: another
+   task's BeginIO getting in just ahead of it. */
+static void (*preempt_at_disable)(void);
+
 VOID Disable(VOID)
 {
+    if (disable_depth == 0 && preempt_at_disable != NULL)
+    {
+        void (*fn)(void) = preempt_at_disable;
+
+        preempt_at_disable = NULL;
+        fn();
+    }
     disable_depth++;
 }
 
@@ -170,11 +181,14 @@ struct Node *RemHead(struct List *l)
 static LONG  last_err;
 static ULONG last_wire;
 static int   nreplies;
+static int   replies_disabled;
 
 /* netdev_device.c's, three lines of it. */
 VOID netdev_reply(struct IOSana2Req *io, LONG err, ULONG wire)
 {
     nreplies++;
+    if (disable_depth != 0)
+        replies_disabled++;
     last_err  = err;
     last_wire = wire;
 
@@ -1473,6 +1487,85 @@ static void m_track_types(void)
 
 /* RecordCountMax is the caller's array length.  Supplying more records than
    that writes past it. */
+/*
+ * F-282: two BeginIOs on one opener.  The second gets in just before the
+ * first one's Disable(); each must end up with its own slot, and an untrack
+ * interrupted the same way must still find the type.
+ */
+static struct IOSana2Req race_io;
+static LONG              race_err;
+
+static void race_track(void)
+{
+    req(&race_io, S2_TRACKTYPE);
+    race_io.ios2_PacketType = 0x86dd;
+    netdev_perform(&opener, &race_io);
+    race_err = last_err;
+}
+
+static void race_untrack(void)
+{
+    req(&race_io, S2_UNTRACKTYPE);
+    race_io.ios2_PacketType = 0x86dd;
+    netdev_perform(&opener, &race_io);
+    race_err = last_err;
+}
+
+static void m2_track_race(void)
+{
+    struct IOSana2Req io;
+    UWORD             i, n0800 = 0, n86dd = 0;
+
+    reset();
+    replies_disabled = 0;
+
+    preempt_at_disable = race_track;
+    req(&io, S2_TRACKTYPE);
+    io.ios2_PacketType = 0x0800;
+    netdev_perform(&opener, &io);
+    preempt_at_disable = NULL;
+    expect_u32("the interrupted track succeeds", (unsigned long)(UBYTE)io.ios2_Req.io_Error, 0);
+    expect_u32("and the one that got in first", (unsigned long)(UBYTE)race_err, 0);
+
+    for (i = 0; i < opener.op_TrackHigh; i++)
+    {
+        if (!opener.op_Track[i].used)
+            continue;
+        if (opener.op_Track[i].type == 0x0800)
+            n0800++;
+        if (opener.op_Track[i].type == 0x86dd)
+            n86dd++;
+    }
+    expect(n0800 == 1 && n86dd == 1, "both types hold a slot of their own");
+    expect_u32("two slots in use", opener.op_TrackHigh, 2);
+
+    /* An untrack of 0x0800 with an untrack of 0x86dd getting in first. */
+    preempt_at_disable = race_untrack;
+    req(&io, S2_UNTRACKTYPE);
+    io.ios2_PacketType = 0x0800;
+    netdev_perform(&opener, &io);
+    preempt_at_disable = NULL;
+    expect_u32("the interrupted untrack succeeds", (unsigned long)(UBYTE)io.ios2_Req.io_Error, 0);
+    expect_u32("and the one that got in first", (unsigned long)(UBYTE)race_err, 0);
+    expect(!opener.op_Track[0].used && !opener.op_Track[1].used, "nothing is tracked");
+    expect_u32("the high-water mark is back to zero", opener.op_TrackHigh, 0);
+
+    /* The same type from both: one wins, the other is told it is tracked. */
+    preempt_at_disable = race_track;
+    req(&io, S2_TRACKTYPE);
+    io.ios2_PacketType = 0x86dd;
+    netdev_perform(&opener, &io);
+    preempt_at_disable = NULL;
+    expect_u32("the first of two tracks of one type wins", (unsigned long)(UBYTE)race_err, 0);
+    expect_u32("the second is refused", (unsigned long)(UBYTE)io.ios2_Req.io_Error,
+               (unsigned long)(UBYTE)S2ERR_BAD_STATE);
+    expect_u32("as already tracked", io.ios2_WireError, (unsigned long)S2WERR_ALREADY_TRACKED);
+    expect_u32("one slot in use", opener.op_TrackHigh, 1);
+
+    expect(replies_disabled == 0, "every reply went out after Enable()");
+    balanced("the tracking race left Disable balanced");
+}
+
 static void n_special_stats_respect_the_caller(void)
 {
     struct
@@ -2312,6 +2405,7 @@ int main(void)
     k_unknown_commands();
     l_onevent_masks();
     m_track_types();
+    m2_track_race();
     n_special_stats_respect_the_caller();
     o_global_stats_come_from_the_core();
     p_configure_and_online();
