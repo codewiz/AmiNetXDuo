@@ -18,6 +18,9 @@ version at the top when it merges.
   these drivers by an absolute path into the drawer to the same `AmiNetXDuo:` form. Other lines,
   third-party drivers, comments and protection bits stay as they were.
 - `anxwifipi.device` uses the library's single-copy receive path.
+- `RemoveNetInterface` no longer stalls the other interfaces while it takes one down. `FORCE` completes
+  when the device still holds requests and keeps that device until it returns them. A connection in
+  `TIME_WAIT` no longer counts as open.
 - Every figure below is from a tree with nothing uncommitted, and that matters
   here more than usual: the build stamps `-dirty` into the version hash inside
   every image whenever `git status` is not empty, and it lands unevenly -- 8
