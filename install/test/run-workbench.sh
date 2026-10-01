@@ -410,15 +410,20 @@ fi
 # file this installer writes names is the driver that came with the card, so
 # that is what this run boots.  The device check below is about the file
 # landing; everything after the power cycle is about the vendor driver working.
-# AMINETXDUO_SANA2_VENDOR is set here for the same reason and can still be
-# unset by a caller that wants the other one.
-AMINETXDUO_SANA2_VENDOR="${AMINETXDUO_SANA2_VENDOR:-1}"
+# AMINETXDUO_SANA2_VENDOR defaults to 1 for the same reason.  Unset means 1;
+# a caller that wants anxnet.device sets it EMPTY (AMINETXDUO_SANA2_VENDOR=),
+# which is kept empty, and sana2_select then picks anxnet.device for every
+# board tools/sana2-stage.sh maps onto it.
+AMINETXDUO_SANA2_VENDOR="${AMINETXDUO_SANA2_VENDOR-1}"
 export AMINETXDUO_SANA2_VENDOR
 
 # The A2065 keeps its own variable and its own search: it is Commodore's, it
 # comes out of the OS sources rather than the asset store, and every existing
-# caller of this script sets AMINETXDUO_A2065 and nothing else.
-if [ "$BOARD" = a2065 ] && [ -z "${AMINETXDUO_SANA2_DRIVER:-}" ]; then
+# caller of this script sets AMINETXDUO_A2065 and nothing else.  Vendor runs
+# only: on an anxnet run this path would win over SANA2_SEL_PATH below and
+# stage Commodore's bytes for a run that selected anxnet.device.
+if [ "$BOARD" = a2065 ] && [ -n "${AMINETXDUO_SANA2_VENDOR:-}" ] &&
+   [ -z "${AMINETXDUO_SANA2_DRIVER:-}" ]; then
     A2065="${AMINETXDUO_A2065:-}"
     if [ -z "$A2065" ]; then
         for candidate in \
@@ -447,6 +452,19 @@ DRIVER_PATH="${AMINETXDUO_SANA2_DRIVER:-$SANA2_SEL_PATH}"
 # at a time, after saying it had found the file two lines earlier.
 AMINETXDUO_SANA2_DRIVER="$DRIVER_PATH"
 export AMINETXDUO_SANA2_DRIVER
+
+# anxnet.device needs its NAME handed back too, before _sana2_names, which
+# otherwise names the staged file after the board (ariadne2 -> ariadne_ii.device)
+# and stages our bytes under the vendor's name.  Mirrors tools/classicwb.sh.
+# Never on a vendor run: that would stage vendor bytes as anxnet.device.
+if [ "$SANA2_SEL_SOURCE" = anxnet ]; then
+    AMINETXDUO_SANA2_DRIVER_NAME=anxnet.device
+    AMINETXDUO_SANA2_DIR=Networks
+    AMINETXDUO_SANA2_DEVICE=DEVS:Networks/anxnet.device
+    AMINETXDUO_SANA2_CARD="$SANA2_SEL_CARD"
+    export AMINETXDUO_SANA2_DRIVER_NAME AMINETXDUO_SANA2_DIR \
+           AMINETXDUO_SANA2_DEVICE AMINETXDUO_SANA2_CARD
+fi
 _sana2_names "$BOARD"
 
 # A MISSING DRIVER IS AN INGREDIENT, NOT A FAILURE, except in the manual-card
@@ -1181,21 +1199,38 @@ startup_count() {
 #   anxnet.device there first and prove the installer replaces it and keeps
 #   the old one beside it as anxnet.device.old.
 #
+#   An anxnet run (any card, the A2065 included) has already staged the real
+#   anxnet.device at that name, and the stale text would overwrite the driver
+#   under test.  That file is left alone and is itself the existing driver:
+#   the backup assertions still hold, and only "the live file is no longer the
+#   old one" cannot, because its bytes are the archive's by construction.
+#
 # Written before the archive is unpacked, so nothing here can be confused with
 # something the unpack left lying about.
 DEVS_NETWORKS_BEFORE=absent
 STALE_DEVICE=""
 STALE_SUM=""
+STALE_IS_STAGED=0
 if [ -d "$HD/Devs/Networks" ]; then
     DEVS_NETWORKS_BEFORE=present
     STALE_DEVICE="$HD/Devs/Networks/anxnet.device"
-    printf 'not a driver: a stale anxnet.device left by an earlier install, %s\n' \
-           "$TAG" > "$STALE_DEVICE"
-    chmod 644 "$STALE_DEVICE"
+    if [ -n "$STAGED_AT" ] && [ "$STAGED_AT" = "$STALE_DEVICE" ] &&
+       [ -f "$STAGED_AT" ]; then
+        STALE_IS_STAGED=1
+    else
+        printf 'not a driver: a stale anxnet.device left by an earlier install, %s\n' \
+               "$TAG" > "$STALE_DEVICE"
+        chmod 644 "$STALE_DEVICE"
+    fi
     STALE_SUM=$(shasum "$STALE_DEVICE" | cut -d' ' -f1)
 fi
-echo "==> DEVS:Networks before the install: $DEVS_NETWORKS_BEFORE" \
-     "${STALE_DEVICE:+(a stale anxnet.device staged in it)}"
+if [ "$STALE_IS_STAGED" = 1 ]; then
+    echo "==> DEVS:Networks before the install: $DEVS_NETWORKS_BEFORE" \
+         "(the staged anxnet.device under test, no stale fixture)"
+else
+    echo "==> DEVS:Networks before the install: $DEVS_NETWORKS_BEFORE" \
+         "${STALE_DEVICE:+(a stale anxnet.device staged in it)}"
+fi
 
 FOREIGN_STACK_BEFORE=""
 if [ "$DRAWER" = "1" ]; then
@@ -1227,6 +1262,30 @@ SUPPLIED_DRIVERS="anxnet.device anxgenet.device anxwifipi.device"
 }
 cp "$INSTALLER" "$UNPACK/AmiNetXDuo/Installer"
 chmod -R a+rx "$UNPACK"
+
+# THE STAGED BYTES ARE THE ARCHIVE'S anxnet.device.  Keyed on what sana2_select
+# chose, not on AMINETXDUO_SANA2_DRIVER: that is the file that was copied, so
+# comparing against it compares the staged file with itself.  Fails closed: an
+# anxnet run with nothing to compare against is not an anxnet run.
+STAGED_SHA256=""
+if [ "$SANA2_SEL_SOURCE" = anxnet ] && [ "$MANUAL_CARD" = 0 ] &&
+   [ "$NO_CARD" = 0 ]; then
+    _anx_ref="$UNPACK/AmiNetXDuo/Devs/Networks/anxnet.device"
+    [ -n "$STAGED_AT" ] && [ -f "$STAGED_AT" ] || {
+        echo "!! anxnet.device selected and nothing staged at ${STAGED_AT:-none}" >&2
+        exit 1; }
+    [ -f "$_anx_ref" ] || {
+        echo "!! anxnet.device selected and $ARCHIVE carries none to check" >&2
+        exit 1; }
+    STAGED_SHA256=$(shasum -a 256 "$STAGED_AT" | cut -d' ' -f1)
+    _anx_ref_sum=$(shasum -a 256 "$_anx_ref" | cut -d' ' -f1)
+    echo "staged_driver_sha256=$STAGED_SHA256 archive_anxnet_sha256=$_anx_ref_sum"
+    [ "$STAGED_SHA256" = "$_anx_ref_sum" ] || {
+        echo "!! the staged $SANA2_DRIVER is not the archive's anxnet.device" >&2
+        echo "   staged  $STAGED_AT" >&2
+        echo "   source  ${AMINETXDUO_SANA2_DRIVER:-none}" >&2
+        exit 1; }
+fi
 
 # A previous AmiNetXDuo install leaves both Pi drivers on every machine.  They
 # are payload, not proof of Pi hardware.  Seed precisely that state while the
@@ -2441,7 +2500,7 @@ else
     # The upgrade half: a stale driver was there, and it must be gone from the
     # live name and kept under .old.  Its bytes are unique to this run, so
     # "gone" is checked rather than assumed.
-    if [ -n "$ANXNET_INSTALLED" ] &&
+    if [ "$STALE_IS_STAGED" = 0 ] && [ -n "$ANXNET_INSTALLED" ] &&
        [ "$(shasum "$ANXNET_INSTALLED" | cut -d' ' -f1)" = "$STALE_SUM" ]; then
         echo "!! DEVS:Networks/anxnet.device is still the STALE file this"
         echo "   harness staged before the install.  A reinstall that leaves"
@@ -2705,7 +2764,8 @@ elif [ -n "$EXPECTED_AUTO_DEVICE" ]; then
     esac
 else
     case "$INSTALLER_DEVICE" in
-        "$SANA2_DRIVER"|"DEVS:Networks/$SANA2_DRIVER") CARD_SELECTED=yes ;;
+        "$SANA2_DRIVER"|"DEVS:Networks/$SANA2_DRIVER"|"AmiNetXDuo:Devs/Networks/$SANA2_DRIVER")
+            CARD_SELECTED=yes ;;
     esac
 fi
 
