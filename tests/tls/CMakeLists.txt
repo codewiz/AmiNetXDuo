@@ -186,3 +186,17 @@ endif()
 if(TARGET bsdsocket_library)
     add_dependencies(tls_loop bsdsocket_library)
 endif()
+
+# The same server-against-client handshake in ONE task, with no
+# bsdsocket.library: the socket base is a fake jump table over a memory pipe
+# and the two TLSOpen() calls are coroutines.  So the shipped tls.library runs
+# under vamos, with no emulator, ROM, card or peer; see tls_coloop.c.
+add_executable(tls_coloop tls_coloop.c)
+target_include_directories(tls_coloop PRIVATE "${CMAKE_SOURCE_DIR}/include")
+if(AMIGA_NDK_INCLUDE)
+    target_include_directories(tls_coloop PRIVATE "${AMIGA_NDK_INCLUDE}")
+endif()
+set_target_properties(tls_coloop PROPERTIES OUTPUT_NAME "TlsCoLoop")
+if(TARGET tls_library)
+    add_dependencies(tls_coloop tls_library)
+endif()
