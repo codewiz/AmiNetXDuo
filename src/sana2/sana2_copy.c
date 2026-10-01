@@ -545,7 +545,7 @@ BOOL ami_sana2_copy_from_buff(register APTR to   __asm("a0"),
  * A slot that cannot answer safely declines and the device takes the staging
  * path.  Interrupt level, copybuff.doc constraints.
  */
-UBYTE *ami_sana2_rx_direct(APTR ios2_data, ULONG len)
+AMIGA_ASM_ARGS UBYTE *ami_sana2_rx_direct(APTR ios2_data, ULONG len)
 {
     AmiRxSlot *slot = (AmiRxSlot *)ios2_data;
 
@@ -564,7 +564,8 @@ UBYTE *ami_sana2_rx_direct(APTR ios2_data, ULONG len)
  * verifier walks the frame); VERIFIED is kept whole for the
  * reader, which only sees them from a device that accepted RX_VERIFIED.
  */
-VOID ami_sana2_rx_filled(APTR ios2_data, ULONG len, ULONG sum, UBYTE flags)
+AMIGA_ASM_ARGS VOID ami_sana2_rx_filled(APTR ios2_data, ULONG len, ULONG sum,
+                                        UBYTE flags)
 {
     AmiRxSlot *slot = (AmiRxSlot *)ios2_data;
 

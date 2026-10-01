@@ -194,6 +194,8 @@ endif()
 # The C flags are final here: an indirect tail call under -mregparm loses its
 # pointer argument unless sibling calls are off.  m68k cross builds only.
 include("${CMAKE_SOURCE_DIR}/cmake/check-regparm-sibcall.cmake")
+# And the callbacks a driver from another build calls stay on the stack.
+include("${CMAKE_SOURCE_DIR}/cmake/check-anxs2ext-abi.cmake")
 
 # ---------------------------------------------------------------- options ---
 

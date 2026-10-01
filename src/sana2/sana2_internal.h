@@ -18,6 +18,7 @@
 #include "aminetxduo/config.h"
 #include "aminetxduo/compat.h"
 #include "aminetxduo/anxs2ext.h"
+#include "aminetxduo/asm_abi.h"
 
 #include "sana2_device.h"
 
@@ -978,9 +979,11 @@ struct AmiSana2If
 
 /* ------------------------------------------------------------- internals */
 
-/* sana2_copy.c, called by the device in m68k register convention. */
-UBYTE *ami_sana2_rx_direct(APTR ios2_data, ULONG len);
-VOID   ami_sana2_rx_filled(APTR ios2_data, ULONG len, ULONG sum, UBYTE summed);
+/* sana2_copy.c, called by the device with its arguments on the stack
+   (aminetxduo/anxs2ext.h). */
+AMIGA_ASM_ARGS UBYTE *ami_sana2_rx_direct(APTR ios2_data, ULONG len);
+AMIGA_ASM_ARGS VOID   ami_sana2_rx_filled(APTR ios2_data, ULONG len, ULONG sum,
+                                          UBYTE summed);
 
 /* Bytes a known vendor driver's card holds from the wire, by name; 0 for
    any other (sana2_device.c). */
@@ -994,7 +997,7 @@ BOOL ami_sana2_copy_to_buff(register APTR to    __asm("a0"),
                             register APTR from  __asm("a1"),
                             register ULONG len  __asm("d0"));
 BOOL ami_sana2_tx_pseudo_sum(NX_PACKET *pkt);
-UBYTE ami_sana2_tx_flags(APTR ios2_data);
+AMIGA_ASM_ARGS UBYTE ami_sana2_tx_flags(APTR ios2_data);
 #ifdef AMINETXDUO_TX_RUN
 /* The flush request came back on tx_port: the device queued it rather than
    finishing it inside BeginIO() (sana2_tx.c). */
