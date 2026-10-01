@@ -786,6 +786,21 @@ ${rlwhy:+ -- }${rlwhy:-, see the log above}" ;;
            return 1 ;;
     esac
 
+    # AND THAT tools/amiberry-run.sh TAKES IT: two bridged boots of one arm
+    # from two checkouts, against a stub emulator, must not overlap or share a
+    # MAC.  2026-10-01 had both, and the A/B it voided was read as a result.
+    brrc=0
+    tools/bridge-lock-selftest.sh > "$BUILD/bridge-selftest.log" 2>&1 \
+        || brrc=$?
+    case "$brrc" in
+        0) note "bridge selftest: one bridged guest per host, MAC per run" ;;
+        3) cat "$BUILD/bridge-selftest.log"
+           skip "bridge selftest: unproven on this host (needs flock, python3)" ;;
+        *) cat "$BUILD/bridge-selftest.log"
+           fail "two bridged guests can boot at once on one host"
+           return 1 ;;
+    esac
+
     # THAT EVERY ROW IN install/ARCHIVE-MANIFEST STILL NAMES A REAL COPY.  The
     # other half of that gate needs a staged tree and runs inside
     # dist/make-dist.sh, before the archive is made; this half is source

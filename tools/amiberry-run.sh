@@ -18,7 +18,8 @@
 # -m does not rebuild the executable: pass one built for that CPU.
 # Serial is a listening TCP socket, not a file: the host has to RETRY the
 # connect, and losing that race leaves an emulator waiting forever.
-# Exit 4 (illegal instruction outside ROM) and 5 (wrong network backend) are rig
+# Exit 4 (illegal instruction outside ROM), 5 (wrong network backend) and 6
+# (another bridged guest held the host past AMINETXDUO_BRIDGE_WAIT) are rig
 # faults, deliberately distinct from the guest's own codes; 124 is the timeout.
 #
 # SPDX-License-Identifier: MIT
@@ -256,7 +257,7 @@ board_mac() { # index
     if [ "$1" = 0 ]; then
         printf '%s\n' "$MAC"
     else
-        emu_mac_for_tag "$MACTAG#$1"
+        emu_mac_for_run "$MACTAG#$1"
     fi
 }
 
@@ -294,23 +295,12 @@ CFG="$ROOT/build/amiberry-$TAG.uae"
 rig_claim_port "amiberry $TAG" || exit 2
 PORT="$RIG_PORT"
 
-# Functional bridged runs share the rig; measurements take it exclusively.
-# Both use the same lock, so a throughput number cannot be collected while a
-# second emulator is consuming the host NIC or CPUs.  SLIRP has neither shared
-# resource and stays outside this interlock.
-case "$BACKEND" in
-    slirp|slirp_inbound|none) ;;
-    *)
-        if [ -n "${AMINETXDUO_RIG_EXCLUSIVE:-}" ]; then
-            rig_claim_name bridged-rig \
-                "$TAG ($BACKEND): $AMINETXDUO_RIG_EXCLUSIVE" || exit 2
-            echo "==> exclusive bridged-rig measurement lock held"
-        else
-            rig_claim_name_shared bridged-rig "$TAG ($BACKEND) in $ROOT" || exit 2
-            echo "==> shared bridged-rig lock held"
-        fi
-        ;;
-esac
+# ONE BRIDGED GUEST ON THIS HOST, taken here so that no harness can boot one
+# without it, and before anything is staged so that a run which has to wait
+# has not yet written a drive.  The emulator inherits the descriptor and holds
+# it until it exits; rig_claim_bridge in tools/emu-rig-lock.sh has the why.
+# SLIRP and boardless runs return at once and stay parallel.
+rig_claim_bridge "$BACKEND" "$TAG ($BACKEND) in $ROOT" || exit 6
 
 # AND NO ORPHANED READER IS AIMED AT IT.  rig_port_readers has the mechanism
 # and the reason it is anchored the way it is.  The reader's own pid goes in a
@@ -352,12 +342,17 @@ RUNTOKEN="$(printf '%s-%s-%s' "$$" "$PORT" "$(date +%s)")"
 # shellcheck source=emu-mac.sh
 . "$ROOT/tools/emu-mac.sh"
 #
+# AND PER RUN, NOT ONLY PER TAG: a manual run-ifsurvive and CI's ifsurvive arm
+# share a tag, so a tag-only MAC put both guests on ens18 under one address on
+# 2026-10-01.  emu_mac_for_run mixes in the invocation (emu_run_id), which is
+# the same for every boot of one harness run and differs between two.
+#
 # AMINETXDUO_MAC_TAG derives the address from another tag than the run's own.
 # A matrix harness sets one per script: its cases run one after another, each
 # under its own run tag for the logs, and a MAC per case put 50+ addresses on
 # the lab LAN per CI run and drained the router's 2 h DHCP pool.
 MACTAG="${AMINETXDUO_MAC_TAG:-$TAG}"
-MAC="${AMINETXDUO_AMIBERRY_MAC:-$(emu_mac_for_tag "$MACTAG")}"
+MAC="${AMINETXDUO_AMIBERRY_MAC:-$(emu_mac_for_run "$MACTAG")}"
 
 # EXCEPT ON THE ONE BOARD WHERE THE EMULATOR THROWS THE MAC AWAY.  Amiberry
 # instantiates the PCMCIA NE2000 with no autoconfig record at all
@@ -374,35 +369,15 @@ MAC="${AMINETXDUO_AMIBERRY_MAC:-$(emu_mac_for_tag "$MACTAG")}"
 # what fails is an assertion somewhere else entirely -- a peer that reached the
 # other run's listener, an arp table with the wrong owner in it.
 #
-# It cannot be fixed from here, so it is DETECTED instead: one bridged pcmcia
-# run at a time on a host, and the second is refused with a sentence that says
-# what to do.  SLIRP runs are untouched -- each has a NAT of its own and no
-# shared segment to poison.
+# It cannot be fixed from here, and it no longer needs a lock of its own: the
+# exclusive bridge lock above already keeps every other bridged guest off the
+# segment while this one is up, which is the only protection a board that
+# drops mac= can have.  Said, so the log does not credit a fresh MAC with it.
 for _b in ${BOARDS[@]+"${BOARDS[@]}"}; do
     emu_board_mac_honoured "$_b" || _macless="$_b"
 done
-if [ -n "${_macless:-}" ]; then
-    BOARD_MACLESS="$_macless"
-    case "$BACKEND" in
-        slirp|slirp_inbound) ;;
-        *)
-            if ! rig_claim_name "bridged-$BOARD_MACLESS" "$TAG ($BACKEND) in $ROOT"; then
-                echo >&2
-                echo "REFUSING to start a second bridged $BOARD_MACLESS run on this host." >&2
-                echo >&2
-                echo "  Amiberry ignores mac= for this board and gives every" >&2
-                echo "  guest the host interface's own address (gayle.cpp:1590)," >&2
-                echo "  so two of these on one LAN are one hardware address at" >&2
-                echo "  two IP addresses and they poison each other's ARP." >&2
-                echo >&2
-                echo "  Serialize them: wait for the run above to finish." >&2
-                echo "  -B slirp needs no interlock, and -N a2065 honours mac=" >&2
-                echo "  and may be run bridged in parallel." >&2
-                exit 2
-            fi
-            echo "==> bridged $BOARD_MACLESS interlock held (mac= is ignored on this board)"
-            ;;
-    esac
+if [ -n "${_macless:-}" ] && rig_backend_bridged "$BACKEND"; then
+    echo "==> $_macless ignores mac=; the bridge lock is its only separation"
 fi
 
 rm -rf "$HD"
@@ -642,8 +617,10 @@ cleanup() {
             AMIBERRY_PID=""
         fi
     fi
-    # And the port goes back only once nothing of ours can still be on it.
+    # And the port and the bridge go back only once nothing of ours can
+    # still be on them.
     rig_release_port
+    rig_drop_bridge
     return 0
 }
 trap cleanup EXIT INT TERM HUP
@@ -683,7 +660,7 @@ fi
 LOGPIPE="$ROOT/build/amiberry-$TAG.logpipe"
 rm -f "$LOGPIPE"
 if [ -x "$ROOT/tools/logcap.sh" ] && mkfifo "$LOGPIPE" 2>/dev/null; then
-    "$ROOT/tools/logcap.sh" < "$LOGPIPE" > "$UAELOG" &
+    ( rig_drop_bridge; exec "$ROOT/tools/logcap.sh" ) < "$LOGPIPE" > "$UAELOG" &
     LOGCAP_PID=$!
 else
     echo "!! no tools/logcap.sh; $UAELOG is UNCAPPED for this run" >&2
@@ -708,6 +685,7 @@ AMIBERRY_PID=$!
 # the guest's own token below, which outlives the rig anyway.
 LISTEN_INODE=""
 for _ in $(seq 1 40); do
+    [ -r /proc/net/tcp ] || break    # nothing to read it from off Linux
     kill -0 "$AMIBERRY_PID" 2>/dev/null || break
     LISTEN_INODE=$(rig_listen_inode "$PORT" || true)
     [ -n "$LISTEN_INODE" ] && break
@@ -733,6 +711,7 @@ fi
 # reader lived, which is the leak this whole file is about, only quieter.
 (
     [ -z "${RIG_PORT_FD:-}" ] || eval "exec ${RIG_PORT_FD}>&-" 2>/dev/null || true
+    rig_drop_bridge
     reader=""
     trap '[ -z "$reader" ] || kill -TERM "$reader" 2>/dev/null; exit 0' TERM INT
     for _ in $(seq 1 60); do

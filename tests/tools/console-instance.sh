@@ -260,8 +260,18 @@ EOF
 # own stdout is kept because it is a few lines, and truncated on every start so
 # it can never be the thing that fills a disk either.
 : > "$EMULOG"
+# One bridged guest per host.  The emulator inherits the claim and holds it for
+# as long as it runs; this script drops its own copy at once, so the reader
+# below cannot keep the rig after the guest is gone.
+# shellcheck source=../../tools/emu-rig-lock.sh
+. "$ROOT/tools/emu-rig-lock.sh"
+rig_claim_bridge "$BACKEND" "console-instance in $ROOT" || {
+    say RESULT INFRA
+    exit 6
+}
 ( trap '' PIPE; exec "$AMIBERRY" -f "$CFG" ) >>"$EMULOG" 2>&1 &
 printf '%s\n' "$!" > "$PIDFILE"
+rig_drop_bridge
 
 # The reader, retried: /wait holds the emulator until this connects, and the
 # emulator has to have opened the listener first.  Appends, so a restart of the

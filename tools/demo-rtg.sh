@@ -313,8 +313,18 @@ SNIFFER=$!
 trap 'kill "$SNIFFER" 2>/dev/null || true' INT TERM
 sleep 1
 
+# One bridged guest per host, held by the emulator for as long as it runs.
+# Taken after the sniffer starts and dropped by this script once the emulator
+# has it, so nothing but the guest can keep the rig.
+# shellcheck source=emu-rig-lock.sh
+. "$ROOT/tools/emu-rig-lock.sh"
+rig_claim_bridge "$BACKEND" "demo-rtg $TAG in $ROOT" || {
+    kill "$SNIFFER" 2>/dev/null || true
+    exit 6
+}
 setsid "$AMIBERRY" -f "$CFG" >"$EMULOG" 2>&1 &
 EMU_PID=$!
+rig_drop_bridge
 say emulator_pid "$EMU_PID"
 
 # The window.  A demo that is left up needs an end, and the emulator is the

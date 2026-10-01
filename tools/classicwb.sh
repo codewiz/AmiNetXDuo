@@ -375,6 +375,9 @@ EMU_PID=""
 LOGCAP_PID=""
 LOGPIPE=""
 
+# shellcheck source=emu-rig-lock.sh
+. "$ROOT/tools/emu-rig-lock.sh"
+
 # Start amiberry on $1 with its output capped into $2.  THROUGH A FIFO rather
 # than a pipeline, because $! after `a | b` is b and EMU_PID has to be the
 # emulator: it is what gets killed.  Degrades to the plain redirect when the
@@ -386,7 +389,8 @@ start_emulator() {
     LOGPIPE="$log.pipe"
     rm -f "$LOGPIPE"
     if [ -x "$ROOT/tools/logcap.sh" ] && mkfifo "$LOGPIPE" 2>/dev/null; then
-        "$ROOT/tools/logcap.sh" < "$LOGPIPE" > "$log" &
+        ( rig_drop_bridge; exec "$ROOT/tools/logcap.sh" ) \
+            < "$LOGPIPE" > "$log" &
         LOGCAP_PID=$!
     else
         say warning "no tools/logcap.sh; $log is UNCAPPED"
@@ -890,7 +894,15 @@ SNIFFER=$!
 trap 'kill "$SNIFFER" 2>/dev/null || true' INT TERM
 sleep 1
 
+# One bridged guest per host, held by the emulator for as long as it runs and
+# dropped by this script once it has it, so the window timer below cannot keep
+# the rig after the guest is gone.
+rig_claim_bridge "$BACKEND" "classicwb $TAG in $ROOT" || {
+    kill "$SNIFFER" 2>/dev/null || true
+    exit 6
+}
 start_emulator "$CFG" "$EMULOG"
+rig_drop_bridge
 say emulator_pid "$EMU_PID"
 
 # A guest that is left up needs an end, and the emulator is the thing that has

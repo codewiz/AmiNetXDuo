@@ -169,35 +169,125 @@ rig_claim_name() { # name [who]
     return 0
 }
 
-# Claim a named resource in shared mode.  Any number of ordinary users may
-# coexist, but rig_claim_name() on the same name refuses until all of them
-# leave.  Performance arms use the exclusive form while ordinary bridged
-# guests use this one, so a measurement cannot share the host NIC or CPUs.
-rig_claim_name_shared() { # name [who]
-    rig_have_flock || { rig_no_flock; return 1; }
-    local name="$1" who="${2:-$$}" dir fd
-    dir=$(rig_lockdir)
-
-    : >> "$dir/$name.lock" 2> /dev/null || {
-        echo "cannot create $dir/$name.lock" >&2; return 1; }
-    exec {fd}>>"$dir/$name.lock" || return 1
-    if ! flock -s -n "$fd" 2> /dev/null; then
-        echo "an exclusive run holds '$name' on this host:" >&2
-        sed 's/^/    /' "$dir/$name.lock" >&2 2> /dev/null || true
-        exec {fd}>&-
-        return 1
-    fi
-    printf 'name=%s pid=%s who=%s since=%s (shared)\n' \
-           "$name" "$$" "$who" "$(date +%FT%T)" > "$dir/$name.lock"
-    RIG_HELD_FDS["$name"]="$fd"
-    return 0
-}
-
 rig_release_name() { # name
     local fd="${RIG_HELD_FDS[$1]:-}"
     [ -n "$fd" ] || return 0
     eval "exec ${fd}>&-" 2> /dev/null || true
     unset "RIG_HELD_FDS[$1]"
+}
+
+# ONE BRIDGED GUEST PER HOST.
+#
+#   rig_claim_bridge <backend> <who>   # 0 held (or not bridged), 1 refused
+#   rig_drop_bridge                    # close it in this shell or subshell
+#
+# A guest on a host NIC shares the segment with every other one on the host,
+# and two of them is not a run that can be read: on 2026-10-01 a manual
+# run-ifsurvive and CI's ifsurvive arm were up at once on ens18, under one
+# MAC, and the ICMP replies went to whichever guest the switch picked.  The
+# `bridged-rig` lock that was here was SHARED for ordinary runs, so it let
+# exactly that through.
+#
+# AN EXCLUSIVE flock(2) ON ONE FIXED PATH, NOT under rig_lockdir(): that one
+# follows $TMPDIR, and a runner and a login shell that disagree about $TMPDIR
+# must still meet here.  The descriptor is inherited by the emulator, so the
+# claim lasts exactly as long as the guest does, even if the script that took
+# it is killed with -9.  Long-lived children that are NOT the guest (serial
+# readers, log cappers) call rig_drop_bridge first, or an orphaned reader
+# would hold the rig for ever.
+#
+# BLOCKING, BOUNDED.  It waits AMINETXDUO_BRIDGE_WAIT seconds (default 1800)
+# for the run ahead to finish, saying whose run that is, and then refuses.
+# The wait is a background flock(1) and `wait`, so a TERM to the harness is
+# acted on at once rather than after the timeout.
+#
+# slirp, slirp_inbound, none and no backend at all are not on the segment and
+# return 0 without touching anything: those stay parallel.
+RIG_BRIDGE_FD=""
+RIG_BRIDGE_WAITER=""
+
+rig_bridge_path() {
+    printf '%s\n' "${AMINETXDUO_BRIDGE_LOCK:-/tmp/aminetxduo-bridge.lock}"
+}
+
+rig_backend_bridged() { # backend
+    case "${1:-}" in
+        ""|slirp|slirp_inbound|none) return 1 ;;
+    esac
+    return 0
+}
+
+# Who has it open, by pid, for the refusal.  /proc only; an emulator with
+# file capabilities is non-dumpable and does not show, which is why the
+# record in the file names the run that took it.
+rig_bridge_holders() {
+    local f="$1" d l
+    [ -d /proc/self/fd ] || return 0
+    for d in /proc/[0-9]*/fd/*; do
+        l=$(readlink "$d" 2> /dev/null) || continue
+        [ "$l" = "$f" ] || continue
+        d="${d#/proc/}"
+        rig_pid_describe "${d%%/*}"
+    done 2> /dev/null | sort -u
+}
+
+rig_claim_bridge() { # backend who
+    rig_backend_bridged "${1:-}" || return 0
+    [ -z "$RIG_BRIDGE_FD" ] || return 0
+    rig_have_flock || { rig_no_flock; return 1; }
+    local who="${2:-$$}" f fd rc start waited
+    local limit="${AMINETXDUO_BRIDGE_WAIT:-1800}"
+    f=$(rig_bridge_path)
+
+    # Append, never truncate, until it is ours: the record is the holder's.
+    ( umask 000; : >> "$f" ) 2> /dev/null || {
+        echo "cannot create the bridge lock $f" >&2; return 1; }
+    exec {fd}>>"$f" || return 1
+
+    if ! flock -n -x "$fd" 2> /dev/null; then
+        echo "==> another bridged guest is up on this host; waiting up to" \
+             "${limit}s for it to exit:" >&2
+        sed 's/^/    /' "$f" >&2 2> /dev/null || true
+        start=$(date +%s)
+        flock -x -w "$limit" "$fd" 2> /dev/null &
+        RIG_BRIDGE_WAITER=$!
+        rc=0
+        wait "$RIG_BRIDGE_WAITER" || rc=$?
+        RIG_BRIDGE_WAITER=""
+        waited=$(( $(date +%s) - start ))
+        if [ "$rc" != 0 ]; then
+            echo >&2
+            echo "REFUSING to boot a second bridged guest on this host" \
+                 "(waited ${waited}s)." >&2
+            echo "  $(rig_bridge_path) is held by:" >&2
+            sed 's/^/    /' "$f" >&2 2> /dev/null || true
+            rig_bridge_holders "$f" | sed 's/^/    open in: /' >&2
+            echo "  Two guests on one segment split each other's replies," >&2
+            echo "  so a run beside another proves nothing.  Wait for it," >&2
+            echo "  run this one with -B slirp, or raise" \
+                 "AMINETXDUO_BRIDGE_WAIT." >&2
+            exec {fd}>&-
+            return 1
+        fi
+        echo "==> bridge free after ${waited}s"
+    fi
+
+    printf 'bridge pid=%s who=%s since=%s\n' \
+           "$$" "$who" "$(date +%FT%T)" > "$f"
+    RIG_BRIDGE_FD="$fd"
+    echo "==> exclusive bridge lock held ($f)"
+    return 0
+}
+
+# Close this shell's copy.  In a subshell that only drops the subshell's.
+rig_drop_bridge() {
+    if [ -n "$RIG_BRIDGE_WAITER" ]; then
+        kill "$RIG_BRIDGE_WAITER" 2> /dev/null || true
+        RIG_BRIDGE_WAITER=""
+    fi
+    [ -n "$RIG_BRIDGE_FD" ] || return 0
+    eval "exec ${RIG_BRIDGE_FD}>&-" 2> /dev/null || true
+    RIG_BRIDGE_FD=""
 }
 
 # Exit 1 from ping means "no reply"; anything else means the prober itself
