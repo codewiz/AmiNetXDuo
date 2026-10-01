@@ -272,7 +272,10 @@ export DISPLAY="$XDISP"
 export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-x11}"
 say xvfb "$XDISP pid $XVFB_PID"
 
-MAC="${AMINETXDUO_DEMO_MAC:-02:41:4d:49:52:47}"
+# A standing guest: its own MAC range, no bridge lock (tools/emu-mac.sh).
+# shellcheck source=emu-mac.sh
+. "$ROOT/tools/emu-mac.sh"
+MAC="${AMINETXDUO_DEMO_MAC:-$(emu_mac_standing demo-rtg "$TAG:$ROOT")}"
 
 CFG="$ROOT/build/$TAG.uae"
 cat > "$CFG" <<EOF
@@ -313,19 +316,13 @@ SNIFFER=$!
 trap 'kill "$SNIFFER" 2>/dev/null || true' INT TERM
 sleep 1
 
-# One bridged guest per host, held by the emulator for as long as it runs.
-# Taken after the sniffer starts and dropped by this script once the emulator
-# has it, so nothing but the guest can keep the rig.
+# A STANDING guest: up for the whole window, so it does not take the bridge
+# lock and hold every test run off; its MAC range keeps it apart instead.
 # shellcheck source=emu-rig-lock.sh
 . "$ROOT/tools/emu-rig-lock.sh"
-rig_claim_bridge "$BACKEND" "demo-rtg $TAG in $ROOT" || {
-    rc=$?
-    kill "$SNIFFER" 2>/dev/null || true
-    exit "$rc"
-}
+rig_standing_exempt "demo-rtg $TAG in $ROOT" "$MAC" "$BACKEND"
 setsid "$AMIBERRY" -f "$CFG" >"$EMULOG" 2>&1 &
 EMU_PID=$!
-rig_drop_bridge
 say emulator_pid "$EMU_PID"
 
 # The window.  A demo that is left up needs an end, and the emulator is the

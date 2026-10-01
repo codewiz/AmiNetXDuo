@@ -22,6 +22,10 @@
 #   noflock_rc      no flock(1) on PATH is a missing ingredient (2), never 6
 #   unwritable_rc   a lock path that cannot be created is 2, never 6
 #   slirp_parallel  two SLIRP boots run at the same time
+#   standing_exempt a standing guest (classicwb, demo-rtg, console-instance)
+#                   takes no lock and says so; a test run boots beside it
+#   standing_mac    its MAC is from the standing range: not a tag MAC, and
+#                   different per kind
 #   mac_pinned      AMINETXDUO_AMIBERRY_MAC is used as given
 #
 # Output is key=value and an exit code: 0 all held, 1 one did not, 3 not
@@ -289,6 +293,70 @@ if grep -q '^start slirp1 mac=02:41:4d:49:aa:bb ' "$EV"; then
 else
     kv mac_pinned "wrong:$(grep '^start slirp1' "$EV")"
 fi
+
+# ----------------------------------- a standing guest is exempt from the lock
+# The three launchers, statically: they announce the exemption, take their
+# MAC from the standing range, and never claim.
+st_bad=""
+for f in tools/classicwb.sh tools/demo-rtg.sh tests/tools/console-instance.sh; do
+    body=$(grep -v '^[[:space:]]*#' "$ROOT/$f")
+    case "$body" in *rig_claim_bridge*) st_bad="$st_bad $f:claims" ;; esac
+    case "$body" in *rig_standing_exempt*) ;; *) st_bad="$st_bad $f:silent" ;; esac
+    case "$body" in *emu_mac_standing*) ;; *) st_bad="$st_bad $f:mac" ;; esac
+done
+
+# And live: a standing guest is started the way they start one -- announce,
+# then the emulator -- and a test run boots on the bridge while it is up.
+: > "$EV"
+SHD="$S/standing-hd"; mkdir -p "$SHD"
+(
+    # shellcheck source=emu-mac.sh
+    . "$ROOT/tools/emu-mac.sh"
+    # shellcheck source=emu-rig-lock.sh
+    . "$ROOT/tools/emu-rig-lock.sh"
+    smac=$(emu_mac_standing classicwb "A1200:full:$S")
+    rig_standing_exempt "classicwb in $S" "$smac" ens18
+    port=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1])')
+    printf '%s\n' "config_description=AmiNetXDuo standing" \
+        "uaehf0=dir,rw,DH0:DH0:$SHD,0" \
+        "a2065_rom_options=mac=$smac,ens18" \
+        "serial_port=tcp://127.0.0.1:$port/wait" > "$S/standing.uae"
+    AMINETXDUO_BRIDGE_LOCK="$S/bridge.lock" STUB_EVENTS="$EV" \
+        STUB_WHO=standing STUB_SECS=60 STUB_LIFE=10 \
+        exec "$S/amiberry" -f "$S/standing.uae"
+) > "$S/standing.out" 2>&1 &
+STAND=$!
+for _ in $(seq 1 50); do grep -q '^start standing' "$EV" && break; sleep 0.2; done
+free_beside=no
+( exec 9>>"$S/bridge.lock"; flock -n 9 ) && free_beside=yes
+run B beside ens18 STUB_SECS=0.5 AMINETXDUO_BRIDGE_WAIT=1
+order=$(awk '{print $1 "-" $2}' "$EV" | tr '\n' ' ')
+kill "$STAND" 2> /dev/null
+wait "$STAND" 2> /dev/null
+if [ -z "$st_bad" ] && [ "$free_beside" = yes ] &&
+   [ "$order" = "start-standing start-beside end-beside " ] &&
+   [ "$(cat "$S/beside.rc")" = 0 ] &&
+   grep -q '^bridge_lock=exempt standing=classicwb' "$S/standing.out"; then
+    kv standing_exempt ok
+else
+    kv standing_exempt "wrong:static=[${st_bad# }]:lock_free=$free_beside:order=[$order]:rc=$(cat "$S/beside.rc")"
+fi
+
+smac=$(sed -n 's/^start standing mac=\([^ ]*\) .*/\1/p' "$EV")
+tmac=$(sed -n 's/^start beside mac=\([^ ]*\) .*/\1/p' "$EV")
+# shellcheck source=emu-mac.sh
+. "$ROOT/tools/emu-mac.sh"
+kinds=$(for k in classicwb demo-rtg console-instance; do
+            emu_mac_standing "$k" same-instance; done | sort -u | wc -l | tr -d " ")
+# The fourth byte is the one an A2065 keeps, so that is where they must part.
+if [ -n "$smac" ] && [ -n "$tmac" ] && [ "$smac" != "$tmac" ] &&
+   [ "$(echo "$smac" | cut -d: -f4)" != "$(echo "$tmac" | cut -d: -f4)" ] &&
+   [ "$kinds" = 3 ]; then
+    kv standing_mac ok
+else
+    kv standing_mac "wrong:standing=$smac:test=$tmac:kinds=$kinds"
+fi
+echo "standing_macs=$smac,$tmac"
 
 echo "bridge_selftest=$WRONG"
 [ "$WRONG" = 0 ] || {

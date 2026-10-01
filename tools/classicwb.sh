@@ -121,7 +121,9 @@ esac
 # name.  Keep the readable model/variant and append the three-byte tail used by
 # the stack's own hardware-derived host names.  An explicit -n is untouched.
 . "$ROOT/tools/emu-mac.sh"
-MAC="${AMINETXDUO_CWB_MAC:-$(emu_mac_for_tag "cwb:$MODEL:$VARIANT:$ROOT")}"
+# A standing guest, so the standing range: no test guest can have it, and it
+# takes no bridge lock (tools/emu-mac.sh, emu_mac_standing).
+MAC="${AMINETXDUO_CWB_MAC:-$(emu_mac_standing classicwb "$MODEL:$VARIANT:$ROOT")}"
 MAC_COMPACT=$(printf '%s' "$MAC" | tr -d ':' | tr '[:upper:]' '[:lower:]')
 case "$MAC_COMPACT" in
     [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
@@ -389,8 +391,7 @@ start_emulator() {
     LOGPIPE="$log.pipe"
     rm -f "$LOGPIPE"
     if [ -x "$ROOT/tools/logcap.sh" ] && mkfifo "$LOGPIPE" 2>/dev/null; then
-        ( rig_drop_bridge; exec "$ROOT/tools/logcap.sh" ) \
-            < "$LOGPIPE" > "$log" &
+        "$ROOT/tools/logcap.sh" < "$LOGPIPE" > "$log" &
         LOGCAP_PID=$!
     else
         say warning "no tools/logcap.sh; $log is UNCAPPED"
@@ -894,16 +895,10 @@ SNIFFER=$!
 trap 'kill "$SNIFFER" 2>/dev/null || true' INT TERM
 sleep 1
 
-# One bridged guest per host, held by the emulator for as long as it runs and
-# dropped by this script once it has it, so the window timer below cannot keep
-# the rig after the guest is gone.
-rig_claim_bridge "$BACKEND" "classicwb $TAG in $ROOT" || {
-    rc=$?
-    kill "$SNIFFER" 2>/dev/null || true
-    exit "$rc"
-}
+# A STANDING guest: up for the whole window, so it does not take the bridge
+# lock and hold every test run off; its MAC range keeps it apart instead.
+rig_standing_exempt "classicwb $TAG in $ROOT" "$MAC" "$BACKEND"
 start_emulator "$CFG" "$EMULOG"
-rig_drop_bridge
 say emulator_pid "$EMU_PID"
 
 # A guest that is left up needs an end, and the emulator is the thing that has

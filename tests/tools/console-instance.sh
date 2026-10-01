@@ -226,9 +226,12 @@ C:httpd DH0:Public $PORT -C CONSOLEPAGE DH0:Console/console.html $TERMARGS -v >D
 EOF
 chmod 755 "$HD/S/httpd-run"
 
-# A fresh MAC per start, so the router's cache can never answer for a guest
-# that did not come up.  Kept in a file because `status` is a separate run.
-MAC=$(printf '02:41:4d:49:%02x:%02x' $(( ($$ >> 8) & 0xff )) $(( $$ & 0xff )))
+# A standing guest, so one fixed MAC per instance from the standing range,
+# which no test guest can have (tools/emu-mac.sh, emu_mac_standing).  Kept in
+# a file because `status` is a separate run.
+# shellcheck source=../../tools/emu-mac.sh
+. "$ROOT/tools/emu-mac.sh"
+MAC=$(emu_mac_standing console-instance "$RUN")
 printf '%s\n' "$MAC" > "$MACFILE"
 
 # A free localhost port for the serial socket, so two instances on one host do
@@ -260,19 +263,13 @@ EOF
 # own stdout is kept because it is a few lines, and truncated on every start so
 # it can never be the thing that fills a disk either.
 : > "$EMULOG"
-# One bridged guest per host.  The emulator inherits the claim and holds it for
-# as long as it runs; this script drops its own copy at once, so the reader
-# below cannot keep the rig after the guest is gone.
+# A STANDING guest: it does not take the bridge lock and hold every test run
+# off for as long as it is up; its MAC range keeps it apart instead.
 # shellcheck source=../../tools/emu-rig-lock.sh
 . "$ROOT/tools/emu-rig-lock.sh"
-rig_claim_bridge "$BACKEND" "console-instance in $ROOT" || {
-    rc=$?
-    say RESULT INFRA
-    exit "$rc"
-}
+rig_standing_exempt "console-instance in $RUN" "$MAC" "$BACKEND"
 ( trap '' PIPE; exec "$AMIBERRY" -f "$CFG" ) >>"$EMULOG" 2>&1 &
 printf '%s\n' "$!" > "$PIDFILE"
-rig_drop_bridge
 
 # The reader, retried: /wait holds the emulator until this connects, and the
 # emulator has to have opened the listener first.  Appends, so a restart of the

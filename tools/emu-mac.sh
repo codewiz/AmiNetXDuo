@@ -68,3 +68,27 @@ emu_mac_default() {
         emu_mac_for_tag "$1"
     fi
 }
+
+# STANDING GUESTS: classicwb, demo-rtg and console-instance stay up for hours,
+# so they do not take the bridge lock (they would hold CI off for the whole
+# window) and are kept apart from test runs by address instead.
+#
+#   MAC=$(emu_mac_standing classicwb "$MODEL:$VARIANT:$ROOT")
+#
+# 02:41:4d:47 is used by nothing else, and emu_mac_for_tag only ever makes
+# 02:41:4d:49, so no test guest can share one.  The fourth byte is the one
+# that matters: the A2065 and the Ariadne keep only the last three.  The high
+# nibble of the fifth byte is the kind, so two kinds never collide either; the
+# rest is the instance, the same on every start of it.
+emu_mac_standing() { # kind instance
+    local kind hash
+    case "$1" in
+        classicwb)        kind=1 ;;
+        demo-rtg)         kind=2 ;;
+        console-instance) kind=3 ;;
+        *) echo "emu_mac_standing: unknown kind '$1'" >&2; return 1 ;;
+    esac
+    hash=$(printf '%s' "$2" | cksum | cut -d' ' -f1)
+    printf '02:41:4d:47:%02x:%02x\n' \
+           $(( kind * 16 + (hash / 256) % 16 )) $(( hash % 256 ))
+}

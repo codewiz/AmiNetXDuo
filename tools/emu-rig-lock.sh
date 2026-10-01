@@ -209,9 +209,11 @@ rig_release_name() { # name
 # acted on at once rather than after the timeout.
 #
 # slirp, slirp_inbound, none and no backend at all are not on the segment and
-# return 0 without touching anything: those stay parallel.
-RIG_BRIDGE_FD=""
-RIG_BRIDGE_WAITER=""
+# return 0 without touching anything: those stay parallel.  So do STANDING
+# guests, which never call this (rig_standing_exempt below).
+# Kept across a second `.` of this file, which must not forget a claim.
+RIG_BRIDGE_FD="${RIG_BRIDGE_FD:-}"
+RIG_BRIDGE_WAITER="${RIG_BRIDGE_WAITER:-}"
 
 rig_bridge_path() {
     printf '%s\n' "${AMINETXDUO_BRIDGE_LOCK:-/tmp/aminetxduo-bridge.lock}"
@@ -287,6 +289,13 @@ rig_claim_bridge() { # backend who
     RIG_BRIDGE_FD="$fd"
     echo "==> exclusive bridge lock held ($f)"
     return 0
+}
+
+# A STANDING GUEST does not claim the bridge: it is up for hours and would
+# hold every test run off for the whole of it.  It is kept apart by its own
+# MAC range instead (emu_mac_standing in tools/emu-mac.sh), and says so.
+rig_standing_exempt() { # who mac backend
+    printf 'bridge_lock=exempt standing=%s mac=%s backend=%s\n' "$1" "$2" "$3"
 }
 
 # Close this shell's copy.  In a subshell that only drops the subshell's.

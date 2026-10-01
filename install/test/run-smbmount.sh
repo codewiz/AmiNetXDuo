@@ -271,6 +271,14 @@ else
     echo "==> share $URL (host $SMBHOST), client smb2-handler.$CPUSFX (SMB2/3)"
 fi
 
+# ONE BRIDGED GUEST PER HOST, claimed before this run wipes and restages its
+# drive: a second run of the same tag would otherwise delete the drive of the
+# guest running under the lock.  Held until this script exits; the codes and
+# the why are at rig_claim_bridge in tools/emu-rig-lock.sh.
+# shellcheck source=../../tools/emu-rig-lock.sh
+. "$ROOT/tools/emu-rig-lock.sh"
+rig_claim_bridge "$BACKEND" "run-smbmount $TAG in $ROOT" || exit $?
+
 # --------------------------------------------------------------- the SYS: --
 
 if [ "$OSVER" = 32 ]; then
@@ -783,8 +791,6 @@ SERIAL="$ROOT/build/smb-$TAG-serial.log"
 . "$ROOT/tools/emu-rig-lock.sh"
 rig_claim_port "run-smbmount $TAG" || exit 2
 PORT="$RIG_PORT"
-# One bridged guest per host, until this script exits.
-rig_claim_bridge "$BACKEND" "run-smbmount $TAG in $ROOT" || exit $?
 : > "$SERIAL"
 
 if [ -n "${AMINETXDUO_SMB_BOARD:-}" ]; then
