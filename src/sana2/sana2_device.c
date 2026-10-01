@@ -1507,12 +1507,17 @@ BOOL ami_sana2_close(AmiSana2If *iface)
 
     /* ami_sana2_rx_stop() takes the wire offline itself, and does so first:
        S2_OFFLINE is what returns the readers' queued CMD_READs on a device that
-       ignores AbortIO().  Offlining after costs ten seconds of timeouts. */
-    ami_sana2_rx_stop(iface);
-    ami_sana2_tx_drain(iface);
+       ignores AbortIO().  Offlining after costs ten seconds of timeouts.
+       A removal did all three in ami_sana2_quiesce(), outside ami_ns_lock;
+       again here would be the same waits under it. */
+    if (!iface->detaching)
+    {
+        ami_sana2_rx_stop(iface);
+        ami_sana2_tx_drain(iface);
 
-    if (iface->device_open)
-        ami_sana2_offline(iface);
+        if (iface->device_open)
+            ami_sana2_offline(iface);
+    }
 
     /*
      * A device that still owns one of these requests must not be closed and

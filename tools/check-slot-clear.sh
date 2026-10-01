@@ -15,6 +15,13 @@
 # slot announced none of its own services, and the guard reported success.
 # ns_DhcpState and ns_LastAddress were the same shape, quieter.
 #
+# THE REMOVAL IS THREE STEPS (begin, quiesce, finish; netstack.c), so that no
+# lock is held while the device stops.  The slot is emptied, and every field
+# cleared, in ami_ns_interface_remove_finish(); that is the body inspected.
+# And every path that BEGINS a removal must reach it: each function that calls
+# ami_ns_interface_remove_begin() must also call the finish, or the helper
+# that does, so no removal path can pin a slot and leave without the clear.
+#
 # THE FIELD LIST IS DERIVED, NOT WRITTEN HERE.  It is every
 # `ns_X[AMI_CFG_MAX_ATTACHED]' the header declares, so a TENTH array added
 # without a clear fails this rather than joining the three that were missing.
@@ -28,7 +35,9 @@ cd "$ROOT" || exit 1
 
 HDR=src/netstack/netstack_internal.h
 SRC=src/netstack/netstack.c
-FN=ami_ns_interface_remove_locked
+FN=ami_ns_interface_remove_finish
+BEGIN_FN=ami_ns_interface_remove_begin
+REST_FN=ami_ns_interface_remove_rest
 
 for f in "$HDR" "$SRC"; do
     if [ ! -r "$f" ]; then
@@ -75,6 +84,44 @@ if [ -z "$body" ]; then
     exit 1
 fi
 
+# EVERY PATH THAT BEGINS A REMOVAL FINISHES IT.  The functions that call the
+# begin, each body to its closing brace at column 0; the helper must itself
+# call the finish.
+fn_body() { # name
+    awk -v fn="$1" '
+        $0 ~ "^[A-Za-z_].*[ *]" fn "\\(" && $0 !~ ";[[:space:]]*$" { inside = 1 }
+        inside { print }
+        inside && /^\}/ { exit }
+    ' "$SRC"
+}
+callers=$(awk -v b="$BEGIN_FN" '
+    /^[A-Za-z_].*\(/ && $0 !~ ";[[:space:]]*$" {
+        name = $0; sub(/\(.*/, "", name); sub(/.*[ *]/, "", name)
+    }
+    index($0, b "(") && name != b { print name }
+' "$SRC" | sort -u)
+if [ -z "$callers" ]; then
+    echo "slot_clear=FAIL reason=no_caller_of fn=$BEGIN_FN src=$SRC" >&2
+    exit 1
+fi
+if ! fn_body "$REST_FN" | grep -q "$FN("; then
+    echo "slot_clear=FAIL reason=helper_does_not_finish fn=$REST_FN" >&2
+    exit 1
+fi
+unfinished=""
+for c in $callers; do
+    if ! fn_body "$c" | grep -qE "($FN|$REST_FN)\("; then
+        unfinished="$unfinished $c"
+    fi
+done
+if [ -n "$unfinished" ]; then
+    echo "slot_clear=FAIL reason=begun_not_finished:$unfinished" >&2
+    echo "!! A removal is begun there and never reaches $FN(), where the slot" >&2
+    echo "!! is cleared." >&2
+    exit 1
+fi
+npaths=$(printf '%s\n' $callers | wc -l | tr -d ' ')
+
 # ns_IfaceClaims is the one field a removal must NOT have to clear, and the
 # exemption is EARNED rather than declared: the function refuses outright when
 # the count is not zero, so by the time it clears anything the count is already
@@ -115,4 +162,4 @@ if [ -n "$missing" ]; then
     exit 1
 fi
 
-echo "slot_clear=PASS fields=$nfields cleared in $FN (claims guarded=$claims_guarded, epoch advanced=$epoch_advanced)"
+echo "slot_clear=PASS fields=$nfields cleared in $FN, reached from all $npaths removal path(s):$(printf ' %s' $callers) (claims guarded=$claims_guarded, epoch advanced=$epoch_advanced)"
