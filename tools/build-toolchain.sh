@@ -37,7 +37,7 @@ PIN_AMIGA_GCC_SHA="86f8ba62f7a5035e309600c86962681e1cbacccb"
 # reads it as a pin.  `binutils` has no mirror: only franke.ms carries 2.39.0.
 PINS="
 binutils|https://franke.ms/git/bebbo/binutils-gdb|ab4e5183f56fd83165356a03c890bf0b681d7535|amiga-2.39.0
-gcc|https://franke.ms/git/bebbo/gcc|60f21496319754a0e35b1a8e52df9abbac188065|amiga16.2
+gcc|https://github.com/tinic/gcc|d021c9413f90a8adc22bd2f45774c21e323ba1fe|backport/sibcall-a0-60f2
 newlib-cygwin|https://franke.ms/git/bebbo/newlib-cygwin|0909ae9abc18b38595425143e7a63d9e2fc31174|amiga
 libnix|https://franke.ms/git/bebbo/libnix|b7268e35510b8b7b4ccdad67fbcbb25e73189aef|master
 sfdc|https://franke.ms/git/bebbo/sfdc|5d4efca359e949547553463f5873778bd85e5506|master
@@ -48,11 +48,9 @@ fd2pragma|https://github.com/adtools/fd2pragma|8c0f352c348a3252f84170eab73791937
 vasm|https://github.com/mheyer32/vasm|bb048d9d3cf54d5e38c643182a0ff55b552f65be|master
 "
 
-# A second remote to try, keyed by project name.  Only gcc has one that was
-# confirmed to serve the pinned object.  Read by name construction below, which
-# is why shellcheck cannot see the use.
-# shellcheck disable=SC2034
-MIRROR_gcc="https://codeberg.org/bebbo/gcc"
+# A second remote to try, keyed by project name (MIRROR_<name>, read by name
+# construction below).  None is set: gcc's was bebbo's Codeberg, which does not
+# carry the fork commit gcc is now pinned to.
 
 # NDK 3.9.  A single unmirrored third-party host, which is why the built
 # toolchain is worth publishing at all.  Pinned by content.
@@ -361,9 +359,13 @@ PY
 fi
 
 # -flto.  Two changes to binutils; GCC needs no patch for it, only the pin
-# above, which moved from 6f4ca1b4 to 60f21496 -- then the tip of amiga16.2,
-# and the only one of the two that still exists on the branch.  (GCC's one
-# patch, for sibcalls, is below the newlib one.)
+# above.  That pin is bebbo's 60f21496 (then the tip of amiga16.2) plus one
+# commit on our fork: d021c941, the sibcall fix.  An indirect sibcall, and on
+# 68000 a direct one under -fbaserel/-resident/-mpcrel, loads its target into
+# a0, and m68k_is_ok_for_sibcall allowed an argument there; under -mregparm or
+# an __asm ("a0") parameter the target replaced it (bsd_wait_sliced() entered
+# bsd_send_once() with its own address as `arg').  The same fix is upstream
+# as AmigaPorts/gcc d435dc175 on 873ba1cb.
 #
 # First, amiga-gcc configures binutils with --disable-plugins for every target
 # but m68k-elf, so ld accepts -plugin and ignores it.  GCC's liblto_plugin.so
@@ -451,26 +453,6 @@ elif git -C "$SRC/projects/newlib-cygwin" apply --check \
 else
     echo "!! newlib crt0 argc/argv contract is neither the pinned source" >&2
     echo "!! nor the reviewed fixed source; refusing an unverified build." >&2
-    exit 2
-fi
-
-# A sibcall that puts its target over an a0 argument.  An indirect sibcall (and
-# a direct one on 68000 with -fbaserel, -resident or -mpcrel) loads its target
-# into a0, and m68k_is_ok_for_sibcall allowed an argument there anyway: under
-# -mregparm, or with an __asm ("a0") parameter at the default ABI, the target
-# replaced it.  bsd_wait_sliced()'s `return call(arg, wait)' entered
-# bsd_send_once() with its own address as `arg'.  Backport of the upstream
-# AmigaPorts/gcc fix; the same three ways out as newlib above.
-GCC_PATCH="$HERE/patches/gcc/sibcall-a0.diff"
-if git -C "$SRC/projects/gcc" apply --reverse --check \
-       "$GCC_PATCH" 2>/dev/null; then
-    echo "==> gcc sibcall a0 fix already upstream"
-elif git -C "$SRC/projects/gcc" apply --check "$GCC_PATCH" 2>/dev/null; then
-    echo "==> gcc sibcall a0 fix: $(basename "$GCC_PATCH")"
-    git -C "$SRC/projects/gcc" apply "$GCC_PATCH"
-else
-    echo "!! gcc m68k_is_ok_for_sibcall is neither the pinned source nor" >&2
-    echo "!! the reviewed fixed source; refusing an unverified build." >&2
     exit 2
 fi
 
