@@ -2677,7 +2677,8 @@ the PCMCIA card claimed at every rate and the measurement rose with it" ;;
     case "$rc" in
         0) note "PASS  removing one interface leaves its sibling on the same\
  unit with a wire, a gateway and a resolver" ;;
-        2) skip "ifsurvive: the rig produced no transcript to read" ;;
+        2) skip "ifsurvive: the rig refused it -- no transcript, or no ICMP\
+ peer (verdict=SKIP reason=no_icmp_peer above)" ;;
         *) fail "ifsurvive: removing one interface took the wire, the\
  machine's GATEWAY or the resolver out from under another interface on the\
  SAME device unit -- the check list above says which, and the surviving\
