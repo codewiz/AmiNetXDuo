@@ -267,7 +267,11 @@ EOF
 # off for as long as it is up; its MAC range keeps it apart instead.
 # shellcheck source=../../tools/emu-rig-lock.sh
 . "$ROOT/tools/emu-rig-lock.sh"
-rig_standing_exempt "console-instance in $RUN" "$MAC" "$BACKEND"
+rig_standing_exempt "console-instance in $RUN" "$MAC" "$BACKEND" || {
+    rc=$?
+    say RESULT INFRA
+    exit "$rc"
+}
 ( trap '' PIPE; exec "$AMIBERRY" -f "$CFG" ) >>"$EMULOG" 2>&1 &
 printf '%s\n' "$!" > "$PIDFILE"
 

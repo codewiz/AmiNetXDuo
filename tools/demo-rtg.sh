@@ -320,7 +320,11 @@ sleep 1
 # lock and hold every test run off; its MAC range keeps it apart instead.
 # shellcheck source=emu-rig-lock.sh
 . "$ROOT/tools/emu-rig-lock.sh"
-rig_standing_exempt "demo-rtg $TAG in $ROOT" "$MAC" "$BACKEND"
+rig_standing_exempt "demo-rtg $TAG in $ROOT" "$MAC" "$BACKEND" || {
+    rc=$?
+    kill "$SNIFFER" 2>/dev/null || true
+    exit "$rc"
+}
 setsid "$AMIBERRY" -f "$CFG" >"$EMULOG" 2>&1 &
 EMU_PID=$!
 say emulator_pid "$EMU_PID"

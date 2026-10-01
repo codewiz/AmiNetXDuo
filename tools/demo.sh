@@ -9,8 +9,13 @@
 #   http://<address>/shell   an AmigaDOS Shell in a browser, NO PASSWORD
 #   http://amiga-demo.local/    the same machine by name, -n renames it
 #
-# `amiga-demo` and 02:41:4d:49:00:77 do not change between runs; -n and
+# `amiga-demo` and its MAC do not change between runs; -n and
 # AMINETXDUO_DEMO_MAC override for a second instance, which then needs BOTH.
+# The MAC must be in the standing range (02:41:4d:47:xx:xx).
+#
+# A STANDING GUEST: it takes no bridge lock, so it never holds CI off, and is
+# kept apart from test guests by that MAC range (AMINETXDUO_STANDING in
+# tools/amiberry-run.sh).
 #
 # TWO BRIDGED GUESTS ARE NOT TWO MACHINES: the a2065's LANCE derives its address
 # from the unit, so both are 00:80:10:49:00:01 -- and that derivation is why the
@@ -259,17 +264,20 @@ echo "in a drawer" > "$STAGE/Public/Docs/notes.txt"
 
 # A MAC of our own, set here because ~/amiga-assets/env.sh may export the lab's
 # AMINETXDUO_AMIBERRY_MAC and sourcing it above would otherwise win.  It is
-# also PINNED rather than derived, unlike amiberry-run.sh's per-tag default:
-# the demo is meant to keep one address across restarts so a link handed out
-# stays good, and 0x77 is a fifth byte of 0x00, which that default never emits.
+# STABLE per tag rather than per run, so a link handed out stays good across
+# restarts, and it is in the standing range, which is what lets this guest
+# skip the bridge lock: amiberry-run.sh refuses AMINETXDUO_STANDING on any
+# other MAC, a pinned AMINETXDUO_DEMO_MAC included.
 #
 # A demo and a benchmark sharing one address on one wire collide and the demo
 # never reaches the network -- httpd binds 0.0.0.0 and reports itself happily,
 # which is why that reads as stuck rather than as unplugged.  Cost three
 # restarts on 2026-08-10.
-export AMINETXDUO_AMIBERRY_MAC="${AMINETXDUO_DEMO_MAC:-02:41:4d:49:00:77}"
-
 export AMINETXDUO_RUN_TAG="${AMINETXDUO_RUN_TAG:-demo}"
+# shellcheck source=emu-mac.sh
+. "$ROOT/tools/emu-mac.sh"
+export AMINETXDUO_STANDING=demo
+export AMINETXDUO_AMIBERRY_MAC="${AMINETXDUO_DEMO_MAC:-$(emu_mac_standing demo "$AMINETXDUO_RUN_TAG")}"
 
 # Behind NAT the guest is always 10.0.2.15 and the port has to be forwarded
 # out; the same line tests/tools/run-wsterm.sh uses.  HOSTPORT is the port on

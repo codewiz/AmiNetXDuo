@@ -897,7 +897,11 @@ sleep 1
 
 # A STANDING guest: up for the whole window, so it does not take the bridge
 # lock and hold every test run off; its MAC range keeps it apart instead.
-rig_standing_exempt "classicwb $TAG in $ROOT" "$MAC" "$BACKEND"
+rig_standing_exempt "classicwb $TAG in $ROOT" "$MAC" "$BACKEND" || {
+    rc=$?
+    kill "$SNIFFER" 2>/dev/null || true
+    exit "$rc"
+}
 start_emulator "$CFG" "$EMULOG"
 say emulator_pid "$EMU_PID"
 

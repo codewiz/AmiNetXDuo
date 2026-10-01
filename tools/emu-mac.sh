@@ -69,7 +69,8 @@ emu_mac_default() {
     fi
 }
 
-# STANDING GUESTS: classicwb, demo-rtg and console-instance stay up for hours,
+# STANDING GUESTS: classicwb, demo-rtg, console-instance and tools/demo.sh
+# (through amiberry-run.sh's AMINETXDUO_STANDING) stay up for hours,
 # so they do not take the bridge lock (they would hold CI off for the whole
 # window) and are kept apart from test runs by address instead.
 #
@@ -86,9 +87,15 @@ emu_mac_standing() { # kind instance
         classicwb)        kind=1 ;;
         demo-rtg)         kind=2 ;;
         console-instance) kind=3 ;;
+        demo)             kind=4 ;;
         *) echo "emu_mac_standing: unknown kind '$1'" >&2; return 1 ;;
     esac
     hash=$(printf '%s' "$2" | cksum | cut -d' ' -f1)
     printf '02:41:4d:47:%02x:%02x\n' \
            $(( kind * 16 + (hash / 256) % 16 )) $(( hash % 256 ))
+}
+
+# Is $1 a standing-range address?  0 yes.  Case-insensitive, six octets.
+emu_mac_is_standing() { # mac
+    printf '%s' "$1" | grep -qiE '^02:41:4d:47(:[0-9a-f]{2}){2}$'
 }

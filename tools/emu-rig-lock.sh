@@ -294,7 +294,20 @@ rig_claim_bridge() { # backend who
 # A STANDING GUEST does not claim the bridge: it is up for hours and would
 # hold every test run off for the whole of it.  It is kept apart by its own
 # MAC range instead (emu_mac_standing in tools/emu-mac.sh), and says so.
+#
+# THE RANGE IS CHECKED HERE, so no launcher can skip it: an override such as
+# AMINETXDUO_CWB_MAC set to a test-range address would otherwise give a guest
+# that skips the lock AND can share a test guest's MAC.  Returns 2 (a rig
+# fault, as everywhere in this file) and says why; callers `|| exit $?`.
 rig_standing_exempt() { # who mac backend
+    if ! printf '%s' "$2" | grep -qiE '^02:41:4d:47(:[0-9a-f]{2}){2}$'; then
+        echo "REFUSING to start standing guest $1 on mac=$2." >&2
+        echo "  A standing guest skips the bridge lock only on a standing-range" >&2
+        echo "  MAC (02:41:4d:47:xx:xx, emu_mac_standing in tools/emu-mac.sh)," >&2
+        echo "  which no test guest can have.  Drop the override, or pin one" >&2
+        echo "  inside that range." >&2
+        return 2
+    fi
     printf 'bridge_lock=exempt standing=%s mac=%s backend=%s\n' "$1" "$2" "$3"
 }
 

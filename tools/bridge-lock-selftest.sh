@@ -26,6 +26,13 @@
 #                   takes no lock and says so; a test run boots beside it
 #   standing_mac    its MAC is from the standing range: not a tag MAC, and
 #                   different per kind
+#   optout_standing amiberry-run.sh with AMINETXDUO_STANDING on a standing MAC
+#                   boots while the lock is held, and leaves the lock free
+#   optout_testmac  the same opt-out on a test-range MAC is refused with 2
+#   demo_standing   tools/demo.sh opts out, on a standing MAC
+#   override_range  rig_standing_exempt, which every standing launcher goes
+#                   through, refuses a test-range override (AMINETXDUO_CWB_MAC,
+#                   AMINETXDUO_DEMO_MAC) with 2 and accepts a standing one
 #   mac_pinned      AMINETXDUO_AMIBERRY_MAC is used as given
 #
 # Output is key=value and an exit code: 0 all held, 1 one did not, 3 not
@@ -357,6 +364,81 @@ else
     kv standing_mac "wrong:standing=$smac:test=$tmac:kinds=$kinds"
 fi
 echo "standing_macs=$smac,$tmac"
+
+# ------------------------- amiberry-run.sh's opt-out, for tools/demo.sh
+: > "$EV"
+(
+    AMINETXDUO_BRIDGE_LOCK="$S/bridge.lock"
+    export AMINETXDUO_BRIDGE_LOCK
+    # shellcheck source=emu-rig-lock.sh
+    . "$ROOT/tools/emu-rig-lock.sh"
+    rig_claim_bridge ens18 "a-test-arm" > /dev/null 2>&1 && touch "$S/held2"
+    sleep 12
+) &
+HOLDER2=$!
+for _ in $(seq 1 25); do [ -e "$S/held2" ] && break; sleep 0.2; done
+run D demo ens18 STUB_SECS=2 AMINETXDUO_BRIDGE_WAIT=1 AMINETXDUO_STANDING=demo &
+DEMO=$!
+for _ in $(seq 1 50); do grep -q '^start demo' "$EV" && break; sleep 0.2; done
+wait "$DEMO"
+dmac=$(sed -n 's/^start demo mac=\([^ ]*\) .*/\1/p' "$EV")
+if [ "$(cat "$S/demo.rc")" = 0 ] && [ -n "$dmac" ] &&
+   emu_mac_is_standing "$dmac" &&
+   grep -q '^bridge_lock=exempt standing=demo' "$S/demo.out" &&
+   ! grep -q 'another bridged guest is up' "$S/demo.out"; then
+    kv optout_standing ok
+else
+    kv optout_standing "wrong:rc=$(cat "$S/demo.rc"):mac=$dmac"
+fi
+kill "$HOLDER2" 2> /dev/null
+wait "$HOLDER2" 2> /dev/null
+
+# And the opt-out does not hold the lock itself: with nobody else on the
+# bridge, the lock file is free while the standing guest is up.
+: > "$EV"
+run D demo2 ens18 STUB_SECS=3 AMINETXDUO_STANDING=demo &
+DEMO=$!
+for _ in $(seq 1 50); do grep -q '^start demo2' "$EV" && break; sleep 0.2; done
+free_demo=no
+( exec 9>>"$S/bridge.lock"; flock -n 9 ) && free_demo=yes
+wait "$DEMO"
+[ "$free_demo" = yes ] || kv optout_standing "wrong:the opt-out held the lock"
+
+: > "$EV"
+run D testmac ens18 AMINETXDUO_STANDING=demo \
+    AMINETXDUO_AMIBERRY_MAC=02:41:4d:49:00:77
+if [ "$(cat "$S/testmac.rc")" = 2 ] && [ ! -s "$EV" ] &&
+   grep -q 'REFUSING to start standing guest' "$S/testmac.out"; then
+    kv optout_testmac ok
+else
+    kv optout_testmac "wrong:rc=$(cat "$S/testmac.rc")"
+fi
+
+demo=$(grep -v '^[[:space:]]*#' "$ROOT/tools/demo.sh")
+case "$demo" in
+    *"AMINETXDUO_STANDING=demo"*"emu_mac_standing demo"*) kv demo_standing ok ;;
+    *) kv demo_standing "wrong:tools/demo.sh does not opt out on a standing MAC" ;;
+esac
+
+# Every standing launcher calls rig_standing_exempt with the MAC it will use,
+# override included, and exits on its refusal; the check itself is then one
+# function, exercised here with what those overrides could hold.
+ov_bad=""
+for f in tools/classicwb.sh tools/demo-rtg.sh tests/tools/console-instance.sh; do
+    grep -qE '^rig_standing_exempt .*"\$MAC" "\$BACKEND" \|\| \{' "$ROOT/$f" ||
+        ov_bad="$ov_bad $f"
+done
+ov_test=$( . "$ROOT/tools/emu-rig-lock.sh"
+           rig_standing_exempt cwb 02:41:4d:49:00:77 ens18 > /dev/null 2>&1
+           echo $? )
+ov_stand=$( . "$ROOT/tools/emu-rig-lock.sh"
+            rig_standing_exempt cwb 02:41:4D:47:2a:01 ens18 > /dev/null 2>&1
+            echo $? )
+if [ -z "$ov_bad" ] && [ "$ov_test" = 2 ] && [ "$ov_stand" = 0 ]; then
+    kv override_range ok
+else
+    kv override_range "wrong:unchecked=[${ov_bad# }]:test=$ov_test:standing=$ov_stand"
+fi
 
 echo "bridge_selftest=$WRONG"
 [ "$WRONG" = 0 ] || {

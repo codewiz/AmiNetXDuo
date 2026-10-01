@@ -66,6 +66,13 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # without it.  The emulator inherits the descriptor and holds it until it
 # exits; rig_claim_bridge in tools/emu-rig-lock.sh has the why and the codes.
 # SLIRP and boardless runs return at once and stay parallel.
+#
+# AMINETXDUO_STANDING=<kind> is the one way past it, for a guest that stays up
+# for hours (tools/demo.sh) and would otherwise hold every test run off.  It
+# is honoured ONLY on a standing-range MAC -- emu_mac_standing's, or a pin in
+# 02:41:4d:47 -- which no test guest can have, so the guest is kept apart by
+# address instead.  A pin outside that range is refused with 2: the opt-out
+# is not a way for a test to skip the lock under a test MAC.
 _pre_backend="${AMINETXDUO_AMIBERRY_BACKEND:-slirp}"
 while getopts ":t:m:c:k:N:B:I:a:" _o; do
     [ "$_o" != B ] || _pre_backend="$OPTARG"
@@ -73,8 +80,22 @@ done
 OPTIND=1
 # shellcheck source=emu-rig-lock.sh
 . "$ROOT/tools/emu-rig-lock.sh"
-rig_claim_bridge "$_pre_backend" \
-    "${AMINETXDUO_RUN_TAG:-amiberry} ($_pre_backend) in $ROOT" || exit $?
+# shellcheck source=emu-mac.sh
+. "$ROOT/tools/emu-mac.sh"
+STANDING="${AMINETXDUO_STANDING:-}"
+if [ -n "$STANDING" ] && rig_backend_bridged "$_pre_backend"; then
+    if [ -z "${AMINETXDUO_AMIBERRY_MAC:-}" ]; then
+        AMINETXDUO_AMIBERRY_MAC=$(emu_mac_standing "$STANDING" \
+            "${AMINETXDUO_RUN_TAG:-amiberry}") || exit 2
+    fi
+    # The range check is inside rig_standing_exempt, which refuses with 2.
+    rig_standing_exempt "$STANDING ${AMINETXDUO_RUN_TAG:-amiberry} in $ROOT" \
+        "$AMINETXDUO_AMIBERRY_MAC" "$_pre_backend" || exit $?
+    export AMINETXDUO_AMIBERRY_MAC
+else
+    rig_claim_bridge "$_pre_backend" \
+        "${AMINETXDUO_RUN_TAG:-amiberry} ($_pre_backend) in $ROOT" || exit $?
+fi
 rm -rf "$ROOT/build/amiberry-testhd-${AMINETXDUO_RUN_TAG:-amiberry}"
 TIMEOUT=120
 MODEL=A1200
@@ -276,6 +297,9 @@ board_lines() { # board mac
 board_mac() { # index
     if [ "$1" = 0 ]; then
         printf '%s\n' "$MAC"
+    elif [ -n "$STANDING" ]; then
+        # A standing guest's second board must be out of the test range too.
+        emu_mac_standing "$STANDING" "$MACTAG#$1"
     else
         emu_mac_default "$MACTAG#$1"
     fi
