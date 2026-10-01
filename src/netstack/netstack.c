@@ -2390,6 +2390,8 @@ static VOID ami_ns_interface_quiesce(AmiNetStack *ns, UWORD index)
 
     ami_ns_release_dhcpv6(index);
 
+    /* No bracket: nothing is quiesced, and the finish stops the device the old
+       way, inside the detach.  Slower for the other interfaces, still bounded. */
     caller = ami_netstack_enter_alloc();
     if (caller == NULL)
         return;
@@ -2537,7 +2539,13 @@ static LONG ami_ns_interface_remove_finish(UWORD index)
     return retained ? AMI_NET_ERR_RETAINED : AMI_NET_OK;
 }
 
-/* For callers already inside ami_ns_lock: the slot is theirs throughout. */
+/*
+ * For callers already inside ami_ns_lock, the slot take-over and the start
+ * rollback: the slot is theirs throughout, and so the quiesce runs UNDER
+ * ami_ns_lock here, on purpose.  Its waits are bounded (sana2_internal.h) and
+ * nx_ip_protection is still free, so traffic on the other interfaces goes on;
+ * only lifecycle calls wait.
+ */
 static LONG ami_ns_interface_remove_locked(UWORD index, BOOL force)
 {
     LONG rc;
@@ -2551,9 +2559,17 @@ static LONG ami_ns_interface_remove_locked(UWORD index, BOOL force)
     return ami_ns_interface_remove_finish(index);
 }
 
-/* After a begin that answered AMI_NET_OK, with ami_ns_lock released: the
-   device is stopped with no lock held, then the lock is taken to finish.  The
-   caller's library base holds the stack up (sb_StackRefs), so ami_ns stays. */
+/*
+ * After a begin that answered AMI_NET_OK, with ami_ns_lock released: the
+ * device is stopped with no lock held, then the lock is taken to finish.
+ *
+ * What keeps the stack, and so ami_ns, the slot and the interface, up across
+ * the window: the only callers are the bsdsocket jobs, and their launchers
+ * (bsd_stack_interface_link() and bsd_stack_interface_remove_named(),
+ * library.c) hold the master base's sb_Lock until the job returns.  The
+ * stack's teardown, bsd_netstack_shutdown_owned(), runs only under that lock,
+ * and the calling base's own sb_StackRefs reference is still counted.
+ */
 static LONG ami_ns_interface_remove_rest(UWORD index)
 {
     LONG rc;
@@ -3137,8 +3153,16 @@ static LONG ami_ns_take_interface_slot(AmiNetStack *ns, LONG victim)
              "interface slot %ld", ns->ns_Config.interfaces[victim].name,
              (long)victim);
 
-    if (ami_ns_interface_remove_locked((UWORD)victim, FALSE) != AMI_NET_OK)
+    /* RETAINED is a removal too: the slot is empty, and the old device waits
+       on src/sana2's retained list for its requests. */
+    switch (ami_ns_interface_remove_locked((UWORD)victim, FALSE))
+    {
+    case AMI_NET_OK:
+    case AMI_NET_ERR_RETAINED:
+        break;
+    default:
         return -1;
+    }
 
     ami_event(NETEVENT_ATTACH_YIELD, (UWORD)victim,
               (ULONG)ns->ns_Config.interface_count);
@@ -3248,6 +3272,14 @@ static LONG ami_ns_interface_add_locked(const AmiIfConfig *cfg,
 
             return AMI_NET_ERR_CONFIG;
         }
+
+        /* Its device unit is being quiesced with ami_ns_lock free: an
+           S2_ONLINE now could land before that S2_OFFLINE completes. */
+        if (ns->ns_IfaceClaims[i] == (UWORD)-1 &&
+            ns->ns_Config.interfaces[i].unit == cfg->unit &&
+            ami_str_iequal(ami_sana2_basename(ns->ns_Config.interfaces[i].device),
+                           ami_sana2_basename(cfg->device)))
+            return AMI_NET_ERR_BUSY;
     }
 
     slot   = ami_ns_vacant_interface_slot(ns);
@@ -3610,7 +3642,7 @@ rollback:
     {
         LONG remove_rc = ami_ns_interface_remove_locked(index, TRUE);
 
-        if (remove_rc != AMI_NET_OK)
+        if (remove_rc != AMI_NET_OK && remove_rc != AMI_NET_ERR_RETAINED)
             AMI_ERROR("netstack: rollback of interface %ld failed (%ld)",
                       (long)index, (long)remove_rc);
     }

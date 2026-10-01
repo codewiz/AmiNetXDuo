@@ -121,8 +121,10 @@ VOID netstack_interface_release(UWORD index)
     ami_ns_lock_obtain();
 
     ns = ami_netstack_raw();
+    /* (UWORD)-1 is a removal's pin, never a count to give back. */
     if (ns != NULL && index < (UWORD)AMI_CFG_MAX_ATTACHED &&
-        ns->ns_IfaceClaims[index] != 0)
+        ns->ns_IfaceClaims[index] != 0 &&
+        ns->ns_IfaceClaims[index] != (UWORD)-1)
         ns->ns_IfaceClaims[index]--;
 
     ami_ns_lock_release();

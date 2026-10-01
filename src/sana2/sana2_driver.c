@@ -246,7 +246,12 @@ static BOOL ami_sana2_detaching_entry(NX_IP_DRIVER *driver_req,
 
     /* DoIO() with no deadline, under nx_ip_protection, to a device just taken
        offline: nx_ip_interface_detach() leaves every group this way.  The
-       filter goes with the CloseDevice() that follows. */
+       filter goes with the CloseDevice() that follows: at once from
+       ami_sana2_close(), or for a retained interface from
+       ami_sana2_retained_sweep() (sana2_device.c) once the device gives its
+       requests back.  A device that never does keeps the unit open, and its
+       filter, for as long as it holds them; nothing is reachable that would
+       close it sooner without freeing memory the device writes into. */
     case NX_LINK_MULTICAST_JOIN:
     case NX_LINK_MULTICAST_LEAVE:
     case NX_LINK_DEFERRED_PROCESSING:
@@ -282,6 +287,10 @@ VOID ami_sana2_driver_entry(NX_IP_DRIVER *driver_req)
     if (driver_req == NULL)
         return;
 
+    /* Load-bearing: _nx_ip_driver_interface_direct_command() fills in only
+       the command, the IP, the interface and the return pointer, so this is
+       the status of every case that does not set one.  The removal reads
+       NX_SUCCESS from AMI_LINK_DETACH_BEGIN as "detaching is set". */
     driver_req->nx_ip_driver_status = NX_SUCCESS;
 
     ip_ptr        = driver_req->nx_ip_driver_ptr;

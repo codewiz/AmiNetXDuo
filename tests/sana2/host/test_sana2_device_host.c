@@ -1808,6 +1808,40 @@ static void case_offline_bounded_deaf(void)
     h_free_watch     = NULL;
 }
 
+/* A removal's quiesce whose S2_OFFLINE and its AbortIO() both go unanswered:
+   bounded, and the close after it retains without asking the device again. */
+static void case_offline_deaf_after_quiesce(void)
+{
+    AmiSana2If *iface = h_bring_up_offline(H_OFF_DEAF);
+
+    h_check(iface != NULL, "deaf quiesce: the interface opened");
+    if (iface == NULL)
+        return;
+    h_free_watch   = iface;
+    h_free_watched = 0;
+
+    iface->detaching = TRUE;
+    h_check(ami_sana2_offline(iface) == (LONG)IOERR_ABORTED &&
+            h_now_ms == AMI_SANA2_OFFLINE_WAIT_MS + AMI_SANA2_OFFLINE_ABORT_MS,
+            "deaf quiesce: the offline gives up after both deadlines");
+    h_offline_clean("deaf quiesce");
+
+    h_check(!ami_sana2_close(iface), "deaf quiesce: the close refuses");
+    h_check(h_dev.offline_cmds == 1 && h_dev.aborts == 1,
+            "deaf quiesce: no second S2_OFFLINE or AbortIO() under the lock");
+    h_check(h_dev.closes == 0 && h_free_watched == 0 &&
+            ami_sana2_retained_count() == 1,
+            "deaf quiesce: retained, not closed or freed");
+    h_retained_iface = iface;
+
+    h_offline_reply();
+    h_check(ami_sana2_retained_sweep(TRUE) == 0 && h_dev.closes == 1 &&
+            h_free_watched == 1,
+            "deaf quiesce: the late reply lets the sweep close it once");
+    h_retained_iface = NULL;
+    h_free_watch     = NULL;
+}
+
 /* Online after an abandoned S2_OFFLINE: refused while the device holds it,
    then, once the late reply is back, S2_ONLINE in the order the device
    completed them; the interface then closes normally. */
@@ -2022,6 +2056,7 @@ int main(void)
     case_offline_bounded_errors();
     case_offline_bounded_abort();
     case_offline_bounded_deaf();
+    case_offline_deaf_after_quiesce();
     case_offline_held_then_online();
     case_offline_held_sibling_online();
     case_offline_race_before_detach();

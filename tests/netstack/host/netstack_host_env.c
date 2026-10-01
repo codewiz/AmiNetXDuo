@@ -273,6 +273,9 @@ UINT tx_amiga_adopt_thread(TX_THREAD **thread_ptr, ULONG *generation,
     if (nsh.tx_adopt_status != TX_SUCCESS)
         return nsh.tx_adopt_status;
 
+    if (++nsh.adopts == nsh.adopt_fail_at)
+        return TX_NO_MEMORY;
+
     nsh_pool_generation++;
     nsh_pool_busy = 1UL;
     *thread_ptr = &nsh_pool_slot;
@@ -1480,6 +1483,9 @@ UINT _nxe_ip_interface_attach(NX_IP *ip_ptr, CHAR *interface_name, ULONG ip_addr
 
 UINT _nxe_ip_interface_detach(NX_IP *ip_ptr, UINT index)
 {
+    if (nsh.iface_detach_status != NX_SUCCESS)
+        return nsh.iface_detach_status;
+
     nsh.iface_detaches++;
     memset(&ip_ptr->nx_ip_interface[index], 0,
            sizeof(ip_ptr->nx_ip_interface[index]));

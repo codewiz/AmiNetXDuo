@@ -126,6 +126,9 @@ typedef struct NetStackHostEnv
     ULONG   detach_begins;          /* AMI_LINK_DETACH_BEGIN commands        */
     /* Called while the stop waits: what another task does meanwhile. */
     VOID  (*during_stop)(VOID);
+    UINT    iface_detach_status;    /* what nx_ip_interface_detach() answers */
+    ULONG   adopts;                 /* tx_amiga_adopt_thread() calls         */
+    ULONG   adopt_fail_at;          /* that call number fails; 0 none        */
 
     /* ---- the event ring ------------------------------------------------ */
 
