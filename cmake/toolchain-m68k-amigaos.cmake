@@ -385,6 +385,10 @@ string(REPLACE ";" " " AMIGA_ARCH_FLAGS_STR "${AMIGA_ARCH_FLAGS}")
 #     whatever -mregparm says;
 #   - user-supplied hooks (loghook.c, errno.c, netmonitor.c) pin a0/a1/a2, so a
 #     caller compiled the ordinary way is still called correctly;
+#   - the aminetxduo/anxs2ext.h callbacks a driver calls into the library
+#     (RxDirect, RxFilled, TxFlags) carry __stdargs, because the driver may be
+#     from another build.  MISSED when the option landed: a 144042c anxnet.device
+#     under a d6b6a7e7 library moved no frames.  cmake/check-anxs2ext-abi.cmake;
 #   - the hand-written routines in src/net68k and src/crypto68k read the stack,
 #     and every C declaration of one carries AMIGA_ASM_ARGS
 #     (__attribute__((__stkparm__))); see include/aminetxduo/asm_abi.h.

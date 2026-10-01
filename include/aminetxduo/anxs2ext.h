@@ -18,10 +18,24 @@
    wire together.  Negotiated as ANXD_S2F_TX_MORE. */
 #define ANXD_S2_TXF_MORE        0x40
 
-typedef UBYTE *(*AnxdS2RxDirect)(APTR ios2_data, ULONG len);
-typedef VOID   (*AnxdS2RxFilled)(APTR ios2_data, ULONG len, ULONG sum,
-                                 UBYTE flags);
-typedef UBYTE  (*AnxdS2TxFlags)(APTR ios2_data);
+/*
+ * The callbacks below cross between separately built binaries, a driver from
+ * one release calling a library from another, so their arguments go on the
+ * stack whatever the compiler was told.  A GCC for AmigaOS predefines
+ * __stdargs as that pin; a compiler without it already passes on the stack.
+ * Unpinned under -mregparm, a library read a0/d0 for what an older driver had
+ * pushed, and RxDirect answered an address made of its own code bytes.
+ */
+#if defined(__GNUC__) && defined(__stdargs)
+#define ANXD_S2_STDARGS __stdargs
+#else
+#define ANXD_S2_STDARGS
+#endif
+
+typedef ANXD_S2_STDARGS UBYTE *(*AnxdS2RxDirect)(APTR ios2_data, ULONG len);
+typedef ANXD_S2_STDARGS VOID   (*AnxdS2RxFilled)(APTR ios2_data, ULONG len,
+                                                 ULONG sum, UBYTE flags);
+typedef ANXD_S2_STDARGS UBYTE  (*AnxdS2TxFlags)(APTR ios2_data);
 
 /*
  * ONE VERSIONED NEGOTIATION TAG.
