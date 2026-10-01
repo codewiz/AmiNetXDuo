@@ -55,8 +55,11 @@ AMIGA_ASM_ARGS c68k_limb c68k_addmul_1(c68k_limb *r, const c68k_limb *b, UINT n,
                                    c68k_limb a);
 
 /* The portable C version, always present under its own name whichever build
-   option is in force, so the benchmark can time both in one run. */
-c68k_limb c68k_addmul_1_c(c68k_limb *r, const c68k_limb *b, UINT n, c68k_limb a);
+   option is in force, so the benchmark can time both in one run.  Pinned
+   like c68k_addmul_1: it is the c68k_vec_addmul_1 default until
+   c68k_cpu_select() runs. */
+AMIGA_ASM_ARGS c68k_limb c68k_addmul_1_c(c68k_limb *r, const c68k_limb *b,
+                                         UINT n, c68k_limb a);
 
 /*
  * dst[j] = src[j] + carry, for j in 0..n-1.  Returns the final carry (0 or 1
