@@ -2015,7 +2015,7 @@ if [ -n "$EXPECTED_SECOND_IF" ]; then
     _second_device=$(sed -n 's/^DEVICE=//p' "$_second_real" 2>/dev/null | head -1 |
                      tr -d '\r' | sed 's/[[:space:]]*$//')
     case "$_second_device" in
-        "$EXPECTED_SECOND_DEVICE"|"DEVS:Networks/$EXPECTED_SECOND_DEVICE") ;;
+        "$EXPECTED_SECOND_DEVICE"|"DEVS:Networks/$EXPECTED_SECOND_DEVICE"|"AmiNetXDuo:Devs/Networks/$EXPECTED_SECOND_DEVICE") ;;
         *) echo "!! $EXPECTED_SECOND_IF uses ${_second_device:-no device}; wanted $EXPECTED_SECOND_DEVICE"
            fail=1 ;;
     esac
@@ -2675,6 +2675,17 @@ if [ -n "$IFACE_FILE" ] && [ -f "$IFACE_FILE" ]; then
                        tr -d '\r' | sed 's/[[:space:]]*$//')
 fi
 
+# A drawer install names its own drivers through the AmiNetXDuo: assign, so
+# moving the assign to another drawer moves the drivers with the library.
+case "$DRAWER:$INSTALLER_DEVICE" in
+    1:*anx*.device)
+        case "$INSTALLER_DEVICE" in
+            AmiNetXDuo:Devs/Networks/*) ;;
+            *) echo "!! drawer install wrote DEVICE=$INSTALLER_DEVICE; wanted AmiNetXDuo:Devs/Networks/..."
+               fail=1 ;;
+        esac ;;
+esac
+
 CARD_SELECTED=no
 MANUAL_ACTUAL_CARD=""
 if [ "$MANUAL_CARD" = "1" ]; then
@@ -2686,7 +2697,7 @@ if [ "$MANUAL_CARD" = "1" ]; then
     esac
 elif [ -n "$EXPECTED_AUTO_DEVICE" ]; then
     case "$INSTALLER_DEVICE" in
-        "$EXPECTED_AUTO_DEVICE"|"DEVS:Networks/$EXPECTED_AUTO_DEVICE")
+        "$EXPECTED_AUTO_DEVICE"|"DEVS:Networks/$EXPECTED_AUTO_DEVICE"|"AmiNetXDuo:Devs/Networks/$EXPECTED_AUTO_DEVICE")
             CARD_SELECTED=yes ;;
     esac
 else
