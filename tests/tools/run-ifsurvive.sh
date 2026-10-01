@@ -3,7 +3,7 @@
 # REMOVE ONE INTERFACE, THEN USE THE OTHER ONE.
 #
 #   tests/tools/run-ifsurvive.sh [-b builddir] [-t seconds] [-B iface]
-#                                [-a address] [-g gateway]
+#                                [-a address] [-c address] [-g gateway]
 #
 # Two interfaces on a2065.device UNIT=0 -- the shipping rig config, which
 # run-ifslots.sh already stages four of.  Traffic goes out over A (an ARP/ping
@@ -23,6 +23,16 @@
 #             destination catches it.  A is therefore the DHCP interface and is
 #             added SECOND: NetX installs the gateway at bind.
 #
+# THEN FORCE WITH A CONNECTION OPEN.  A third interface, zforce, static on the
+# same unit, carries a TCP connection the guest opens to its own zforce
+# address (NetX routes an interface's own address to that interface, so the
+# connection counts as zforce's).  A plain removal must refuse; then, while
+# aeth0 pings the gateway, `RemoveNetInterface zforce FORCE` must return
+# within FORCE_MS (rc 0, or 5 for a device that kept requests), aeth0 must
+# lose no ping, and the gateway and DNS checks must still pass after it.
+# This is the PiStorm32 defect of 2026-09-26: one FORCE removal stopped every
+# interface.  -c pins zforce's address, else a second one is claimed.
+#
 # BRIDGED.  -B names the host NIC (default $AMINETXDUO_AMIBERRY_BACKEND, else
 # ens18).  B's static address is claimed from the rig's free range the way
 # run-events.sh claims one, or pinned with -a; -g is the segment's router.
@@ -41,10 +51,11 @@ cd "$ROOT" || exit 2
 
 BUILD="${AMINETXDUO_BUILD:-build/cm}"
 BOARD=a2065
-TIMEOUT=300
-MIN_CHECKS=13
+TIMEOUT=360
+MIN_CHECKS=19
 IFACE="${AMINETXDUO_AMIBERRY_BACKEND:-ens18}"
 ADDRESS=
+ADDRESS2=
 GATEWAY="${AMINETXDUO_IFSURVIVE_GATEWAY:-192.168.1.1}"
 
 # A resolution that comes back at all but takes longer than this is the user's
@@ -55,16 +66,23 @@ STALL_MS="${AMINETXDUO_IFSURVIVE_STALL_MS:-8000}"
 # needs a gateway.
 OFFLINK="${AMINETXDUO_IFSURVIVE_OFFLINK:-8.8.8.8}"
 
-while getopts "b:t:N:B:a:g:" opt; do
+# How long RemoveNetInterface FORCE may take with a connection open.  The
+# device stop is bounded at about ten seconds for a device that answers
+# nothing (sana2_internal.h); this one answers.
+FORCE_MS="${AMINETXDUO_IFSURVIVE_FORCE_MS:-15000}"
+FORCE_PORT=7777
+
+while getopts "b:t:N:B:a:c:g:" opt; do
     case "$opt" in
         b) BUILD="$OPTARG" ;;
         t) TIMEOUT="$OPTARG" ;;
         N) BOARD="$OPTARG" ;;
         B) IFACE="$OPTARG" ;;
         a) ADDRESS="$OPTARG" ;;
+        c) ADDRESS2="$OPTARG" ;;
         g) GATEWAY="$OPTARG" ;;
         *) echo "usage: $0 [-b builddir] [-t seconds] [-N board] [-B iface]\
- [-a address] [-g gateway]" >&2
+ [-a address] [-c address] [-g gateway]" >&2
            exit 2 ;;
     esac
 done
@@ -85,7 +103,7 @@ fi
 TOOLS="$ROOT/$BUILD/src/tools"
 BSD="$ROOT/$BUILD/src/bsdsocket/bsdsocket.library"
 NEEDED="ToolsSmoke AddNetInterface RemoveNetInterface ShowNetStatus
-        netstat ping nslookup"
+        netstat ping nslookup nc"
 
 for t in $NEEDED; do
     [ -f "$TOOLS/$t" ] || { echo "build $BUILD first: no $TOOLS/$t" >&2
@@ -116,7 +134,16 @@ if [ -z "$ADDRESS" ]; then
         echo "no free guest address; pass -a <addr> to pin one" >&2; exit 2; }
     ADDRESS="$RIG_ADDRESS"
 fi
-echo "guest_address=$ADDRESS gateway=$GATEWAY iface=$IFACE"
+if [ -z "$ADDRESS2" ]; then
+    rig_claim_address "${AMINETXDUO_RIG_ADDR_PREFIX:-192.168.1}" \
+                      "${AMINETXDUO_RIG_ADDR_FIRST:-200}" \
+                      "${AMINETXDUO_RIG_ADDR_LAST:-254}" \
+                      "run-ifsurvive zforce in $ROOT" || {
+        echo "no second free guest address; pass -c <addr> to pin one" >&2
+        exit 2; }
+    ADDRESS2="$RIG_ADDRESS"
+fi
+echo "guest_address=$ADDRESS force_address=$ADDRESS2 gateway=$GATEWAY iface=$IFACE"
 
 # ------------------------------------------------------------- the stage ---
 
@@ -134,6 +161,10 @@ printf 'DEVICE=a2065.device\nUNIT=0\nCONFIGURE=STATIC\nADDRESS=%s\nNETMASK=255.2
     "$ADDRESS" "$GATEWAY" > "$STAGE/devs/NetInterfaces/aeth0"
 printf 'DEVICE=a2065.device\nUNIT=0\nCONFIGURE=DHCP\n' \
     > "$STAGE/devs/NetInterfaces/zeth1"
+# The FORCE leg's interface: static, no gateway of its own, so aeth0 keeps the
+# route and its pings stay on aeth0.
+printf 'DEVICE=a2065.device\nUNIT=0\nCONFIGURE=STATIC\nADDRESS=%s\nNETMASK=255.255.255.0\n' \
+    "$ADDRESS2" > "$STAGE/devs/NetInterfaces/zforce"
 
 {
     echo "SYS:AddNetInterface aeth0"
@@ -151,6 +182,18 @@ printf 'DEVICE=a2065.device\nUNIT=0\nCONFIGURE=DHCP\n' \
     echo "SYS:ping $GATEWAY -c 3 -t 20"
     echo "SYS:ping $OFFLINK -c 3 -t 20"
     echo "SYS:nslookup example.net $OFFLINK"
+    echo "SYS:AddNetInterface zforce"
+    echo "&SYS:nc -l $FORCE_PORT -v -w 120 >DH0:ifs-server.txt"
+    echo "wait 2"
+    echo "&SYS:nc $ADDRESS2 $FORCE_PORT -v -w 120 >DH0:ifs-client.txt"
+    echo "wait 3"
+    echo "SYS:RemoveNetInterface zforce"
+    echo "&SYS:ping $GATEWAY -c 25 -t 40 >DH0:ifs-ping.txt"
+    echo "wait 3"
+    echo "SYS:RemoveNetInterface zforce FORCE"
+    echo "wait 30"
+    echo "SYS:ShowNetStatus"
+    echo "SYS:nslookup example.edu $OFFLINK"
     echo "SYS:RemoveNetInterface aeth0"
     echo "SYS:netstat -i"
     echo "SYS:ShowNetStatus INTERFACES"
@@ -169,7 +212,7 @@ rm -f "$REPORT"
         "$TOOLS/ToolsSmoke" "$STAGE/devs" "$STAGE/libs" \
         "$TOOLS/AddNetInterface" "$TOOLS/RemoveNetInterface" \
         "$TOOLS/ShowNetStatus" "$TOOLS/netstat" "$TOOLS/ping" \
-        "$TOOLS/nslookup" "$STAGE/commands.txt"
+        "$TOOLS/nslookup" "$TOOLS/nc" "$STAGE/commands.txt"
 )
 RUN_RC=$?
 
@@ -422,6 +465,90 @@ if [ "$dns_up" -gt 0 ]; then
     fi
 fi
 
+# ---- FORCE with a connection open, while aeth0 pings --------------------
+
+HD="$ROOT/build/amiberry-testhd-$TAG"
+rc_of_block() { # block text -> the rc ToolsSmoke recorded
+    printf '%s\n' "$1" | sed -n 's/^----- rc \([-0-9]*\),.*/\1/p' | head -1
+}
+
+zadd=$(block "SYS:AddNetInterface zforce" 1)
+if [ "$(rc_of_block "$zadd")" = 0 ]; then
+    pass "zforce came up on the same unit for the FORCE leg"
+else
+    fail "zforce did not come up (rc '$(rc_of_block "$zadd")')"
+fi
+
+if tr -d '\r' < "$HD/ifs-client.txt" 2>/dev/null |
+       grep -q "^connected to $ADDRESS2 port $FORCE_PORT"; then
+    pass "a TCP connection to zforce's own address is open"
+else
+    fail "the client never connected to $ADDRESS2 port $FORCE_PORT"
+fi
+
+plain=$(block "SYS:RemoveNetInterface zforce" 1)
+plain_rc=$(rc_of_block "$plain")
+if [ "$plain_rc" = 20 ] &&
+   printf '%s\n' "$plain" | grep -qi "connections open"; then
+    pass "a plain removal refused: the connection counts as zforce's"
+else
+    fail "a plain removal did not refuse with connections open (rc\
+ '$plain_rc'), so FORCE below forces nothing"
+fi
+
+force=$(block "SYS:RemoveNetInterface zforce FORCE" 1)
+force_rc=$(rc_of_block "$force")
+force_ms=$(ms_of "$force")
+ping_text=$(tr -d '\r' < "$HD/ifs-ping.txt" 2>/dev/null || true)
+ping_tx=$(printf '%s\n' "$ping_text" |
+          sed -n 's/^\([0-9]*\) packets transmitted, .*/\1/p' | head -1)
+ping_rx=$(printf '%s\n' "$ping_text" |
+          sed -n 's/^[0-9]* packets transmitted, \([0-9]*\) received.*/\1/p' |
+          head -1)
+echo "force_rc=${force_rc:-none} force_ms=${force_ms:-none}\
+ force_bound_ms=$FORCE_MS ping_tx=${ping_tx:-none} ping_rx=${ping_rx:-none}"
+
+case "$force_rc" in
+    0) pass "RemoveNetInterface zforce FORCE returned rc 0" ;;
+    5) if printf '%s\n' "$force" | grep -qi "holds requests"; then
+           pass "RemoveNetInterface zforce FORCE returned rc 5: removed, the\
+ device kept requests (retained)"
+       else
+           fail "RemoveNetInterface zforce FORCE returned rc 5 without\
+ saying the device kept requests"
+       fi ;;
+    *) fail "RemoveNetInterface zforce FORCE returned rc '${force_rc:-none}'" ;;
+esac
+if [ -n "$force_ms" ] && [ "$force_ms" -le "$FORCE_MS" ]; then
+    pass "and returned in $force_ms ms, within $FORCE_MS ms"
+else
+    fail "FORCE took '${force_ms:-never returned}' ms, over $FORCE_MS ms"
+fi
+
+if [ -n "$ping_tx" ] && [ "$ping_tx" -ge 20 ] && [ "$ping_rx" = "$ping_tx" ]
+then
+    pass "aeth0 lost no ping across the FORCE removal: $ping_rx of $ping_tx"
+else
+    fail "aeth0's ping across the FORCE removal: '${ping_rx:-?}' of\
+ '${ping_tx:-?}' answered: the removal stopped the other interface"
+fi
+
+status3=$(block "SYS:ShowNetStatus" 3)
+gw3=$(gateway_of "$status3")
+if [ -n "$gw3" ] && [ "$gw3" != 0.0.0.0 ]; then
+    pass "the machine still has a default route after FORCE: $gw3"
+else
+    fail "THE DEFAULT ROUTE IS GONE after FORCE (read '$gw3')"
+fi
+if [ "$dns_up" -gt 0 ]; then
+    if resolved "$(block "SYS:nslookup example.edu $OFFLINK" 1)" example.edu
+    then
+        pass "a name still resolves over aeth0 after FORCE"
+    else
+        fail "NO NAME RESOLVES over aeth0 after FORCE removed zforce"
+    fi
+fi
+
 last=$(block "SYS:RemoveNetInterface aeth0" 1)
 if printf '%s\n' "$last" | grep -qiE "removed|no longer|^----- rc 0"; then
     pass "RemoveNetInterface aeth0 was accepted"
@@ -430,7 +557,7 @@ else
 fi
 
 end=$(block "SYS:netstat -i" 3)
-if printf '%s\n' "$end" | grep -qE "^(aeth0|zeth1)[[:space:]]"; then
+if printf '%s\n' "$end" | grep -qE "^(aeth0|zeth1|zforce)[[:space:]]"; then
     fail "an interface is still live after both were removed"
 else
     pass "no interface is left holding the unit"
