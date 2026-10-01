@@ -322,6 +322,7 @@ jobs:
             tools/toolchain-resolve-selftest.sh \
             tools/classicwb-serve-selftest.sh \
             tools/amiberry-run.sh \
+            tools/bridge-lock-selftest.sh \
             tools/classicwb.sh \
             tools/logcap.sh \
             tools/enforcer-run.sh \

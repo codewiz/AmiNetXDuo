@@ -205,7 +205,8 @@ while read -r -u 3 board model _addr _mac; do
     fi
 
     tag="wirequiet-$board"
-    WANTMAC=$(emu_mac_for_tag "$tag")
+    # Pinned below, so the capture filter and the guest agree on it.
+    WANTMAC=$(emu_mac_default "$tag")
 
     echo
     echo "===================== $board ($drv, $model) ====================="
@@ -274,7 +275,7 @@ IFEOF
         continue
     fi
 
-    env AMINETXDUO_RUN_TAG="$tag" \
+    env AMINETXDUO_RUN_TAG="$tag" AMINETXDUO_AMIBERRY_MAC="$WANTMAC" \
         "$ROOT/tools/amiberry-run.sh" -N "$board" -B "$IFACE" -m "$model" \
             -t "$TIMEOUT" \
             "$TOOLS/ToolsSmoke" "$STAGE/commands.txt" "$STAGE/devs" \

@@ -108,7 +108,7 @@ done
 # guests, and a peer's neighbour cache then keeps whichever answered last.
 # shellcheck source=../../tools/emu-mac.sh
 . "$ROOT/tools/emu-mac.sh"
-[ -n "$MAC" ] || MAC=$(emu_mac_for_tag "$TAG")
+[ -n "$MAC" ] || MAC=$(emu_mac_default "$TAG")
 
 case "$OSVER" in 31|32) ;; *) echo "-o takes 31 or 32" >&2; exit 2 ;; esac
 # WHICH CLIENT.  Two programs, two protocols, one share: smb2-handler speaks
@@ -270,6 +270,14 @@ if [ "$CLIENT" = smbfs ]; then
 else
     echo "==> share $URL (host $SMBHOST), client smb2-handler.$CPUSFX (SMB2/3)"
 fi
+
+# ONE BRIDGED GUEST PER HOST, claimed before this run wipes and restages its
+# drive: a second run of the same tag would otherwise delete the drive of the
+# guest running under the lock.  Held until this script exits; the codes and
+# the why are at rig_claim_bridge in tools/emu-rig-lock.sh.
+# shellcheck source=../../tools/emu-rig-lock.sh
+. "$ROOT/tools/emu-rig-lock.sh"
+rig_claim_bridge "$BACKEND" "run-smbmount $TAG in $ROOT" || exit $?
 
 # --------------------------------------------------------------- the SYS: --
 

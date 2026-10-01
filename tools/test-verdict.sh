@@ -116,6 +116,10 @@ verdict_find() {
         echo "      The run did not get the network backend it asked for, so it" >&2
         echo "      was never on the link it was meant to be on." >&2
         why=wrong_backend
+    elif [ "$run_rc" = "6" ]; then
+        echo "      Another bridged guest held this host for the whole wait, so" >&2
+        echo "      this one was never booted." >&2
+        why=rig_busy
     fi
     echo "      This is an infrastructure failure, not a result. The emulator" >&2
     echo "      exited $run_rc and that says nothing about the code." >&2
@@ -188,6 +192,9 @@ verdict_guest() {
                  echo "      for. The transcript above is of a guest on some other" >&2
                  echo "      link, whatever it says. This is the RIG, not the code." >&2
                  [ -n "$why" ] || why=wrong_backend ;;
+            6)   echo "FAIL: $name: another bridged guest held the host, so this" >&2
+                 echo "      run was refused before it booted. This is the RIG." >&2
+                 [ -n "$why" ] || why=rig_busy ;;
             # A NONZERO EXIT BESIDE FAILURES IS NOT A DISAGREEMENT.  This arm
             # said "the two disagree" whatever the transcript held, so a guest
             # that failed its own checks AND returned the code it returns for

@@ -104,6 +104,24 @@ start) ;;
 *) sed -n '3,8p' "$0" >&2; exit 2 ;;
 esac
 
+# One fixed MAC per instance from the standing range, which no test guest can
+# have (tools/emu-mac.sh, emu_mac_standing).
+# shellcheck source=../../tools/emu-mac.sh
+. "$ROOT/tools/emu-mac.sh"
+MAC=$(emu_mac_standing console-instance "$RUN")
+
+# A STANDING guest: up for hours, so it takes no bridge lock and does not hold
+# every test run off; its MAC range keeps it apart instead.  CHECKED HERE,
+# where the MAC is first known and before anything is wiped, staged or
+# started, so a refused launch leaves everything as it was.
+# shellcheck source=../../tools/emu-rig-lock.sh
+. "$ROOT/tools/emu-rig-lock.sh"
+rig_standing_exempt "console-instance in $RUN" "$MAC" "$BACKEND" || {
+    rc=$?
+    say RESULT INFRA
+    exit "$rc"
+}
+
 
 if running; then
     say error "our own guest is already up, pid $(cat "$PIDFILE")"
@@ -226,9 +244,7 @@ C:httpd DH0:Public $PORT -C CONSOLEPAGE DH0:Console/console.html $TERMARGS -v >D
 EOF
 chmod 755 "$HD/S/httpd-run"
 
-# A fresh MAC per start, so the router's cache can never answer for a guest
-# that did not come up.  Kept in a file because `status` is a separate run.
-MAC=$(printf '02:41:4d:49:%02x:%02x' $(( ($$ >> 8) & 0xff )) $(( $$ & 0xff )))
+# Kept in a file because `status` is a separate run.
 printf '%s\n' "$MAC" > "$MACFILE"
 
 # A free localhost port for the serial socket, so two instances on one host do
@@ -262,6 +278,8 @@ EOF
 : > "$EMULOG"
 ( trap '' PIPE; exec "$AMIBERRY" -f "$CFG" ) >>"$EMULOG" 2>&1 &
 printf '%s\n' "$!" > "$PIDFILE"
+# The emulator holds the standing lock now; the reader below may not.
+rig_drop_standing
 
 # The reader, retried: /wait holds the emulator until this connects, and the
 # emulator has to have opened the listener first.  Appends, so a restart of the

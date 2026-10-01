@@ -217,11 +217,6 @@ IFEOF
         tr ' ' ',' || echo unknown)"
 
     export AMINETXDUO_RUN_TAG="$TAG"
-    # Exclusive by default, because peer_* is host wall clock and an arm that
-    # shares the host CPUs is measuring the other run as much as this one.  An
-    # override rather than a hardcode: a lab running eight guests refuses this
-    # claim outright, and a figure taken alongside is worth more than none.
-    AMINETXDUO_RIG_EXCLUSIVE="${AMINETXDUO_RIG_EXCLUSIVE-readsize boot $BOOT}" \
     "$ROOT/tools/amiberry-run.sh" -N "$BOARD" -B "$IFACE" -m "$MODEL" \
         -t "$BUDGET" \
         "$TOOLS/ToolsSmoke" "$STAGE/commands.txt" "$STAGE/devs" \
