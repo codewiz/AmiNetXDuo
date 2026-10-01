@@ -456,6 +456,23 @@ else
     exit 2
 fi
 
+# aros-stuff's pthread.c calls timersub(), which libnix's <sys/time.h> does
+# not declare; GCC 14+ makes that implicit declaration an error, and the build
+# stopped at libpthread before ndk and packaging.  A fallback after its
+# <sys/time.h>; the same three ways out as above.
+PTHREAD_PATCH="$HERE/patches/aros-stuff/pthread-timersub.diff"
+if git -C "$SRC/projects/aros-stuff" apply --reverse --check \
+       "$PTHREAD_PATCH" 2>/dev/null; then
+    echo "==> pthread timersub already present"
+elif git -C "$SRC/projects/aros-stuff" apply --check "$PTHREAD_PATCH" 2>/dev/null; then
+    echo "==> pthread timersub: $(basename "$PTHREAD_PATCH")"
+    git -C "$SRC/projects/aros-stuff" apply "$PTHREAD_PATCH"
+else
+    echo "!! aros-stuff pthread.c is neither the pinned source nor the" >&2
+    echo "!! reviewed fixed source; refusing an unverified build." >&2
+    exit 2
+fi
+
 # ----------------------------------------------------------------- build ----
 
 mkdir -p "$PREFIX"

@@ -1,0 +1,24 @@
+diff --git a/pthreads/pthread.c b/pthreads/pthread.c
+index 178f5ad..6fd25b9 100644
+--- a/pthreads/pthread.c
++++ b/pthreads/pthread.c
+@@ -47,6 +47,19 @@
+ #include <signal.h>
+ #include <stdlib.h>
+ #include <sys/time.h>
++/* libnix's <sys/time.h> has no timersub(), and GCC 14+ makes the implicit
++   declaration an error.  The fields are unsigned, so borrow by comparing
++   before subtracting; r may be a (as below), never b.  */
++#ifndef timersub
++#define timersub(a, b, r) do {				\
++	(r)->tv_sec = (a)->tv_sec - (b)->tv_sec;		\
++	if ((a)->tv_usec < (b)->tv_usec) {			\
++		(r)->tv_sec--;					\
++		(r)->tv_usec = (a)->tv_usec + 1000000 - (b)->tv_usec; \
++	} else							\
++		(r)->tv_usec = (a)->tv_usec - (b)->tv_usec;	\
++} while (0)
++#endif
+ 
+ #include "pthread.h"
+ #include "debug.h"
