@@ -37,7 +37,7 @@ PIN_AMIGA_GCC_SHA="86f8ba62f7a5035e309600c86962681e1cbacccb"
 # reads it as a pin.  `binutils` has no mirror: only franke.ms carries 2.39.0.
 PINS="
 binutils|https://franke.ms/git/bebbo/binutils-gdb|ab4e5183f56fd83165356a03c890bf0b681d7535|amiga-2.39.0
-gcc|https://github.com/tinic/gcc|d021c9413f90a8adc22bd2f45774c21e323ba1fe|backport/sibcall-a0-60f2
+gcc|https://github.com/tinic/gcc|243a0096237cc382c075142c80acadad4e07b9e5|backport/sibcall-a0-60f2
 newlib-cygwin|https://franke.ms/git/bebbo/newlib-cygwin|0909ae9abc18b38595425143e7a63d9e2fc31174|amiga
 libnix|https://franke.ms/git/bebbo/libnix|b7268e35510b8b7b4ccdad67fbcbb25e73189aef|master
 sfdc|https://franke.ms/git/bebbo/sfdc|5d4efca359e949547553463f5873778bd85e5506|master
@@ -360,12 +360,12 @@ fi
 
 # -flto.  Two changes to binutils; GCC needs no patch for it, only the pin
 # above.  That pin is bebbo's 60f21496 (then the tip of amiga16.2) plus one
-# commit on our fork: d021c941, the sibcall fix.  An indirect sibcall, and on
+# commit on our fork: 243a0096, the sibcall fix.  An indirect sibcall, and on
 # 68000 a direct one under -fbaserel/-resident/-mpcrel, loads its target into
 # a0, and m68k_is_ok_for_sibcall allowed an argument there; under -mregparm or
 # an __asm ("a0") parameter the target replaced it (bsd_wait_sliced() entered
 # bsd_send_once() with its own address as `arg').  The same fix, on
-# 873ba1cb, is prepared for upstream review as tinic/gcc d435dc175.
+# 873ba1cb, is prepared for upstream review as tinic/gcc e0fa21d9.
 #
 # First, amiga-gcc configures binutils with --disable-plugins for every target
 # but m68k-elf, so ld accepts -plugin and ignores it.  GCC's liblto_plugin.so
