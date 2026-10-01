@@ -21,6 +21,8 @@ version at the top when it merges.
 - `RemoveNetInterface` no longer stalls the other interfaces while it takes one down. `FORCE` completes
   when the device still holds requests and keeps that device until it returns them. A connection in
   `TIME_WAIT` no longer counts as open.
+- A `tls.library` server with an RSA key completes a TLS 1.2 ChaCha20-Poly1305 handshake. With this
+  build's register-argument change it stopped after accepting the connection.
 - Every figure below is from a tree with nothing uncommitted, and that matters
   here more than usual: the build stamps `-dirty` into the version hash inside
   every image whenever `git status` is not empty, and it lands unevenly -- 8
