@@ -7,6 +7,10 @@
 #ifndef NX_USER_H
 #define NX_USER_H
 
+/* nx_crypto's memcpy/memset with the stack convention; nx_crypto.h reaches
+   this file through nx_api.h before it picks its defaults. */
+#include <aminetxduo/nx_crypto_mem.h>
+
 
 /* ---------------------------------------------------------------- timing, */
 

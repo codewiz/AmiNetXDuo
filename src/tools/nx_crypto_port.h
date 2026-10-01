@@ -10,6 +10,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <aminetxduo/nx_crypto_mem.h>
 
 #ifdef NX_CRYPTO_STANDALONE_ENABLE
 
