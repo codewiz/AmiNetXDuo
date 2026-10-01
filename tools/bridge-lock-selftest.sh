@@ -439,7 +439,7 @@ esac
 # launch leaves everything as it was.  console-instance is scanned from the
 # end of its action switch: above that are `stop` and `status`, which are not
 # the start path.
-DESTRUCTIVE='rm -r|rm -f|mkdir |cp |wb31_assemble|Xvfb |tcpdump -i|kill |pkill |stop_pid |start_emulator|(exec|setsid) +(setsid +)?"[$]AMIBERRY"|: > |lha '
+DESTRUCTIVE='rm -r|rm -f|mkdir |cp |wb31_assemble|Xvfb |tcpdump -i|kill |pkill |stop_pid |start_emulator|(exec|setsid) +(setsid +)?"[$]AMIBERRY"|: > |lha -?x'
 ov_bad=""
 for spec in tools/classicwb.sh:1 tools/demo-rtg.sh:1 \
             tests/tools/console-instance.sh:"esac"; do

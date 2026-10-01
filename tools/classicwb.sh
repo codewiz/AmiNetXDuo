@@ -149,6 +149,14 @@ rig_standing_exempt "classicwb $MODEL:$VARIANT in $ROOT" "$MAC" "$BACKEND" || {
     exit "$rc"
 }
 
+# TEST ONLY: tools/classicwb-identity-selftest.sh stops here, after the
+# identity and the standing check and before anything reads the asset store,
+# so no ambient Kickstart or snapshot path can carry it into a wipe.
+if [ "${AMINETXDUO_CWB_IDENTITY_ONLY:-0}" = 1 ]; then
+    say identity_only 1
+    exit 0
+fi
+
 # The asset store carries the ROMs and exports the Kickstart each model needs.
 # Skipping it boots a machine with no ROM, and the error names the ROM rather
 # than the missing variable.
