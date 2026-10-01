@@ -997,6 +997,7 @@ if(NOT CMAKE_CROSSCOMPILING)
 
     target_include_directories(test_httpws PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_SOURCE_DIR}/include"
         "${AMINETXDUO_NETXDUO}/crypto_libraries/inc")
 
     target_compile_definitions(test_httpws PRIVATE NX_CRYPTO_STANDALONE_ENABLE)
