@@ -9,6 +9,20 @@ version at the top when it merges.
 
 ## Unreleased
 
+- `anxnet.device`, `anxgenet.device` and `anxwifipi.device` from earlier releases work with this
+  `bsdsocket.library`. A pairing of a newer library and an older driver brought the interface
+  online, passed no frames and wrote received frames into low chip memory.
+- A drawer install writes `DEVICE=AmiNetXDuo:Devs/Networks/<driver>` for its own drivers. Moving the
+  `AmiNetXDuo:` assign to another drawer moves the drivers with the library.
+- A drawer reinstall that keeps the existing interface files rewrites a `DEVICE=` line naming one of
+  these drivers by an absolute path into the drawer to the same `AmiNetXDuo:` form. Other lines,
+  third-party drivers, comments and protection bits stay as they were.
+- `anxwifipi.device` uses the library's single-copy receive path.
+- `RemoveNetInterface` no longer stalls the other interfaces while it takes one down. `FORCE` completes
+  when the device still holds requests and keeps that device until it returns them. A connection in
+  `TIME_WAIT` no longer counts as open.
+- A `tls.library` server with an RSA key completes a TLS 1.2 ChaCha20-Poly1305 handshake. With this
+  build's register-argument change it stopped after accepting the connection.
 - Every figure below is from a tree with nothing uncommitted, and that matters
   here more than usual: the build stamps `-dirty` into the version hash inside
   every image whenever `git status` is not empty, and it lands unevenly -- 8
