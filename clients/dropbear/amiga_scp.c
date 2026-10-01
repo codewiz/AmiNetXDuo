@@ -719,7 +719,10 @@ int do_cmd(char *host, char *remuser, char *remote_cmd,
     scp_child.child_in = Open((CONST_STRPTR)"NIL:", MODE_OLDFILE);
     scp_child.child_out = Open((CONST_STRPTR)"NIL:", MODE_NEWFILE);
     if (scp_child.child_in == (BPTR)0 || scp_child.child_out == (BPTR)0)
+    {
+        errno = EIO;
         goto fail;
+    }
 
     writefd = scp_fd_take(&scp_child.input_pipe, 0);
     if (writefd < 0)
