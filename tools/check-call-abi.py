@@ -35,6 +35,10 @@
 #               cannot see the toolchain header's __stdargs one.
 #   varargs     a function declared with `...' in one place and without it in
 #               another: one side pushes everything, the other reads registers.
+#   fptr-decl   an extern function pointer declared with one convention and
+#               defined, in a file that includes the declaration, with the
+#               other.  GCC merges the two silently, and every caller that sees
+#               only the extern calls the wrong way: c68k_poly1305.h.
 #
 # A function with no arguments, a variadic one, and one with an __asm("reg")
 # on every argument are convention-free and always pass.
@@ -268,13 +272,14 @@ class Ctx:
 
 class Decl:
     __slots__ = ("name", "rel", "line", "conv", "kind", "is_def", "init",
-                 "variadic", "params")
+                 "variadic", "params", "extern")
 
     def __init__(self, name, rel, line, conv, kind, is_def=False, init=None):
         self.name, self.rel, self.line = name, rel, line
         self.conv, self.kind, self.is_def, self.init = conv, kind, is_def, init
         self.variadic = False
         self.params = None
+        self.extern = False
 
 
 _NL = {}
@@ -517,6 +522,7 @@ def scan_c(ctx, rel, code, strings):
             if im:
                 init = im.group(1)
         d = Decl(name, rel, line_of(code, m.start()), conv, kind, init=init)
+        d.extern = "extern" in pwords
         ctx.fptrs.append(d)
 
     # Casts that take a function's address out of the type system.
@@ -911,6 +917,21 @@ def run(root, allow_path, verbose=False, files=None):
                  "declared without `...' here and with it at %s:%d" %
                  (v.rel, v.line))
 
+    # fptr-decl: the extern a caller sees against the definition that
+    # includes it.
+    for e in ctx.fptrs:
+        if e.kind != "slot" or not e.extern or e.conv == ANY:
+            continue
+        for d in ctx.fptrs:
+            if d is e or d.name != e.name or d.kind != "slot" or d.extern or \
+                    d.conv in (ANY, e.conv):
+                continue
+            if e.rel in closure(ctx, d.rel):
+                flag("fptr-decl", e.rel, e.line, e.name,
+                     "declared %s here and defined %s at %s:%d" %
+                     (e.conv, d.conv, d.rel, d.line))
+                break
+
     # shared-type
     for d in ctx.fptrs:
         if (d.rel.startswith(SHARED_HEADERS) or SHARED_COPY_RE.search(d.rel)) \
@@ -1033,6 +1054,15 @@ CASES = [
     }, {
         "src/common/a.h": "long ami_log(const char *fmt, ...);\n",
         "src/common/a.c": '#include "a.h"\nlong ami_log(const char *fmt, ...) { return 0; }\n',
+    }),
+    ("c68k_poly1305.h vector extern unpinned, definition pinned", "fptr-decl", {
+        "src/crypto68k/p.h": "extern void (*c68k_vec_blocks)(void *ctx, const unsigned char *m, unsigned long n);\n",
+        "src/crypto68k/cpu.c": ASM_ABI + '#include "p.h"\n'
+                               "AMIGA_ASM_ARGS void (*c68k_vec_blocks)(void *, const unsigned char *, unsigned long);\n",
+    }, {
+        "src/crypto68k/p.h": ASM_ABI + "extern AMIGA_ASM_ARGS void (*c68k_vec_blocks)(void *ctx, const unsigned char *m, unsigned long n);\n",
+        "src/crypto68k/cpu.c": ASM_ABI + '#include "p.h"\n'
+                               "AMIGA_ASM_ARGS void (*c68k_vec_blocks)(void *, const unsigned char *, unsigned long);\n",
     }),
     ("an OS callback with stack-less arguments", "escape", {
         "src/netdev/i.c": "static unsigned long on_int(void *data) { return data != 0; }\n"

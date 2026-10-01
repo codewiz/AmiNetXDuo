@@ -15,6 +15,7 @@
 #include <string.h>
 
 #include "c68k_vectors.h"
+#include "c68k_chacha20.h"
 
 static const char *const c68k_prim_names[3] =
 {
@@ -27,6 +28,7 @@ static const char *const c68k_prim_names[3] =
 #define T_MAX_LIMBS         64u             /* RSA-2048 */
 #define T_POWM_SCRATCH      4096u           /* > C68K_POWM_SCRATCH_LIMBS(64, 6) */
 #define T_HN_SCRATCH        2048u
+#define T_CRT_HN_SCRATCH    4096u
 
 static c68k_limb    t_m[T_MAX_LIMBS];
 static c68k_limb    t_x[T_MAX_LIMBS];
@@ -450,6 +452,187 @@ NX_CRYPTO_HUGE_NUMBER   m_hn, x_hn, e_hn, r_hn;
 }
 
 
+/* RSA-2048 private with CRT: what a TLS server with an RSA key runs, and
+   nothing else here reaches.  The two modular inverses it opens with are a
+   binary GCD that ends only when u reaches zero, so a wrong carry there
+   hangs rather than fails. */
+static c68k_limb    t_crt_x[T_MAX_LIMBS];
+static c68k_limb    t_crt_e[T_MAX_LIMBS];
+static c68k_limb    t_crt_m[T_MAX_LIMBS];
+static c68k_limb    t_crt_p[T_MAX_LIMBS / 2];
+static c68k_limb    t_crt_q[T_MAX_LIMBS / 2];
+static c68k_limb    t_crt_inv[T_MAX_LIMBS + 8];
+static c68k_limb    t_crt_prod[T_MAX_LIMBS * 2 + 8];
+static c68k_limb    t_crt_hn_scratch[T_CRT_HN_SCRATCH];
+
+static VOID t_crt(VOID)
+{
+
+UINT                    i;
+NX_CRYPTO_HUGE_NUMBER   x_hn, e_hn, m_hn, p_hn, q_hn, inv_hn, prod_hn, r_hn;
+
+
+    c68k_log("");
+    c68k_log("6. RSA-2048 private, CRT:");
+
+    for (i = 0; i < 32u; i++)
+    {
+        t_crt_p[i] = t_p[i];
+        t_crt_q[i] = t_q[i];
+    }
+
+    /* q^-1 mod p on its own, checked by multiplying back. */
+    c68k_hn_set(&p_hn, t_crt_p, 32u, 32u);
+    c68k_hn_set(&q_hn, t_crt_q, 32u, 32u);
+    c68k_hn_set(&inv_hn, t_crt_inv, 0, T_MAX_LIMBS + 8);
+    _nx_crypto_huge_number_inverse_modulus_prime(&q_hn, &p_hn, &inv_hn,
+                                                 t_crt_hn_scratch);
+    c68k_hn_set(&prod_hn, t_crt_prod, 0, T_MAX_LIMBS * 2 + 8);
+    _nx_crypto_huge_number_multiply(&inv_hn, &q_hn, &prod_hn);
+    _nx_crypto_huge_number_modulus(&prod_hn, &p_hn);
+    t_checks++;
+    if ((prod_hn.nx_crypto_huge_number_size != 1u) ||
+        (prod_hn.nx_crypto_huge_number_data[0] != 1u) ||
+        prod_hn.nx_crypto_huge_number_is_negative)
+    {
+        t_fail("q^-1 mod p", prod_hn.nx_crypto_huge_number_size,
+               prod_hn.nx_crypto_huge_number_data[0]);
+    }
+    else
+    {
+        c68k_log("  q^-1 mod p  OK");
+    }
+
+    for (i = 0; i < 64u; i++)
+    {
+        t_crt_x[i] = t_msg[i];
+        t_crt_e[i] = t_d[i];
+        t_crt_m[i] = t_n[i];
+    }
+    c68k_hn_set(&x_hn, t_crt_x, 64u, T_MAX_LIMBS);
+    c68k_hn_set(&e_hn, t_crt_e, 64u, T_MAX_LIMBS);
+    c68k_hn_set(&m_hn, t_crt_m, 64u, 64u);
+    c68k_hn_set(&p_hn, t_crt_p, 32u, 32u);
+    c68k_hn_set(&q_hn, t_crt_q, 32u, 32u);
+    c68k_hn_set(&r_hn, t_ref_result, 0, T_MAX_LIMBS * 2 + 8);
+    c68k_crt_power_modulus(&x_hn, &e_hn, &p_hn, &q_hn, &m_hn, &r_hn,
+                           t_crt_hn_scratch, t_scratch, T_POWM_SCRATCH);
+    t_checks++;
+    if (!c68k_hn_equals(&r_hn, t_msg_priv, 64u))
+    {
+        t_fail("RSA-2048 private CRT KAT", r_hn.nx_crypto_huge_number_size, 0);
+    }
+    else
+    {
+        c68k_log("  c68k_crt_power_modulus  OK");
+    }
+}
+
+
+/* Poly1305 and the ChaCha20-Poly1305 AEAD, RFC 8439 2.5.2 and 2.8.2, through
+   the entry points the TLS record path calls.  In an AMINETXDUO_CPU=any build
+   those reach the block function through c68k_vec_poly1305_blocks, a vector
+   whose declaration once lacked the stack pin its two targets need, and a
+   TLS 1.2 ChaCha20-Poly1305 server hung.  Only crypto68k_bulk checked these
+   vectors, and it is not built for the 68000 or `any'. */
+static const UCHAR t_poly_key[32] =
+{
+    0x85, 0xD6, 0xBE, 0x78, 0x57, 0x55, 0x6D, 0x33,
+    0x7F, 0x44, 0x52, 0xFE, 0x42, 0xD5, 0x06, 0xA8,
+    0x01, 0x03, 0x80, 0x8A, 0xFB, 0x0D, 0xB2, 0xFD,
+    0x4A, 0xBF, 0xF6, 0xAF, 0x41, 0x49, 0xF5, 0x1B
+};
+
+static const UCHAR t_poly_tag[16] =
+{
+    0xA8, 0x06, 0x1D, 0xC1, 0x30, 0x51, 0x36, 0xC6,
+    0xC2, 0x2B, 0x8B, 0xAF, 0x0C, 0x01, 0x27, 0xA9
+};
+
+static const UCHAR t_aead_key[32] =
+{
+    0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87,
+    0x88, 0x89, 0x8A, 0x8B, 0x8C, 0x8D, 0x8E, 0x8F,
+    0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97,
+    0x98, 0x99, 0x9A, 0x9B, 0x9C, 0x9D, 0x9E, 0x9F
+};
+
+static const UCHAR t_aead_nonce[12] =
+{
+    0x07, 0x00, 0x00, 0x00, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47
+};
+
+static const UCHAR t_aead_aad[12] =
+{
+    0x50, 0x51, 0x52, 0x53, 0xC0, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7
+};
+
+static const UCHAR t_aead_tag[16] =
+{
+    0x1A, 0xE1, 0x0B, 0x59, 0x4F, 0x09, 0xE2, 0x6A,
+    0x7E, 0x90, 0x2E, 0xCB, 0xD0, 0x60, 0x06, 0x91
+};
+
+static const UCHAR t_aead_plain[] =
+    "Ladies and Gentlemen of the class of '99: If I could offer you only "
+    "one tip for the future, sunscreen would be it.";
+
+static C68K_POLY1305            t_poly;
+static C68K_CHACHA20_POLY1305   t_aead;
+static UCHAR                    t_aead_buf[128];
+
+static VOID t_bytes(const char *what, const UCHAR *got, const UCHAR *want,
+                    ULONG n)
+{
+
+ULONG   i;
+
+
+    t_checks++;
+    for (i = 0; i < n; i++)
+    {
+        if (got[i] != want[i])
+        {
+            t_fail(what, i, got[i]);
+            return;
+        }
+    }
+}
+
+static VOID t_poly1305(VOID)
+{
+
+UCHAR   tag[16];
+
+
+    c68k_log("");
+    c68k_log("7. Poly1305 and ChaCha20-Poly1305 (RFC 8439), %s blocks:",
+             (LONG)(c68k_poly1305_blocks_is_asm() ? "assembly" : "portable C"));
+
+    c68k_poly1305_initialize(&t_poly, t_poly_key);
+    c68k_poly1305_update(&t_poly,
+                         (const UCHAR *)"Cryptographic Forum Research Group",
+                         34uL);
+    c68k_poly1305_finish(&t_poly, tag);
+    t_bytes("RFC 8439 2.5.2 tag", tag, t_poly_tag, 16uL);
+
+    c68k_chacha20_poly1305_initialize(&t_aead, t_aead_key, t_aead_nonce);
+    c68k_chacha20_poly1305_associate(&t_aead, t_aead_aad, 12uL);
+    c68k_chacha20_poly1305_encrypt(&t_aead, t_aead_plain, t_aead_buf, 114uL);
+    c68k_chacha20_poly1305_tag(&t_aead, tag);
+    t_bytes("RFC 8439 2.8.2 AEAD tag", tag, t_aead_tag, 16uL);
+
+    c68k_chacha20_poly1305_initialize(&t_aead, t_aead_key, t_aead_nonce);
+    c68k_chacha20_poly1305_associate(&t_aead, t_aead_aad, 12uL);
+    c68k_chacha20_poly1305_decrypt(&t_aead, t_aead_buf, t_aead_buf, 114uL);
+    c68k_chacha20_poly1305_tag(&t_aead, tag);
+    t_bytes("RFC 8439 2.8.2 plaintext", t_aead_buf, t_aead_plain, 114uL);
+    t_bytes("RFC 8439 2.8.2 tag on decrypt", tag, t_aead_tag, 16uL);
+
+    c68k_log("  2.5.2 tag, 2.8.2 AEAD seal and open");
+}
+
+
 int main(VOID)
 {
 
@@ -494,6 +677,8 @@ BOOL            quick   = (cmdline != NULL) &&
     t_mont_differential(quick ?  40u : 400u);
     t_powm_differential(quick ?  10u : 150u);
     t_edge_cases();
+    t_crt();
+    t_poly1305();
 
     c68k_log("");
     c68k_log("Wall time: %lu ms", c68k_eclock_millis(c68k_eclock() - start));
