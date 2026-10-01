@@ -27,7 +27,7 @@
 # same unit, carries a TCP connection the guest opens to its own zforce
 # address (NetX routes an interface's own address to that interface, so the
 # connection counts as zforce's).  A plain removal must refuse; then, while
-# aeth0 pings the gateway, `RemoveNetInterface zforce FORCE` must return
+# aeth0 pings the peer, `RemoveNetInterface zforce FORCE` must return
 # within FORCE_MS (rc 0, or 5 for a device that kept requests), aeth0 must
 # lose no ping, and the gateway and DNS checks must still pass after it.
 # This is the PiStorm32 defect of 2026-09-26: one FORCE removal stopped every
@@ -52,7 +52,7 @@ cd "$ROOT" || exit 2
 BUILD="${AMINETXDUO_BUILD:-build/cm}"
 BOARD=a2065
 TIMEOUT=450
-MIN_CHECKS=23
+MIN_CHECKS=22
 IFACE="${AMINETXDUO_AMIBERRY_BACKEND:-ens18}"
 ADDRESS=
 ADDRESS2=
@@ -192,12 +192,22 @@ printf 'DEVICE=a2065.device\nUNIT=0\nCONFIGURE=DHCP\n' \
 printf 'DEVICE=a2065.device\nUNIT=0\nCONFIGURE=STATIC\nADDRESS=%s\nNETMASK=255.255.255.0\n' \
     "$ADDRESS2" > "$STAGE/devs/NetInterfaces/zforce"
 
-# THE GATEWAY MUST ANSWER ICMP FROM THIS ADDRESS AT ALL.  The lab router
-# answers some rig addresses and silently ignores every ICMP request from
-# others (192.168.1.224 and .232 on 2026-10-01: no reply on the wire, on-link
-# or forwarded off-link, with aeth0 alone, while .244 answered every one).
-# aeth0 pings it alone first; no reply there leaves the ping checks below
-# undecidable, so the run says so and exits 2 rather than FAIL.
+# THE ON-LINK ICMP TARGET IS THE PEER, NOT THE ROUTER.  The lab router
+# ignores every ICMP request from some rig addresses (192.168.1.224 and .232 on
+# 2026-10-01: no reply on the wire, on-link or forwarded, with aeth0 alone,
+# while .244 got every one), which failed the ping checks on a bad address.
+# The peer is a Linux host on the segment and answers any source.  No peer:
+# the gateway, as before.  The gateway is still pinged once with aeth0 alone,
+# for the gateway_icmp_* line only; it decides nothing.
+PEER="${AMINETXDUO_PEER:-}"
+PROBE="${AMINETXDUO_IFSURVIVE_PROBE:-}"
+if [ -z "$PROBE" ] && [ -n "$PEER" ]; then
+    PROBE=$(ssh -n -o BatchMode=yes -o ConnectTimeout=10 "$PEER" \
+            "ip -4 -o route get $GATEWAY" 2> /dev/null |
+            sed -n 's/.* src \([0-9][0-9.]*\).*/\1/p' | head -1)
+fi
+[ -n "$PROBE" ] || PROBE="$GATEWAY"
+echo "icmp_target=$PROBE icmp_target_from=$( [ "$PROBE" = "$GATEWAY" ] && echo gateway || echo peer)"
 BASEPING="SYS:ping $GATEWAY -c 3 -t 15"
 
 {
@@ -206,7 +216,7 @@ BASEPING="SYS:ping $GATEWAY -c 3 -t 15"
     echo "SYS:AddNetInterface zeth1"
     echo "SYS:netstat -i"
     echo "SYS:ShowNetStatus"
-    echo "SYS:ping $GATEWAY -c 3 -t 20"
+    echo "SYS:ping $PROBE -c 3 -t 20"
     echo "SYS:ping $OFFLINK -c 3 -t 20"
     echo "SYS:ShowNetStatus ICMP"
     echo "SYS:nslookup example.com $OFFLINK"
@@ -215,7 +225,7 @@ BASEPING="SYS:ping $GATEWAY -c 3 -t 15"
     echo "SYS:RemoveNetInterface zeth1"
     echo "SYS:netstat -i"
     echo "SYS:ShowNetStatus"
-    echo "SYS:ping $GATEWAY -c 3 -t 20"
+    echo "SYS:ping $PROBE -c 3 -t 20"
     echo "SYS:ping $OFFLINK -c 3 -t 20"
     echo "SYS:ShowNetStatus ICMP"
     echo "SYS:nslookup example.net $OFFLINK"
@@ -225,7 +235,7 @@ BASEPING="SYS:ping $GATEWAY -c 3 -t 15"
     echo "&SYS:nc $ADDRESS2 $FORCE_PORT -v -w 120 >DH0:ifs-client.txt"
     echo "wait 3"
     echo "SYS:RemoveNetInterface zforce"
-    echo "&SYS:ping $GATEWAY -i 0 -c $GUEST_PING_COUNT -t $GUEST_PING_TIMEOUT >DH0:ifs-ping.txt"
+    echo "&SYS:ping $PROBE -i 0 -c $GUEST_PING_COUNT -t $GUEST_PING_TIMEOUT >DH0:ifs-ping.txt"
     echo "SYS:RemoveNetInterface zforce FORCE"
     echo "wait $((GUEST_PING_TIMEOUT + 5))"
     echo "SYS:ShowNetStatus ICMP"
@@ -255,6 +265,7 @@ if [ "$PINGFALS" = 1 ]; then
             echo "SYS:ShowNetStatus ICMP"
             echo "SYS:ping $GATEWAY -c 5 -t 20"
             echo "SYS:ping $OFFLINK -c 3 -t 20"
+            echo "SYS:ping $PROBE -c 3 -t 21"
             echo "SYS:ShowNetStatus ICMP"
             echo "SYS:netstat -i"
         done
@@ -296,7 +307,6 @@ HOSTPING="$ROOT/build/ifsurvive-hostping.txt"
 # bracketed by this host's), and the window is moved into the peer's clock
 # and widened by the read's uncertainty.  No peer, or no iputils on it: the
 # leg is SKIPPED, and says so.
-PEER="${AMINETXDUO_PEER:-}"
 PEER_SSH="ssh -n -o BatchMode=yes -o ConnectTimeout=10"
 PEER_PIDFILE="/tmp/claudecode-ifsurvive-ping.$(hostname -s 2> /dev/null || echo host).$$.pid"
 peer_version=""
@@ -318,7 +328,7 @@ echo "host_ping_leg=$( [ "$PEER_LEG" = 0 ] && echo run || echo skip)\
  host_ping_from=${PEER:-none} peer_ping_version=\"$(printf '%s' "${peer_version:-none}" | head -1)\"\
  peer_clock_offset_s=${PEER_OFF% *} peer_clock_err_s=${PEER_OFF#* }"
 [ "$PEER_LEG" = 0 ] || echo "  host ping leg will be SKIPPED: $peer_why"
-GUESTPING_HDR="===== &SYS:ping $GATEWAY -i 0 -c $GUEST_PING_COUNT -t $GUEST_PING_TIMEOUT >DH0:ifs-ping.txt ====="
+GUESTPING_HDR="===== &SYS:ping $PROBE -i 0 -c $GUEST_PING_COUNT -t $GUEST_PING_TIMEOUT >DH0:ifs-ping.txt ====="
 FORCE_HDR="===== SYS:RemoveNetInterface zforce FORCE ====="
 : > "$EVENTS"
 : > "$HOSTPING"
@@ -468,7 +478,9 @@ if [ "$PINGFALS" = 1 ]; then
         off=$(pf_block "SYS:ping $OFFLINK -c 3 -t 20" "$n")
         otx=$(printf '%s\n' "$off" | sed -n 's/^\([0-9]*\) packets transmitted, .*/\1/p' | head -1)
         orx=$(printf '%s\n' "$off" | sed -n 's/^[0-9]* packets transmitted, \([0-9]*\) .*/\1/p' | head -1)
-        echo "pingfals_leg=$leg ping_tx=${tx:-none} ping_rx=${rx:-none} offlink_tx=${otx:-none} offlink_rx=${orx:-none}"
+        pr=$(pf_block "SYS:ping $PROBE -c 3 -t 21" "$n")
+        prx=$(printf '%s\n' "$pr" | sed -n 's/^[0-9]* packets transmitted, \([0-9]*\) .*/\1/p' | head -1)
+        echo "pingfals_leg=$leg ping_tx=${tx:-none} ping_rx=${rx:-none} offlink_tx=${otx:-none} offlink_rx=${orx:-none} probe=$PROBE probe_rx=${prx:-none}"
         echo "pingfals_leg=$leg icmp_before: $(pf_kv "$(pf_block "SYS:ShowNetStatus ICMP" $((2 * n - 1)))")"
         echo "pingfals_leg=$leg icmp_after: $(pf_kv "$(pf_block "SYS:ShowNetStatus ICMP" $((2 * n)))")"
         echo "pingfals_leg=$leg netstat_before: $(pf_if "$(pf_block "SYS:netstat -i" $((2 * n - 1)))")"
@@ -547,7 +559,7 @@ gateway_of() { # ShowNetStatus text -> the default route, or empty
     sed -n 's/^Default route:[[:space:]]*\([0-9][0-9.]*\).*/\1/p' | head -1
 }
 
-ONLINK="SYS:ping $GATEWAY -c 3 -t 20"
+ONLINK="SYS:ping $PROBE -c 3 -t 20"
 OFFPING="SYS:ping $OFFLINK -c 3 -t 20"
 
 before=$(block "SYS:netstat -i" 1)
@@ -568,15 +580,11 @@ else
     fail "zeth1 has no DHCP address, so it did not install the gateway"
 fi
 
-if ! replied "$(block "$BASEPING" 1)"; then
-    rig "the gateway $GATEWAY answered no ICMP from $ADDRESS with aeth0 ALONE:\
- this rig's router ignores that source, so no ping check here decides anything"
-    verdict_kv "name=ifsurvive" "verdict=SKIP" "reason=gateway_no_icmp" \
-               "guest_address=$ADDRESS" "checks=0" "failures=0" \
-               "min_checks=$MIN_CHECKS" "run_rc=$RUN_RC" "transcript=$REPORT"
-    exit 2
-fi
-pass "the gateway answers ICMP from $ADDRESS with aeth0 alone"
+# Informational: whether the router answers ICMP from this address at all.
+gw_base=$(block "$BASEPING" 1)
+echo "gateway_icmp_tx=$(printf '%s\n' "$gw_base" | sed -n 's/^\([0-9]*\) packets transmitted, .*/\1/p' | head -1)\
+ gateway_icmp_rx=$(printf '%s\n' "$gw_base" | sed -n 's/^[0-9]* packets transmitted, \([0-9]*\) .*/\1/p' | head -1)\
+ gateway=$GATEWAY guest_address=$ADDRESS icmp_target=$PROBE"
 
 # The on-link target was written before boot.  The lease says what the
 # segment's router really is; a different one means -g is wrong for this rig,
@@ -600,7 +608,7 @@ else
 fi
 
 if replied "$(block "$ONLINK" 1)"; then
-    pass "the gateway answers on-link: real frames went over the wire"
+    pass "$PROBE answers on-link: real frames went over the wire"
 else
     fail "no on-link ping replies while both interfaces are up"
 fi
@@ -658,7 +666,7 @@ else
     pass "and its link is still up: the unit was not taken offline under it"
 fi
 if replied "$(block "$ONLINK" 2)"; then
-    pass "the gateway still answers on-link over aeth0"
+    pass "$PROBE still answers on-link over aeth0"
 else
     fail "NO ON-LINK PING REPLIES over aeth0 after zeth1 was removed: the\
  surviving interface has no wire"
