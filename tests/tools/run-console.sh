@@ -364,7 +364,7 @@ fi
 # The drive first, on every backend, then the bridge (tools/emu-rig-lock.sh):
 # stage() below wipes $HD, which is one directory for every run in this tree.
 HD="$ROOT/build/console-dh0"
-rig_claim_drive "$HD" "console ($BACKEND) in $ROOT" || {
+rig_claim_drive "$HD" "console ($BACKEND) in $ROOT" "$BACKEND" || {
     rc=$?
     say RESULT INFRA
     exit "$rc"

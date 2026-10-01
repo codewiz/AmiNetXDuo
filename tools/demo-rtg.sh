@@ -99,7 +99,7 @@ rig_standing_exempt "demo-rtg $TAG in $ROOT" "$MAC" "$BACKEND" || {
 # address are refused above, so they cannot share a drive either; the drive
 # lock (wait 0: a standing guest is up for hours) covers a pinned MAC too.
 HD="$ROOT/build/demo-rtg-dh0-$(printf '%s' "$MAC" | tr -d ':')"
-rig_claim_drive "$HD" "demo-rtg $TAG in $ROOT" 0 || exit $?
+rig_claim_drive "$HD" "demo-rtg $TAG in $ROOT" "$BACKEND" 0 || exit $?
 
 # ------------------------------------------------------ Workbench 3.1 SYS: --
 

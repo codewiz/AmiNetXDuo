@@ -154,7 +154,7 @@ OUT="$ROOT/build/nfsmount-$TAG"
 HD="$ROOT/build/nfshd-$TAG"
 # shellcheck source=../../tools/emu-rig-lock.sh
 . "$ROOT/tools/emu-rig-lock.sh"
-rig_claim_drive "$HD" "run-nfsmount $TAG in $ROOT" || exit $?
+rig_claim_drive "$HD" "run-nfsmount $TAG in $ROOT" "$BACKEND" || exit $?
 rig_claim_bridge "$BACKEND" "run-nfsmount $TAG in $ROOT" || exit $?
 
 rm -rf "$OUT"; mkdir -p "$OUT"

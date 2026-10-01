@@ -92,7 +92,7 @@ fi
 HD="$ROOT/build/wbgrab-dh0"
 # shellcheck source=tools/emu-rig-lock.sh
 . "$ROOT/tools/emu-rig-lock.sh"
-rig_claim_drive "$HD" "wbgrab in $ROOT" || exit $?
+rig_claim_drive "$HD" "wbgrab in $ROOT" none || exit $?
 
 # ------------------------------------------------------ Workbench 3.1 SYS: --
 

@@ -389,13 +389,6 @@ if [ "$SPACES" = "1" ]; then
 fi
 WORK="$ROOT/build/testwork-$TAG"
 
-# THIS TAG'S DRIVE, ON EVERY BACKEND, before anything below can wipe or
-# restage it: a second run of the tag would otherwise delete the live guest's
-# DH0: and Work: and then wait for the bridge.  One claim covers both
-# directories (they are named by the same tag), and it is held until the
-# script exits.  Drive before bridge, always: tools/emu-rig-lock.sh.
-rig_claim_drive "$HD" "run-workbench $TAG in $ROOT" || exit $?
-
 # ------------------------------------------------------------ ingredients --
 
 INSTALLER="${AMINETXDUO_INSTALLER:-}"
@@ -603,6 +596,13 @@ slirp|slirp_inbound|none)
     exit 2
     ;;
 esac
+
+# THIS TAG'S DRIVE, as soon as the backend is known and before anything below can wipe or
+# restage it: a second run of the tag would otherwise delete the live guest's
+# DH0: and Work: and then wait for the bridge.  One claim covers both
+# directories (they are named by the same tag), and it is held until the
+# script exits.  Drive before bridge, always: tools/emu-rig-lock.sh.
+rig_claim_drive "$HD" "run-workbench $TAG in $ROOT" "$BACKEND" || exit $?
 
 # ONE MAC PER TAG, derived, not pinned.  A fixed address here put every run of
 # this harness on the bridge under 52:54:00:c0:ff:ee, beside the demo instance

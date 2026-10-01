@@ -202,7 +202,8 @@ TAG="${AMINETXDUO_RUN_TAG:-cwb-$(printf '%s' "$MODEL" | tr '[:upper:]' '[:lower:
 # standing guest is up for hours, so a second launch on this drive is refused
 # at once (wait 0) rather than queued; tools/emu-rig-lock.sh has the codes.
 HD="$ROOT/build/classicwb-$TAG-dh0"
-rig_claim_drive "$HD" "classicwb $MODEL:$VARIANT in $ROOT" 0 || exit $?
+rig_claim_drive "$HD" "classicwb $MODEL:$VARIANT in $ROOT" "$BACKEND" 0 ||
+    exit $?
 
 say model "$MODEL"
 say variant "$VARIANT"

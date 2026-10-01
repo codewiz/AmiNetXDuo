@@ -369,7 +369,8 @@ rig_drop_bridge() {
 
 # ONE RUN PER TEST DRIVE, ON EVERY BACKEND.
 #
-#   rig_claim_drive <dir> <who> [wait]   # 0 held, 6 busy, 2 cannot arbitrate
+#   rig_claim_drive <dir> <who> <backend> [wait]
+#                                        # 0 held, 6 busy, 2 cannot arbitrate
 #   rig_drop_drive                       # close it in this shell or subshell
 #
 # The bridge lock is about the wire and skips SLIRP, so two runs of one tag in
@@ -383,8 +384,10 @@ rig_drop_bridge() {
 # Two checkouts with the same tag are two drives and stay parallel.
 #
 # Blocking and bounded like the bridge: [wait], else AMINETXDUO_DRIVE_WAIT,
-# else 1800 seconds, then 6.  2 is no flock(1) or a lock file that cannot be
-# made.  Inherited by the emulator, so the drive stays claimed while a guest
+# else 1800 seconds, then 6.  2 is a lock file that cannot be made, or no
+# flock(1) on a bridged backend.  WITHOUT flock(1) A NON-BRIDGED RUN DEGRADES:
+# one warning and 0, unlocked, so a SLIRP or no-network run on a host with no
+# flock (macOS) still runs; the wire needs arbitration, a lone drive does not.  Inherited by the emulator, so the drive stays claimed while a guest
 # outlives a killed launcher; long-lived helpers call rig_drop_drive first.
 #
 # LOCK ORDER, EVERYWHERE: DRIVE BEFORE BRIDGE.  A path that held the bridge
@@ -412,11 +415,16 @@ rig_drive_path() { # dir
            "$(rig_drive_realpath "$1" | cksum | cut -d' ' -f1)"
 }
 
-rig_claim_drive() { # dir who [wait]
+rig_claim_drive() { # dir who backend [wait]
     [ -n "${1:-}" ] || { echo "rig_claim_drive: no drive named" >&2; return 2; }
     [ -z "$RIG_DRIVE_FD" ] || return 0
-    rig_have_flock || { rig_no_flock; return 2; }
-    local who="${2:-$$}" limit="${3:-${AMINETXDUO_DRIVE_WAIT:-1800}}"
+    if ! rig_have_flock; then
+        rig_backend_bridged "${3:-}" && { rig_no_flock; return 2; }
+        echo "no flock: drive $(rig_drive_realpath "$1") not locked;" \
+             "do not run two of this tag at once" >&2
+        return 0
+    fi
+    local who="${2:-$$}" limit="${4:-${AMINETXDUO_DRIVE_WAIT:-1800}}"
     local f fd rc start waited real
     mkdir -p "$(dirname "$1")" 2> /dev/null || true
     real=$(rig_drive_realpath "$1")

@@ -258,6 +258,27 @@ else
     kv noflock_rc "wrong:function=$fn_rc:run=$(cat "$S/noflock.rc")"
 fi
 
+# The drive lock degrades without flock(1) when nothing is on the wire: one
+# warning and 0, unlocked.  On a bridged backend it stays strict.  Through
+# amiberry-run.sh a SLIRP run gets past the drive with the warning; its 2 is
+# rig_claim_port's, which needs flock(1) on main as well.
+dn=$(PATH="$S/noflock" AMINETXDUO_BRIDGE_LOCK="$S/bridge.lock" bash -c '
+    . "$1/tools/emu-rig-lock.sh"
+    rig_claim_drive "$2/nf-drive" nf slirp 2> "$2/nf-slirp.err"; a=$?
+    rig_claim_drive "$2/nf-drive" nf ens18 2> /dev/null; b=$?
+    echo "$a,$b"' _ "$ROOT" "$S")
+: > "$EV"
+PATH="$S/noflock" run C noflockslirp slirp
+if [ "$dn" = 0,2 ] &&
+   grep -q '^no flock: drive .*nf-drive not locked; do not run two of this tag at once$' \
+       "$S/nf-slirp.err" &&
+   grep -q '^no flock: drive .*amiberry-testhd-ifsurvive not locked' "$S/noflockslirp.out" &&
+   ! grep -q 'drive lock' "$S/noflockslirp.out"; then
+    kv noflock_drive ok
+else
+    kv noflock_drive "wrong:slirp,bridged=$dn:run=$(cat "$S/noflockslirp.rc")"
+fi
+
 : > "$EV"
 run C unwritable ens18 AMINETXDUO_BRIDGE_LOCK="$S/no/such/dir/bridge.lock"
 if [ "$(cat "$S/unwritable.rc")" = 2 ] && [ ! -s "$EV" ] &&

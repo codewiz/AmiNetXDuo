@@ -98,7 +98,8 @@ fi
 # rig_claim_drive): two SLIRP runs of one tag in this checkout are one drive.
 # The standing check above never waits, so it may come first.
 rig_claim_drive "$ROOT/build/amiberry-testhd-${AMINETXDUO_RUN_TAG:-amiberry}" \
-    "${AMINETXDUO_RUN_TAG:-amiberry} ($_pre_backend) in $ROOT" || exit $?
+    "${AMINETXDUO_RUN_TAG:-amiberry} ($_pre_backend) in $ROOT" "$_pre_backend" ||
+    exit $?
 if [ -z "$STANDING" ] || ! rig_backend_bridged "$_pre_backend"; then
     rig_claim_bridge "$_pre_backend" \
         "${AMINETXDUO_RUN_TAG:-amiberry} ($_pre_backend) in $ROOT" || exit $?

@@ -137,7 +137,7 @@ fi
 
 # The drive, before anything below assembles, wipes or restages it.  Wait 0:
 # a standing guest is up for hours (tools/emu-rig-lock.sh has the codes).
-rig_claim_drive "$HD" "console-instance in $RUN" 0 || {
+rig_claim_drive "$HD" "console-instance in $RUN" "$BACKEND" 0 || {
     rc=$?
     say RESULT INFRA
     exit "$rc"
