@@ -9,6 +9,7 @@
 # made of its own code bytes, and on a PiStorm32 A1200 neither card came up.
 # This compiles a call through each typedef with the tree's flags and stops
 # the configure unless the caller pops what it pushed: 8, 16 and 4 bytes.
+# It also pins the record's offsets, which no version from MIN on may move.
 #
 # SPDX-License-Identifier: MIT
 
@@ -19,7 +20,18 @@ endif()
 set(_s2x_dir "${CMAKE_BINARY_DIR}/check-anxs2ext-abi")
 file(MAKE_DIRECTORY "${_s2x_dir}")
 file(WRITE "${_s2x_dir}/probe.c" [=[
+#include <stddef.h>
 #include <aminetxduo/anxs2ext.h>
+/* The record's prefix is the same at every version from MIN on: a driver
+   accepting [MIN, VERSION] reads these offsets whichever one it is handed. */
+_Static_assert(offsetof(AnxdS2Extension, Version)  ==  0, "Version");
+_Static_assert(offsetof(AnxdS2Extension, Size)     ==  2, "Size");
+_Static_assert(offsetof(AnxdS2Extension, Request)  ==  4, "Request");
+_Static_assert(offsetof(AnxdS2Extension, Accepted) ==  8, "Accepted");
+_Static_assert(offsetof(AnxdS2Extension, RxDirect) == 12, "RxDirect");
+_Static_assert(offsetof(AnxdS2Extension, RxFilled) == 16, "RxFilled");
+_Static_assert(offsetof(AnxdS2Extension, TxFlags)  == 20, "TxFlags");
+_Static_assert(sizeof(AnxdS2Extension)             == 24, "size");
 UBYTE *probe_rx_direct(AnxdS2RxDirect f, APTR io, ULONG len)
 {
     return f(io, len) + 1;
