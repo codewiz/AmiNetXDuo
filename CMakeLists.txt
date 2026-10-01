@@ -191,6 +191,10 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     message(STATUS "No CMAKE_BUILD_TYPE given; using Release")
 endif()
 
+# The C flags are final here: an indirect tail call under -mregparm loses its
+# pointer argument unless sibling calls are off.  m68k cross builds only.
+include("${CMAKE_SOURCE_DIR}/cmake/check-regparm-sibcall.cmake")
+
 # ---------------------------------------------------------------- options ---
 
 option(AMINETXDUO_IPV6 "Build the IPv6 dual stack"                    ON)
