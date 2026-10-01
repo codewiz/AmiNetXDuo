@@ -319,8 +319,9 @@ sleep 1
 # shellcheck source=emu-rig-lock.sh
 . "$ROOT/tools/emu-rig-lock.sh"
 rig_claim_bridge "$BACKEND" "demo-rtg $TAG in $ROOT" || {
+    rc=$?
     kill "$SNIFFER" 2>/dev/null || true
-    exit 6
+    exit "$rc"
 }
 setsid "$AMIBERRY" -f "$CFG" >"$EMULOG" 2>&1 &
 EMU_PID=$!

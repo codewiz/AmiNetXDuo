@@ -266,8 +266,9 @@ EOF
 # shellcheck source=../../tools/emu-rig-lock.sh
 . "$ROOT/tools/emu-rig-lock.sh"
 rig_claim_bridge "$BACKEND" "console-instance in $ROOT" || {
+    rc=$?
     say RESULT INFRA
-    exit 6
+    exit "$rc"
 }
 ( trap '' PIPE; exec "$AMIBERRY" -f "$CFG" ) >>"$EMULOG" 2>&1 &
 printf '%s\n' "$!" > "$PIDFILE"

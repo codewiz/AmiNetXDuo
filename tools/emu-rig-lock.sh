@@ -178,7 +178,8 @@ rig_release_name() { # name
 
 # ONE BRIDGED GUEST PER HOST.
 #
-#   rig_claim_bridge <backend> <who>   # 0 held (or not bridged), 1 refused
+#   rig_claim_bridge <backend> <who>   # 0 held (or not bridged), 6 busy,
+#                                      # 2 cannot arbitrate here
 #   rig_drop_bridge                    # close it in this shell or subshell
 #
 # A guest on a host NIC shares the segment with every other one on the host,
@@ -198,6 +199,12 @@ rig_release_name() { # name
 #
 # BLOCKING, BOUNDED.  It waits AMINETXDUO_BRIDGE_WAIT seconds (default 1800)
 # for the run ahead to finish, saying whose run that is, and then refuses.
+#
+# THE RETURN IS THE EXIT CODE, so a caller writes `|| exit $?`: 6 is another
+# guest held the rig for the whole wait (rig_busy in tools/test-verdict.sh);
+# 2 is a missing ingredient -- no flock(1), or a lock file that cannot be
+# created or opened -- which is amiberry-run.sh's code for the same thing and
+# must never read as somebody else's guest.
 # The wait is a background flock(1) and `wait`, so a TERM to the harness is
 # acted on at once rather than after the timeout.
 #
@@ -234,15 +241,18 @@ rig_bridge_holders() {
 rig_claim_bridge() { # backend who
     rig_backend_bridged "${1:-}" || return 0
     [ -z "$RIG_BRIDGE_FD" ] || return 0
-    rig_have_flock || { rig_no_flock; return 1; }
+    rig_have_flock || { rig_no_flock; return 2; }
     local who="${2:-$$}" f fd rc start waited
     local limit="${AMINETXDUO_BRIDGE_WAIT:-1800}"
     f=$(rig_bridge_path)
 
     # Append, never truncate, until it is ours: the record is the holder's.
     ( umask 000; : >> "$f" ) 2> /dev/null || {
-        echo "cannot create the bridge lock $f" >&2; return 1; }
-    exec {fd}>>"$f" || return 1
+        echo "cannot create the bridge lock $f" >&2; return 2; }
+    # No `2> /dev/null` on this exec: it would silence stderr for the rest of
+    # the run (see rig_claim_port).  The `:` above is the quiet test.
+    exec {fd}>>"$f" || {
+        echo "cannot open the bridge lock $f" >&2; return 2; }
 
     if ! flock -n -x "$fd" 2> /dev/null; then
         echo "==> another bridged guest is up on this host; waiting up to" \
@@ -267,7 +277,7 @@ rig_claim_bridge() { # backend who
             echo "  run this one with -B slirp, or raise" \
                  "AMINETXDUO_BRIDGE_WAIT." >&2
             exec {fd}>&-
-            return 1
+            return 6
         fi
         echo "==> bridge free after ${waited}s"
     fi

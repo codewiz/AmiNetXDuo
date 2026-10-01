@@ -898,8 +898,9 @@ sleep 1
 # dropped by this script once it has it, so the window timer below cannot keep
 # the rig after the guest is gone.
 rig_claim_bridge "$BACKEND" "classicwb $TAG in $ROOT" || {
+    rc=$?
     kill "$SNIFFER" 2>/dev/null || true
-    exit 6
+    exit "$rc"
 }
 start_emulator "$CFG" "$EMULOG"
 rig_drop_bridge

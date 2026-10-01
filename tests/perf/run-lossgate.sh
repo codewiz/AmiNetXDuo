@@ -214,7 +214,7 @@ GUEST=""
 # lossgate runs distinct.
 # shellcheck source=../../tools/emu-mac.sh
 . "$ROOT/tools/emu-mac.sh"
-export AMINETXDUO_AMIBERRY_MAC="${AMINETXDUO_AMIBERRY_MAC:-$(emu_mac_for_run "$TAG")}"
+export AMINETXDUO_AMIBERRY_MAC="${AMINETXDUO_AMIBERRY_MAC:-$(emu_mac_default "$TAG")}"
 echo "==> sweep MAC $AMINETXDUO_AMIBERRY_MAC (warm-up and measured arms)"
 
 guest_address_from() { # transcript

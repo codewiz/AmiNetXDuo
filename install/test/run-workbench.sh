@@ -590,7 +590,7 @@ esac
 # wins, for a run that wants a reservation to hold.
 # shellcheck source=../../tools/emu-mac.sh
 . "$ROOT/tools/emu-mac.sh"
-MAC="${AMINETXDUO_EMU_MAC:-$(emu_mac_for_run "$TAG")}"
+MAC="${AMINETXDUO_EMU_MAC:-$(emu_mac_default "$TAG")}"
 
 XDFTOOL="${AMINETXDUO_XDFTOOL:-}"
 if [ -z "$XDFTOOL" ]; then
@@ -1542,7 +1542,7 @@ EOF
     if [ "$net" = "net" ]; then
         # One bridged guest per host, from the first networked boot until this
         # script exits; tools/emu-rig-lock.sh has the why.
-        rig_claim_bridge "$BACKEND" "run-workbench $TAG in $ROOT" || exit 6
+        rig_claim_bridge "$BACKEND" "run-workbench $TAG in $ROOT" || exit $?
         # tools/emu-board.sh, shared with tools/amiberry-run.sh.  These keys
         # lived here as two literal a2065 lines, which is what made this gate
         # a one-card gate.

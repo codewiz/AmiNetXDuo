@@ -362,8 +362,9 @@ fi
 . "$ROOT/tools/emu-rig-lock.sh"
 
 rig_claim_bridge "$BACKEND" "console ($BACKEND) in $ROOT" || {
+    rc=$?
     say RESULT INFRA
-    exit 6
+    exit "$rc"
 }
 
 if [ "$ADDRESS_SET" = 0 ]; then

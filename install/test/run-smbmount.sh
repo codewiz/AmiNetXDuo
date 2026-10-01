@@ -108,7 +108,7 @@ done
 # guests, and a peer's neighbour cache then keeps whichever answered last.
 # shellcheck source=../../tools/emu-mac.sh
 . "$ROOT/tools/emu-mac.sh"
-[ -n "$MAC" ] || MAC=$(emu_mac_for_run "$TAG")
+[ -n "$MAC" ] || MAC=$(emu_mac_default "$TAG")
 
 case "$OSVER" in 31|32) ;; *) echo "-o takes 31 or 32" >&2; exit 2 ;; esac
 # WHICH CLIENT.  Two programs, two protocols, one share: smb2-handler speaks
@@ -784,7 +784,7 @@ SERIAL="$ROOT/build/smb-$TAG-serial.log"
 rig_claim_port "run-smbmount $TAG" || exit 2
 PORT="$RIG_PORT"
 # One bridged guest per host, until this script exits.
-rig_claim_bridge "$BACKEND" "run-smbmount $TAG in $ROOT" || exit 6
+rig_claim_bridge "$BACKEND" "run-smbmount $TAG in $ROOT" || exit $?
 : > "$SERIAL"
 
 if [ -n "${AMINETXDUO_SMB_BOARD:-}" ]; then

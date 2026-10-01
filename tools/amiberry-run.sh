@@ -55,6 +55,26 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # cannot take anything away, and it covers every artefact a guest writes rather
 # than the one that was noticed.
 #
+# EXCEPT THAT ON A BRIDGED RUN THE BRIDGE LOCK COMES FIRST.  A second run of
+# the same tag in the same checkout would otherwise delete the drive of the
+# guest that is running under the lock and then wait for it.  So -B is read
+# here, in a quiet first pass, and a host-NIC run claims the bridge before the
+# wipe.  A run refused there exits 6 or 2 with the drive untouched, which is
+# right: it is the holder's drive, and a nonzero exit is never a result.
+#
+# ONE BRIDGED GUEST ON THIS HOST, taken here so that no harness can boot one
+# without it.  The emulator inherits the descriptor and holds it until it
+# exits; rig_claim_bridge in tools/emu-rig-lock.sh has the why and the codes.
+# SLIRP and boardless runs return at once and stay parallel.
+_pre_backend="${AMINETXDUO_AMIBERRY_BACKEND:-slirp}"
+while getopts ":t:m:c:k:N:B:I:a:" _o; do
+    [ "$_o" != B ] || _pre_backend="$OPTARG"
+done
+OPTIND=1
+# shellcheck source=emu-rig-lock.sh
+. "$ROOT/tools/emu-rig-lock.sh"
+rig_claim_bridge "$_pre_backend" \
+    "${AMINETXDUO_RUN_TAG:-amiberry} ($_pre_backend) in $ROOT" || exit $?
 rm -rf "$ROOT/build/amiberry-testhd-${AMINETXDUO_RUN_TAG:-amiberry}"
 TIMEOUT=120
 MODEL=A1200
@@ -257,7 +277,7 @@ board_mac() { # index
     if [ "$1" = 0 ]; then
         printf '%s\n' "$MAC"
     else
-        emu_mac_for_run "$MACTAG#$1"
+        emu_mac_default "$MACTAG#$1"
     fi
 }
 
@@ -289,18 +309,11 @@ CFG="$ROOT/build/amiberry-$TAG.uae"
 # rig_claim_port both locks the number against every other harness in this tree
 # and bind-probes it against everything else on the host, and HOLDS it -- the
 # descriptor stays open for the life of this script, so the reservation cannot
-# lapse between the probe and the emulator's own bind.
-# shellcheck source=emu-rig-lock.sh
-. "$ROOT/tools/emu-rig-lock.sh"
+# lapse between the probe and the emulator's own bind.  tools/emu-rig-lock.sh
+# was sourced at the top, for the bridge; sourcing it again would forget that
+# claim's descriptor.
 rig_claim_port "amiberry $TAG" || exit 2
 PORT="$RIG_PORT"
-
-# ONE BRIDGED GUEST ON THIS HOST, taken here so that no harness can boot one
-# without it, and before anything is staged so that a run which has to wait
-# has not yet written a drive.  The emulator inherits the descriptor and holds
-# it until it exits; rig_claim_bridge in tools/emu-rig-lock.sh has the why.
-# SLIRP and boardless runs return at once and stay parallel.
-rig_claim_bridge "$BACKEND" "$TAG ($BACKEND) in $ROOT" || exit 6
 
 # AND NO ORPHANED READER IS AIMED AT IT.  rig_port_readers has the mechanism
 # and the reason it is anchored the way it is.  The reader's own pid goes in a
@@ -342,17 +355,19 @@ RUNTOKEN="$(printf '%s-%s-%s' "$$" "$PORT" "$(date +%s)")"
 # shellcheck source=emu-mac.sh
 . "$ROOT/tools/emu-mac.sh"
 #
-# AND PER RUN, NOT ONLY PER TAG: a manual run-ifsurvive and CI's ifsurvive arm
-# share a tag, so a tag-only MAC put both guests on ens18 under one address on
-# 2026-10-01.  emu_mac_for_run mixes in the invocation (emu_run_id), which is
-# the same for every boot of one harness run and differs between two.
+# PER TAG BY DEFAULT, so a CI run asks the router for the leases it already
+# holds instead of dozens of new ones from a pool shared with the bench.  Two
+# runs of one tag can no longer be on the bridge at once -- the bridge lock --
+# so they cannot collide.  AMINETXDUO_MAC_PER_RUN=1 mixes the invocation in
+# (emu_mac_default in tools/emu-mac.sh) for a run that wants the neighbour
+# caches cold.
 #
 # AMINETXDUO_MAC_TAG derives the address from another tag than the run's own.
 # A matrix harness sets one per script: its cases run one after another, each
 # under its own run tag for the logs, and a MAC per case put 50+ addresses on
 # the lab LAN per CI run and drained the router's 2 h DHCP pool.
 MACTAG="${AMINETXDUO_MAC_TAG:-$TAG}"
-MAC="${AMINETXDUO_AMIBERRY_MAC:-$(emu_mac_for_run "$MACTAG")}"
+MAC="${AMINETXDUO_AMIBERRY_MAC:-$(emu_mac_default "$MACTAG")}"
 
 # EXCEPT ON THE ONE BOARD WHERE THE EMULATOR THROWS THE MAC AWAY.  Amiberry
 # instantiates the PCMCIA NE2000 with no autoconfig record at all

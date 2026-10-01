@@ -99,7 +99,7 @@ export AMINETXDUO_RUN_TAG="$TAG"
 # answered last.
 # shellcheck source=../../tools/emu-mac.sh
 . "$ROOT/tools/emu-mac.sh"
-[ -n "$MAC" ] || MAC=$(emu_mac_for_run "$TAG")
+[ -n "$MAC" ] || MAC=$(emu_mac_default "$TAG")
 
 need() { [ -e "$1" ] || { echo "!! missing $1${2:+ -- $2}" >&2; exit 2; }; }
 
@@ -359,7 +359,7 @@ SERIAL="$OUT/serial.log"
 rig_claim_port "run-nfsmount $TAG" || exit 2
 PORT="$RIG_PORT"
 # One bridged guest per host, until this script exits.
-rig_claim_bridge "$BACKEND" "run-nfsmount $TAG in $ROOT" || exit 6
+rig_claim_bridge "$BACKEND" "run-nfsmount $TAG in $ROOT" || exit $?
 : > "$SERIAL"
 
 cat > "$CFG" <<UAEEOF

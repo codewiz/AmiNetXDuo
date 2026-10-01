@@ -6,6 +6,7 @@
 #   . tools/emu-mac.sh
 #   MAC=$(emu_mac_for_tag "$TAG")    # the same in every run
 #   MAC=$(emu_mac_for_run "$TAG")    # fresh per invocation
+#   MAC=$(emu_mac_default "$TAG")    # per tag; per run with AMINETXDUO_MAC_PER_RUN=1
 #
 # The fifth byte is never 0x00 and never 0x0d, which is what keeps a derived
 # address clear of every harness that pins its own: tools/demo.sh 00:77 and the
@@ -54,4 +55,16 @@ emu_run_id() {
 # $1 = the run tag.  One MAC for this tag in this invocation.
 emu_mac_for_run() {
     emu_mac_for_tag "$1@$(emu_run_id)"
+}
+
+# What a harness uses when the caller pinned nothing.  Per TAG: every fresh
+# address is a new lease from a DHCP pool the bench, the A1200 and the
+# printers share, and the bridge lock already keeps two runs of a tag off the
+# segment together.  AMINETXDUO_MAC_PER_RUN=1 opts into a fresh one.
+emu_mac_default() {
+    if [ "${AMINETXDUO_MAC_PER_RUN:-0}" = 1 ]; then
+        emu_mac_for_run "$1"
+    else
+        emu_mac_for_tag "$1"
+    fi
 }

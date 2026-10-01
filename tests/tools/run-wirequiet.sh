@@ -206,7 +206,7 @@ while read -r -u 3 board model _addr _mac; do
 
     tag="wirequiet-$board"
     # Pinned below, so the capture filter and the guest agree on it.
-    WANTMAC=$(emu_mac_for_run "$tag")
+    WANTMAC=$(emu_mac_default "$tag")
 
     echo
     echo "===================== $board ($drv, $model) ====================="
