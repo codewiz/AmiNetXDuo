@@ -18,7 +18,8 @@
 set -euo pipefail
 
 
-GCC_VERSION="16.2.0"
+# Immutable asset series.  The compiler itself still reports 16.2.0b.
+GCC_VERSION="16.2.2"
 PREFIX="opt/m68k-amigaos"
 
 # The platform is part of the asset name because there is now more than one,

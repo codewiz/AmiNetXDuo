@@ -31,12 +31,10 @@ set -euo pipefail
 # below.  NDK 3.9, not the newer 3.2: 3.2 renamed long-standing types and the
 # sources are written to the spellings both accept.
 TC_GCC_VERSION="16.2.0b"
-# 16.2.1 rather than a rebuilt 16.2.0: the content is different -- gcc moved to
-# 60f21496, binutils carries the two bfd LTO patches and is configured
-# --enable-plugins, and lib/bfd-plugins links the plugin -- and serving
-# different bytes from a URL somebody has already fetched is how a sha256 check
-# stops meaning anything. Old commits keep resolving to the old tag.
-TC_ASSET_VERSION="16.2.1"
+# 16.2.2 is an immutable asset series built from the pinned GCC fork commit
+# 243a0096 (the m68k sibcall/a0 wrong-code fix). The GCC version string remains
+# 16.2.0b. Older assets and their hashes remain available at their original tags.
+TC_ASSET_VERSION="16.2.2"
 TC_PREFIX_IN_TAR="opt/m68k-amigaos"
 
 TC_MIRROR_REPO="tinic/AmiNetXDuo"
@@ -52,11 +50,11 @@ ARCH=$(uname -m)
 case "$OS/$ARCH" in
     Linux/x86_64|Linux/amd64)
         TC_PLATFORM="linux-x86_64"
-        TC_SHA256="3869b4427396fe2037b901f5082ff85b7ae0208cadfc8762ee447020e7888820"
+        TC_SHA256="3e57867837642ddf4b3586ceffd9aa83f52f42f2ca865961022bcbda32c77212"
         ;;
     Darwin/arm64|Darwin/aarch64)
         TC_PLATFORM="darwin-arm64"
-        TC_SHA256="fd202a65e616485526a35a966732008e9e62a447435e5853b3c705e32da3d732"
+        TC_SHA256="2ebc324ca0aa51b982cb1eb86fe31886e3034e97089f352c3ce5bcf429e589c1"
         ;;
     *)
         TC_PLATFORM=""
