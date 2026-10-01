@@ -51,8 +51,8 @@ cd "$ROOT" || exit 2
 
 BUILD="${AMINETXDUO_BUILD:-build/cm}"
 BOARD=a2065
-TIMEOUT=360
-MIN_CHECKS=19
+TIMEOUT=450
+MIN_CHECKS=22
 IFACE="${AMINETXDUO_AMIBERRY_BACKEND:-ens18}"
 ADDRESS=
 ADDRESS2=
@@ -71,6 +71,16 @@ OFFLINK="${AMINETXDUO_IFSURVIVE_OFFLINK:-8.8.8.8}"
 # nothing (sana2_internal.h); this one answers.
 FORCE_MS="${AMINETXDUO_IFSURVIVE_FORCE_MS:-15000}"
 FORCE_PORT=7777
+
+# The two probes that must span the FORCE window.  The guest's: back to back
+# (-i 0, one request in flight), started right before the FORCE, and enough of
+# them to outlast it; every one must be SENT and none lost.  The host's: Linux
+# iputils at its non-root minimum interval, started seconds before the FORCE
+# and stopped seconds after it, from the host to aeth0's address.
+GUEST_PING_COUNT=3000
+GUEST_PING_TIMEOUT=90
+HOST_PING_INTERVAL_MS=200
+HOST_PING_TAIL_S=5
 
 while getopts "b:t:N:B:a:c:g:" opt; do
     case "$opt" in
@@ -188,10 +198,9 @@ printf 'DEVICE=a2065.device\nUNIT=0\nCONFIGURE=STATIC\nADDRESS=%s\nNETMASK=255.2
     echo "&SYS:nc $ADDRESS2 $FORCE_PORT -v -w 120 >DH0:ifs-client.txt"
     echo "wait 3"
     echo "SYS:RemoveNetInterface zforce"
-    echo "&SYS:ping $GATEWAY -c 25 -t 40 >DH0:ifs-ping.txt"
-    echo "wait 3"
+    echo "&SYS:ping $GATEWAY -i 0 -c $GUEST_PING_COUNT -t $GUEST_PING_TIMEOUT >DH0:ifs-ping.txt"
     echo "SYS:RemoveNetInterface zforce FORCE"
-    echo "wait 30"
+    echo "wait $((GUEST_PING_TIMEOUT + 5))"
     echo "SYS:ShowNetStatus"
     echo "SYS:nslookup example.edu $OFFLINK"
     echo "SYS:RemoveNetInterface aeth0"
@@ -206,6 +215,91 @@ TAG=ifsurvive
 REPORT="$ROOT/build/amiberry-testhd-$TAG/tools.txt"
 rm -f "$REPORT"
 
+# ------------------------------------------------- the host-side watcher ---
+#
+# The guest's clock is not the host's, so the FORCE window is taken on the
+# host: ToolsSmoke opens, appends and closes tools.txt for every header and
+# every rc line, and the drawer is a host directory, so each one is visible
+# here within the 100 ms poll.  Recorded as epoch seconds, key=value, into
+# $EVENTS:
+#   force_start   "===== SYS:RemoveNetInterface zforce FORCE =====" appeared
+#   force_end     the "----- rc" line after it appeared
+#   guest_ping_start  its "===== &SYS:ping ..." header (written just before
+#                     the process is started, and before the FORCE header)
+#   guest_ping_end    its statistics line (ping's output reaches the file
+#                     when it exits)
+#   host_ping_start / host_ping_end  launch and stop of the host's ping,
+#                     launched at "AddNetInterface zforce", stopped
+#                     HOST_PING_TAIL_S after force_end
+EVENTS="$ROOT/build/ifsurvive-events.txt"
+HOSTPING="$ROOT/build/ifsurvive-hostping.txt"
+GUESTPING_HDR="===== &SYS:ping $GATEWAY -i 0 -c $GUEST_PING_COUNT -t $GUEST_PING_TIMEOUT >DH0:ifs-ping.txt ====="
+FORCE_HDR="===== SYS:RemoveNetInterface zforce FORCE ====="
+: > "$EVENTS"
+: > "$HOSTPING"
+
+ifs_watch() {
+    local deadline now txt hp_pid="" hp_stop="" fe="" fs="" gs="" ge="" add=""
+    local interval_s
+    interval_s=$(awk -v ms="$HOST_PING_INTERVAL_MS" 'BEGIN { printf "%.1f", ms / 1000 }')
+    deadline=$(( $(date +%s) + TIMEOUT + 120 ))
+
+    while [ "$(date +%s)" -lt "$deadline" ]; do
+        now=$(date +%s.%N)
+        txt=$(tr -d '\r' < "$REPORT" 2> /dev/null || true)
+
+        if [ -z "$add" ] &&
+           printf '%s\n' "$txt" | grep -qxF "===== SYS:AddNetInterface zforce ====="
+        then
+            add=1
+            ping -D -i "$interval_s" -W 1 -w $((GUEST_PING_TIMEOUT + 60)) \
+                 "$ADDRESS" > "$HOSTPING" 2>&1 &
+            hp_pid=$!
+            echo "host_ping_start=$now" >> "$EVENTS"
+        fi
+        if [ -z "$gs" ] && printf '%s\n' "$txt" | grep -qxF "$GUESTPING_HDR"; then
+            gs=1; echo "guest_ping_start=$now" >> "$EVENTS"
+        fi
+        if [ -z "$fs" ] && printf '%s\n' "$txt" | grep -qxF "$FORCE_HDR"; then
+            fs=1; echo "force_start=$now" >> "$EVENTS"
+        fi
+        if [ -n "$fs" ] && [ -z "$fe" ] &&
+           printf '%s\n' "$txt" | awk -v h="$FORCE_HDR" '
+               $0 == h { on = 1; next }
+               on && /^----- rc / { f = 1 }
+               on && /^===== / { on = 0 }
+               END { exit !f }'
+        then
+            fe=1; echo "force_end=$now" >> "$EVENTS"
+            hp_stop=$(awk -v n="$now" -v t="$HOST_PING_TAIL_S" 'BEGIN { printf "%.3f", n + t }')
+        fi
+        if [ -z "$ge" ] &&
+           tr -d '\r' < "$HD_WATCH/ifs-ping.txt" 2> /dev/null |
+               grep -q " packets transmitted, "
+        then
+            ge=1; echo "guest_ping_end=$now" >> "$EVENTS"
+        fi
+        if [ -n "$hp_pid" ] && [ -n "$hp_stop" ] &&
+           awk -v n="$now" -v s="$hp_stop" 'BEGIN { exit !(n >= s) }'
+        then
+            kill -INT "$hp_pid" 2> /dev/null; wait "$hp_pid" 2> /dev/null
+            echo "host_ping_end=$(date +%s.%N)" >> "$EVENTS"
+            hp_pid=""
+        fi
+        printf '%s\n' "$txt" | grep -q '^===== done' && break
+        sleep 0.1
+    done
+
+    if [ -n "$hp_pid" ]; then
+        kill -INT "$hp_pid" 2> /dev/null; wait "$hp_pid" 2> /dev/null
+        echo "host_ping_end=$(date +%s.%N)" >> "$EVENTS"
+    fi
+}
+
+HD_WATCH="$ROOT/build/amiberry-testhd-$TAG"
+ifs_watch &
+WATCH_PID=$!
+
 (
     export AMINETXDUO_RUN_TAG="$TAG"
     "$ROOT/tools/amiberry-run.sh" -N "$BOARD" -B "$IFACE" -m A1200 -t "$TIMEOUT" \
@@ -215,6 +309,7 @@ rm -f "$REPORT"
         "$TOOLS/nslookup" "$TOOLS/nc" "$STAGE/commands.txt"
 )
 RUN_RC=$?
+wait "$WATCH_PID" 2> /dev/null
 
 serial_log_have "$(serial_log_path "$TAG")" "$BUILD" \
                 "guest ami_log() output" || true
@@ -499,15 +594,13 @@ fi
 force=$(block "SYS:RemoveNetInterface zforce FORCE" 1)
 force_rc=$(rc_of_block "$force")
 force_ms=$(ms_of "$force")
-ping_text=$(tr -d '\r' < "$HD/ifs-ping.txt" 2>/dev/null || true)
-ping_tx=$(printf '%s\n' "$ping_text" |
-          sed -n 's/^\([0-9]*\) packets transmitted, .*/\1/p' | head -1)
-ping_rx=$(printf '%s\n' "$ping_text" |
-          sed -n 's/^[0-9]* packets transmitted, \([0-9]*\) received.*/\1/p' |
-          head -1)
+ev() { sed -n "s/^$1=//p" "$EVENTS" | head -1; }
+FORCE_START=$(ev force_start);           FORCE_END=$(ev force_end)
+GPING_START=$(ev guest_ping_start);      GPING_END=$(ev guest_ping_end)
+HPING_START=$(ev host_ping_start);       HPING_END=$(ev host_ping_end)
 echo "force_rc=${force_rc:-none} force_ms=${force_ms:-none}\
- force_bound_ms=$FORCE_MS ping_tx=${ping_tx:-none} ping_rx=${ping_rx:-none}"
-
+ force_bound_ms=$FORCE_MS force_start=${FORCE_START:-none}\
+ force_end=${FORCE_END:-none}"
 case "$force_rc" in
     0) pass "RemoveNetInterface zforce FORCE returned rc 0" ;;
     5) if printf '%s\n' "$force" | grep -qi "holds requests"; then
@@ -525,12 +618,153 @@ else
     fail "FORCE took '${force_ms:-never returned}' ms, over $FORCE_MS ms"
 fi
 
-if [ -n "$ping_tx" ] && [ "$ping_tx" -ge 20 ] && [ "$ping_rx" = "$ping_tx" ]
+# True when start <= window start and end >= window end, all epoch seconds.
+spans() { # start end
+    [ -n "$1" ] && [ -n "$2" ] && [ -n "$FORCE_START" ] && [ -n "$FORCE_END" ] &&
+    awk -v a="$1" -v b="$2" -v s="$FORCE_START" -v e="$FORCE_END" \
+        'BEGIN { exit !(a <= s && b >= e) }'
+}
+
+# The guest's back-to-back ping (-i 0): one request in flight, so a stall is
+# a gap between replies.  ping prints no clock, but with one in flight the gap
+# before reply k is probe k's own round trip, so the largest time= over the
+# run bounds the largest gap anywhere in it, the FORCE window included; a
+# lost probe is a five-second reply wait (ping.c PING_REPLY_WAIT).  Every
+# requested probe must be SENT: a run TIMEOUT cut short is a failure.
+# THE ALLOWED STALL.  The claim is that no lock is held across the device
+# stop, so the other interface never waits for the removal; a regression to
+# holding one would stall it for about force_ms.  A stall passes only when it
+# is under min(250, force_ms / 2), small enough that such a regression fails
+# at any removal speed.
+STALL_CAP_MS=250
+HALF_FORCE_MS=$(( ${force_ms:-0} / 2 ))
+ALLOW_MS=$(( HALF_FORCE_MS < STALL_CAP_MS ? HALF_FORCE_MS : STALL_CAP_MS ))
+gping=$(tr -d '\r' < "$HD/ifs-ping.txt" 2> /dev/null || true)
+gping_tx=$(printf '%s\n' "$gping" |
+           sed -n 's/^\([0-9]*\) packets transmitted, .*/\1/p' | head -1)
+gping_rx=$(printf '%s\n' "$gping" |
+           sed -n 's/^[0-9]* packets transmitted, \([0-9]*\) received.*/\1/p' |
+           head -1)
+# The largest gap, and the cadence: the median round trip.
+read -r gping_gap gping_cad <<< "$(printf '%s\n' "$gping" | awk '
+    / icmp_seq=[0-9]+ time=[0-9]+ ms/ {
+        t = $0; sub(/.* time=/, "", t); sub(/ ms.*/, "", t); t += 0
+        if (t > m) m = t
+        v[++n] = t
+    }
+    /^Request timed out/ { m = (m > 5000) ? m : 5000 }
+    END {
+        for (i = 2; i <= n; i++) {
+            x = v[i]; j = i - 1
+            while (j > 0 && v[j] > x) { v[j + 1] = v[j]; j-- }
+            v[j + 1] = x
+        }
+        printf "%d %d\n", m, (n > 0) ? v[int((n + 1) / 2)] : 0
+    }')"
+gping_stall=$(( ${gping_gap:-99999} - ${gping_cad:-0} ))
+gping_span_ms=$(awk -v a="${GPING_START:-0}" -v b="${GPING_END:-0}" \
+                'BEGIN { printf "%d", (b - a) * 1000 }')
+echo "force_ms=${force_ms:-none} guest_ping_count=$GUEST_PING_COUNT\
+ guest_ping_tx=${gping_tx:-none} guest_ping_rx=${gping_rx:-none}\
+ guest_ping_start=${GPING_START:-none} guest_ping_end=${GPING_END:-none}\
+ guest_ping_span_ms=$gping_span_ms max_reply_gap_ms=$gping_gap\
+ guest_cadence_ms=$gping_cad guest_stall_ms=$gping_stall\
+ stall_cap_ms=$STALL_CAP_MS half_force_ms=$HALF_FORCE_MS allowed_stall_ms=$ALLOW_MS"
+if [ "${gping_tx:-0}" = "$GUEST_PING_COUNT" ] && [ "$gping_rx" = "$gping_tx" ]
 then
-    pass "aeth0 lost no ping across the FORCE removal: $ping_rx of $ping_tx"
+    pass "aeth0's back-to-back guest ping: all $gping_tx sent and answered\
+ over ${gping_span_ms} ms"
 else
-    fail "aeth0's ping across the FORCE removal: '${ping_rx:-?}' of\
- '${ping_tx:-?}' answered: the removal stopped the other interface"
+    fail "aeth0's guest ping stopped short or lost: ${gping_rx:-?} answered of\
+ ${gping_tx:-0} sent, $GUEST_PING_COUNT asked"
+fi
+if spans "$GPING_START" "$GPING_END"; then
+    pass "and that run spanned the FORCE window ($GPING_START..$GPING_END\
+ around $FORCE_START..$FORCE_END)"
+else
+    fail "the guest ping did not span the FORCE window ($GPING_START..$GPING_END\
+ against $FORCE_START..$FORCE_END)"
+fi
+if [ "$gping_stall" -lt "$ALLOW_MS" ]; then
+    pass "and its largest reply gap, ${gping_gap} ms, is ${gping_stall} ms over\
+ its ${gping_cad} ms cadence, under the ${ALLOW_MS} ms allowed\
+ (min($STALL_CAP_MS, ${force_ms:-?}/2 = $HALF_FORCE_MS))"
+else
+    fail "a reply gap of ${gping_gap} ms, ${gping_stall} ms over its\
+ ${gping_cad} ms cadence and the ${ALLOW_MS} ms allowed: aeth0 stalled"
+fi
+
+# The host's ping to aeth0 runs on a fixed clock, so a stall shows as late or
+# lost replies, not as a send gap.  A probe's send time is its -D stamp less
+# its RTT; probes sent before FORCE start are the baseline, those sent inside
+# the window are judged against it.  A probe with no reply is lost, placed by
+# the fixed schedule from the first reply.
+hp=$(awk -v s="${FORCE_START:-0}" -v e="${FORCE_END:-0}" \
+         -v iv="$HOST_PING_INTERVAL_MS" '
+    /^\[[0-9.]+\] .* icmp_seq=[0-9]+ .*time=/ {
+        ts = substr($1, 2, length($1) - 2) + 0
+        q = $0; sub(/.*icmp_seq=/, "", q); sub(/ .*/, "", q); q += 0
+        t = $0; sub(/.*time=/, "", t); sub(/ .*/, "", t); t += 0
+        rtt[q] = t; got[q] = 1
+        if (!have) { have = 1; q0 = q; t0 = ts - t / 1000 }
+        if (q > last) last = q
+    }
+    END {
+        tx = 0; rx = 0; nb = 0; bmax = 0; wmax = 0
+        if (have)
+            for (q = 1; q <= last; q++) {
+                send = t0 + (q - q0) * iv / 1000
+                if (send < s) {
+                    if (got[q]) { b[++nb] = rtt[q]; if (rtt[q] > bmax) bmax = rtt[q] }
+                } else if (send <= e) {
+                    tx++
+                    if (got[q]) { rx++; if (rtt[q] > wmax) wmax = rtt[q] }
+                }
+            }
+        # the median of the baseline, by insertion sort: a few hundred at most
+        for (i = 2; i <= nb; i++) {
+            v = b[i]; j = i - 1
+            while (j > 0 && b[j] > v) { b[j + 1] = b[j]; j-- }
+            b[j + 1] = v
+        }
+        med = (nb > 0) ? b[int((nb + 1) / 2)] : 0
+        printf "%d %d %d %d %d %d %d\n", have, tx, rx, nb, med, bmax, wmax
+    }' "$HOSTPING" 2> /dev/null)
+read -r hp_have hp_tx hp_rx hp_nb hp_med hp_bmax hp_wmax <<< "${hp:-0 0 0 0 0 0 0}"
+echo "force_ms=${force_ms:-none} host_ping_interval_ms=$HOST_PING_INTERVAL_MS\
+ host_ping_start=${HPING_START:-none} host_ping_end=${HPING_END:-none}\
+ host_ping_window_tx=$hp_tx host_ping_window_rx=$hp_rx\
+ baseline_probes=$hp_nb baseline_rtt_ms=$hp_med baseline_max_rtt_ms=$hp_bmax\
+ window_max_rtt_ms=$hp_wmax max_rtt_ms=$hp_wmax\
+ host_stall_ms=$((hp_wmax - hp_bmax)) stall_cap_ms=$STALL_CAP_MS\
+ half_force_ms=$HALF_FORCE_MS allowed_stall_ms=$ALLOW_MS"
+if [ "$hp_have" != 1 ] || [ "$hp_nb" = 0 ]; then
+    fail "the host got no reply from aeth0 ($ADDRESS) before the FORCE: it\
+ cannot see the bridged guest, so the host-side probe decided nothing"
+else
+    if [ "$hp_rx" = "$hp_tx" ]; then
+        pass "host ping to aeth0 every ${HOST_PING_INTERVAL_MS} ms: all $hp_tx\
+ probes sent inside the FORCE window answered"
+    else
+        fail "host ping to aeth0: $hp_rx of $hp_tx probes sent inside the FORCE\
+ window answered"
+    fi
+    if [ $((hp_wmax - hp_bmax)) -lt "$ALLOW_MS" ]; then
+        pass "and its worst RTT in the window, $hp_wmax ms, is under the\
+ ${ALLOW_MS} ms allowed (min($STALL_CAP_MS, ${force_ms:-?}/2 =\
+ $HALF_FORCE_MS)) over the baseline's worst, $hp_bmax ms (median $hp_med ms\
+ over $hp_nb probes)"
+    else
+        fail "its worst RTT in the FORCE window, $hp_wmax ms, is over the\
+ baseline's worst, $hp_bmax ms, plus the ${ALLOW_MS} ms allowed: aeth0 stalled"
+    fi
+fi
+# A sanity check only: the host ping runs for the whole leg.
+if spans "$HPING_START" "$HPING_END"; then
+    pass "and the host ping spanned the FORCE window"
+else
+    fail "the host ping did not span the FORCE window ($HPING_START..$HPING_END\
+ against $FORCE_START..$FORCE_END)"
 fi
 
 status3=$(block "SYS:ShowNetStatus" 3)
