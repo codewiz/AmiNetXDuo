@@ -87,6 +87,13 @@ if [ -z "$AMIBERRY" ]; then
 fi
 [ -n "$AMIBERRY" ] || { say error "amiberry not found; set AMIBERRY=<path>"; exit 2; }
 
+# The drive, before anything below assembles, wipes or restages it: one
+# directory for every run in this tree.  No network, so no bridge.
+HD="$ROOT/build/wbgrab-dh0"
+# shellcheck source=tools/emu-rig-lock.sh
+. "$ROOT/tools/emu-rig-lock.sh"
+rig_claim_drive "$HD" "wbgrab in $ROOT" none || exit $?
+
 # ------------------------------------------------------ Workbench 3.1 SYS: --
 
 # shellcheck source=tests/tools/wb31-sys.sh
@@ -98,8 +105,6 @@ WB="$WB31_SYS"
 [ -n "$DEPTH" ] && say screen_depth_asked "$DEPTH" || true
 
 # ------------------------------------------------------------ the drive ----
-
-HD="$ROOT/build/wbgrab-dh0"
 
 stage() {
     rm -rf "$HD"

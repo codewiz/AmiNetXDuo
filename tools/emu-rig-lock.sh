@@ -367,6 +367,114 @@ rig_drop_bridge() {
     RIG_BRIDGE_FD=""
 }
 
+# ONE RUN PER TEST DRIVE, ON EVERY BACKEND.
+#
+#   rig_claim_drive <dir> <who> <backend> [wait]
+#                                        # 0 held, 6 busy, 2 cannot arbitrate
+#   rig_drop_drive                       # close it in this shell or subshell
+#
+# The bridge lock is about the wire and skips SLIRP, so two runs of one tag in
+# one checkout -- one drive directory -- still wiped each other's live drive
+# before either reached it.  Every launcher takes this before its first wipe,
+# restage, Xvfb, tcpdump or emulator start.
+#
+# KEYED BY THE DRIVE'S REAL PATH, beside the bridge lock (host-wide, and never
+# under build/, where a wipe or a clean could delete it):
+# aminetxduo-drive-<cksum of the resolved path>.lock, the path in the record.
+# Two checkouts with the same tag are two drives and stay parallel.
+#
+# Blocking and bounded like the bridge: [wait], else AMINETXDUO_DRIVE_WAIT,
+# else 1800 seconds, then 6.  2 is a lock file that cannot be made, or no
+# flock(1) on a bridged backend.  WITHOUT flock(1) A NON-BRIDGED RUN DEGRADES:
+# one warning and 0, unlocked, so a SLIRP or no-network run on a host with no
+# flock (macOS) still runs; the wire needs arbitration, a lone drive does not.  Inherited by the emulator, so the drive stays claimed while a guest
+# outlives a killed launcher; long-lived helpers call rig_drop_drive first.
+#
+# LOCK ORDER, EVERYWHERE: DRIVE BEFORE BRIDGE.  A path that held the bridge
+# and waited for a drive, beside one that held the drive and waited for the
+# bridge, would deadlock until both waits expired.  rig_standing_exempt and
+# the port, name and address claims never wait, so they may come anywhere.
+RIG_DRIVE_FD="${RIG_DRIVE_FD:-}"
+RIG_DRIVE_WAITER="${RIG_DRIVE_WAITER:-}"
+
+# The drive's absolute path with its parent resolved; the drive itself may not
+# exist yet, so realpath(1) -- whose -m is GNU-only -- is not used.
+rig_drive_realpath() { # dir
+    local p b r
+    b=$(basename "$1")
+    p=$(dirname "$1")
+    if r=$(cd "$p" 2> /dev/null && pwd -P); then
+        printf '%s/%s\n' "${r%/}" "$b"
+    else
+        case "$1" in /*) printf '%s\n' "$1" ;; *) printf '%s/%s\n' "$PWD" "$1" ;; esac
+    fi
+}
+
+rig_drive_path() { # dir
+    printf '%s/aminetxduo-drive-%s.lock\n' "$(dirname "$(rig_bridge_path)")" \
+           "$(rig_drive_realpath "$1" | cksum | cut -d' ' -f1)"
+}
+
+rig_claim_drive() { # dir who backend [wait]
+    [ -n "${1:-}" ] || { echo "rig_claim_drive: no drive named" >&2; return 2; }
+    [ -z "$RIG_DRIVE_FD" ] || return 0
+    if ! rig_have_flock; then
+        rig_backend_bridged "${3:-}" && { rig_no_flock; return 2; }
+        echo "no flock: drive $(rig_drive_realpath "$1") not locked;" \
+             "do not run two of this tag at once" >&2
+        return 0
+    fi
+    local who="${2:-$$}" limit="${4:-${AMINETXDUO_DRIVE_WAIT:-1800}}"
+    local f fd rc start waited real
+    mkdir -p "$(dirname "$1")" 2> /dev/null || true
+    real=$(rig_drive_realpath "$1")
+    f=$(rig_drive_path "$1")
+
+    ( umask 000; : >> "$f" ) 2> /dev/null || {
+        echo "cannot create the drive lock $f" >&2; return 2; }
+    exec {fd}>>"$f" || { echo "cannot open the drive lock $f" >&2; return 2; }
+
+    if ! flock -n -x "$fd" 2> /dev/null; then
+        echo "==> another run is using $real; waiting up to ${limit}s:" >&2
+        sed 's/^/    /' "$f" >&2 2> /dev/null || true
+        start=$(date +%s)
+        rc=0
+        if [ "$limit" -gt 0 ] 2> /dev/null; then
+            flock -x -w "$limit" "$fd" 2> /dev/null &
+            RIG_DRIVE_WAITER=$!
+            wait "$RIG_DRIVE_WAITER" || rc=$?
+            RIG_DRIVE_WAITER=""
+        else
+            rc=1
+        fi
+        waited=$(( $(date +%s) - start ))
+        if [ "$rc" != 0 ]; then
+            echo "REFUSING to touch $real (waited ${waited}s); it is held by:" >&2
+            sed 's/^/    /' "$f" >&2 2> /dev/null || true
+            echo "  Wiping it would destroy that run's live drive.  Wait for it," >&2
+            echo "  use another AMINETXDUO_RUN_TAG, or raise AMINETXDUO_DRIVE_WAIT." >&2
+            exec {fd}>&-
+            return 6
+        fi
+        echo "==> drive free after ${waited}s"
+    fi
+
+    printf 'drive path=%s pid=%s who=%s since=%s\n' \
+           "$real" "$$" "$who" "$(date +%FT%T)" > "$f"
+    RIG_DRIVE_FD="$fd"
+    return 0
+}
+
+rig_drop_drive() {
+    if [ -n "$RIG_DRIVE_WAITER" ]; then
+        kill "$RIG_DRIVE_WAITER" 2> /dev/null || true
+        RIG_DRIVE_WAITER=""
+    fi
+    [ -n "$RIG_DRIVE_FD" ] || return 0
+    eval "exec ${RIG_DRIVE_FD}>&-" 2> /dev/null || true
+    RIG_DRIVE_FD=""
+}
+
 # Exit 1 from ping means "no reply"; anything else means the prober itself
 # could not run, and an unusable prober must never read as an empty LAN.
 rig_prober_usable() {
