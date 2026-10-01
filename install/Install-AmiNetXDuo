@@ -686,19 +686,19 @@
   (set DEV_WRITE dev_write)
 
   (if (AND (= CARD_INDEX 0) DO_ANXNET)
-    (set DEV_WRITE D_ANXGENET)
+    (set DEV_WRITE W_ANXGENET)
     (if (AND (= CARD_INDEX 11) DO_ANXNET)
-      (set DEV_WRITE D_ANXWIFIPI)
+      (set DEV_WRITE W_ANXWIFIPI)
       (if (AND (= CARD_INDEX 1) (= dev_present 0) DO_ANXNET HAVE_ANXZZ9000)
         ; MNT's ZZ9000Net.device is absent and this archive carries the
         ; supplied driver for the card: its own image, no CARD= key -- it
         ; drives nothing else.  An archive without it falls through to the
         ; missing-driver warning below, like any other card.
-        (set DEV_WRITE D_ANXZZ9000)
+        (set DEV_WRITE W_ANXZZ9000)
         (if (= dev_present 0)
           (if (AND DO_ANXNET (> (strlen CARD_KEY) 0))
             (
-              (set DEV_WRITE D_ANX)
+              (set DEV_WRITE W_ANX)
               (set USE_CARD 1)
             )
             (if WARN_DRIVER
@@ -1198,6 +1198,17 @@
 (set D_ANXGENET (tackon (tackon D_DEVS "Networks") "anxgenet.device"))
 (set D_ANXWIFIPI (tackon (tackon D_DEVS "Networks") "anxwifipi.device"))
 (set D_ANXZZ9000 (tackon (tackon D_DEVS "Networks") "anxzz9000.device"))
+
+; What a DEVICE= line names.  A drawer install names its drivers through the
+; AmiNetXDuo: assign, as it names its commands (C_PREFIX): moving the assign
+; to another drawer then moves the drivers with the library.  The absolute
+; drawer path kept the old drawer's drivers under the new library.
+(set W_NETWORKS (tackon D_DEVS "Networks"))
+(if DRAWER_LAYOUT (set W_NETWORKS "AmiNetXDuo:Devs/Networks"))
+(set W_ANX       (tackon W_NETWORKS "anxnet.device"))
+(set W_ANXGENET  (tackon W_NETWORKS "anxgenet.device"))
+(set W_ANXWIFIPI (tackon W_NETWORKS "anxwifipi.device"))
+(set W_ANXZZ9000 (tackon W_NETWORKS "anxzz9000.device"))
 (set D_BSD_OLD (cat D_BSD ".old"))
 (set D_UG_OLD  (cat D_UG  ".old"))
 (set D_TLS_OLD (cat D_TLS ".old"))
