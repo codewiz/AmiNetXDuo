@@ -82,6 +82,16 @@ GUEST_PING_TIMEOUT=90
 HOST_PING_INTERVAL_MS=200
 HOST_PING_TAIL_S=5
 
+# The watcher polls tools.txt this often, so every window edge it stamps is
+# when the HOST SAW the line, up to this late.  Host probes are selected over
+# the window widened by it at both ends, so polling can only add probes to the
+# window, never drop the ones a stall hit.
+POLL_MS=100
+
+# ifs_host_window and ifs_host_verdict: tests/tools/ifsurvive-verdict.sh,
+# proved by tests/tools/ifsurvive-verdict-selftest.sh.
+. "$ROOT/tests/tools/ifsurvive-verdict.sh"
+
 while getopts "b:t:N:B:a:c:g:" opt; do
     case "$opt" in
         b) BUILD="$OPTARG" ;;
@@ -162,6 +172,12 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE/libs" "$STAGE/devs/NetInterfaces"
 cp "$BSD" "$STAGE/libs/bsdsocket.library"
 cp "$A2065" "$STAGE/devs/a2065.device"
+
+# What this run is a result for.
+ifs_sha() { { sha256sum "$1" 2> /dev/null || shasum -a 256 "$1"; } | cut -d' ' -f1; }
+echo "git_head=$(git -C "$ROOT" rev-parse HEAD 2> /dev/null || echo none)\
+ bsdsocket_sha256=$(ifs_sha "$STAGE/libs/bsdsocket.library")\
+ a2065_sha256=$(ifs_sha "$STAGE/devs/a2065.device")"
 
 # B SURVIVES and binds FIRST; A is DHCP, binds SECOND and therefore owns the
 # machine's gateway, which is what makes the detach path's clear observable.
@@ -625,6 +641,9 @@ spans() { # start end
         'BEGIN { exit !(a <= s && b >= e) }'
 }
 
+# CONSERVATIVE: the guest's largest gap is taken over all its probes, not only
+# those inside the window, which it cannot place without a clock.
+#
 # The guest's back-to-back ping (-i 0): one request in flight, so a stall is
 # a gap between replies.  ping prints no clock, but with one in flight the gap
 # before reply k is probe k's own round trip, so the largest time= over the
@@ -668,7 +687,8 @@ echo "force_ms=${force_ms:-none} guest_ping_count=$GUEST_PING_COUNT\
  guest_ping_tx=${gping_tx:-none} guest_ping_rx=${gping_rx:-none}\
  guest_ping_start=${GPING_START:-none} guest_ping_end=${GPING_END:-none}\
  guest_ping_span_ms=$gping_span_ms max_reply_gap_ms=$gping_gap\
- guest_cadence_ms=$gping_cad guest_stall_ms=$gping_stall\
+ guest_gap_scope=all_probes guest_cadence_ms=$gping_cad guest_stall_ms=$gping_stall\
+ stall_fixed_ms=$STALL_CAP_MS guest_stall_fixed=$( [ "$gping_stall" -lt "$STALL_CAP_MS" ] && echo pass || echo fail)\
  stall_cap_ms=$STALL_CAP_MS half_force_ms=$HALF_FORCE_MS allowed_stall_ms=$ALLOW_MS"
 if [ "${gping_tx:-0}" = "$GUEST_PING_COUNT" ] && [ "$gping_rx" = "$gping_tx" ]
 then
@@ -686,7 +706,8 @@ else
  against $FORCE_START..$FORCE_END)"
 fi
 if [ "$gping_stall" -lt "$ALLOW_MS" ]; then
-    pass "and its largest reply gap, ${gping_gap} ms, is ${gping_stall} ms over\
+    pass "and its largest reply gap over all its probes, not only the window,\
+ ${gping_gap} ms, is ${gping_stall} ms over\
  its ${gping_cad} ms cadence, under the ${ALLOW_MS} ms allowed\
  (min($STALL_CAP_MS, ${force_ms:-?}/2 = $HALF_FORCE_MS))"
 else
@@ -695,69 +716,34 @@ else
 fi
 
 # The host's ping to aeth0 runs on a fixed clock, so a stall shows as late or
-# lost replies, not as a send gap.  A probe's send time is its -D stamp less
-# its RTT; probes sent before FORCE start are the baseline, those sent inside
-# the window are judged against it.  A probe with no reply is lost, placed by
-# the fixed schedule from the first reply.
-hp=$(awk -v s="${FORCE_START:-0}" -v e="${FORCE_END:-0}" \
-         -v iv="$HOST_PING_INTERVAL_MS" '
-    /^\[[0-9.]+\] .* icmp_seq=[0-9]+ .*time=/ {
-        ts = substr($1, 2, length($1) - 2) + 0
-        q = $0; sub(/.*icmp_seq=/, "", q); sub(/ .*/, "", q); q += 0
-        t = $0; sub(/.*time=/, "", t); sub(/ .*/, "", t); t += 0
-        rtt[q] = t; got[q] = 1
-        if (!have) { have = 1; q0 = q; t0 = ts - t / 1000 }
-        if (q > last) last = q
-    }
-    END {
-        tx = 0; rx = 0; nb = 0; bmax = 0; wmax = 0
-        if (have)
-            for (q = 1; q <= last; q++) {
-                send = t0 + (q - q0) * iv / 1000
-                if (send < s) {
-                    if (got[q]) { b[++nb] = rtt[q]; if (rtt[q] > bmax) bmax = rtt[q] }
-                } else if (send <= e) {
-                    tx++
-                    if (got[q]) { rx++; if (rtt[q] > wmax) wmax = rtt[q] }
-                }
-            }
-        # the median of the baseline, by insertion sort: a few hundred at most
-        for (i = 2; i <= nb; i++) {
-            v = b[i]; j = i - 1
-            while (j > 0 && b[j] > v) { b[j + 1] = b[j]; j-- }
-            b[j + 1] = v
-        }
-        med = (nb > 0) ? b[int((nb + 1) / 2)] : 0
-        printf "%d %d %d %d %d %d %d\n", have, tx, rx, nb, med, bmax, wmax
-    }' "$HOSTPING" 2> /dev/null)
-read -r hp_have hp_tx hp_rx hp_nb hp_med hp_bmax hp_wmax <<< "${hp:-0 0 0 0 0 0 0}"
-echo "force_ms=${force_ms:-none} host_ping_interval_ms=$HOST_PING_INTERVAL_MS\
+# lost replies, not as a send gap.  ifs_host_window walks every probe SENT
+# (see it, above); probes before the window are the baseline, those inside it
+# are judged.  The window is the host-observed one widened by POLL_MS at each
+# end, so a late poll can only add probes to it.
+WIN_S=$(awk -v s="${FORCE_START:-0}" -v p="$POLL_MS" 'BEGIN { printf "%.3f", s - p / 1000 }')
+WIN_E=$(awk -v e="${FORCE_END:-0}"   -v p="$POLL_MS" 'BEGIN { printf "%.3f", e + p / 1000 }')
+hp=$(ifs_host_window "$HOSTPING" "$WIN_S" "$WIN_E" "$HOST_PING_INTERVAL_MS" \
+                     "${HPING_END:-0}")
+read -r hp_have hp_tx hp_rx hp_nb hp_bmin hp_med hp_bmax hp_wmax hp_sent \
+    hp_summary hp_last <<< "${hp:-0 0 0 0 0 0 0 0 0 0 0}"
+echo "force_ms=${force_ms:-none} force_ms_source=guest_datestamp\
+ force_ms_err=20 window_edges=host_observed poll_ms=$POLL_MS\
+ host_window_start=$WIN_S host_window_end=$WIN_E\
+ host_ping_interval_ms=$HOST_PING_INTERVAL_MS\
  host_ping_start=${HPING_START:-none} host_ping_end=${HPING_END:-none}\
- host_ping_window_tx=$hp_tx host_ping_window_rx=$hp_rx\
- baseline_probes=$hp_nb baseline_rtt_ms=$hp_med baseline_max_rtt_ms=$hp_bmax\
- window_max_rtt_ms=$hp_wmax max_rtt_ms=$hp_wmax\
- host_stall_ms=$((hp_wmax - hp_bmax)) stall_cap_ms=$STALL_CAP_MS\
- half_force_ms=$HALF_FORCE_MS allowed_stall_ms=$ALLOW_MS"
-if [ "$hp_have" != 1 ] || [ "$hp_nb" = 0 ]; then
-    fail "the host got no reply from aeth0 ($ADDRESS) before the FORCE: it\
- cannot see the bridged guest, so the host-side probe decided nothing"
+ host_ping_sent=$hp_sent host_ping_window_tx=$hp_tx host_ping_window_rx=$hp_rx\
+ baseline_probes=$hp_nb baseline_min_rtt_ms=$hp_bmin baseline_rtt_ms=$hp_med\
+ baseline_max_rtt_ms=$hp_bmax window_max_rtt_ms=$hp_wmax max_rtt_ms=$hp_wmax\
+ host_ping_summary=$hp_summary host_ping_last_send=$hp_last\
+ host_stall_ms=$((hp_wmax - hp_med)) host_stall_vs_baseline_max_ms=$((hp_wmax - hp_bmax))\
+ stall_cap_ms=$STALL_CAP_MS half_force_ms=$HALF_FORCE_MS allowed_stall_ms=$ALLOW_MS\
+ stall_fixed_ms=$STALL_CAP_MS host_stall_fixed=$( [ $((hp_wmax - hp_med)) -lt "$STALL_CAP_MS" ] && echo pass || echo fail)"
+if why=$(ifs_host_verdict "$hp" "$WIN_E" "$ALLOW_MS" "${force_ms:-0}"); then
+    pass "host ping to aeth0 every ${HOST_PING_INTERVAL_MS} ms over the FORCE\
+ window (host-observed edges, widened ${POLL_MS} ms each side): $why\
+ (baseline min/median/max $hp_bmin/$hp_med/$hp_bmax ms over $hp_nb probes)"
 else
-    if [ "$hp_rx" = "$hp_tx" ]; then
-        pass "host ping to aeth0 every ${HOST_PING_INTERVAL_MS} ms: all $hp_tx\
- probes sent inside the FORCE window answered"
-    else
-        fail "host ping to aeth0: $hp_rx of $hp_tx probes sent inside the FORCE\
- window answered"
-    fi
-    if [ $((hp_wmax - hp_bmax)) -lt "$ALLOW_MS" ]; then
-        pass "and its worst RTT in the window, $hp_wmax ms, is under the\
- ${ALLOW_MS} ms allowed (min($STALL_CAP_MS, ${force_ms:-?}/2 =\
- $HALF_FORCE_MS)) over the baseline's worst, $hp_bmax ms (median $hp_med ms\
- over $hp_nb probes)"
-    else
-        fail "its worst RTT in the FORCE window, $hp_wmax ms, is over the\
- baseline's worst, $hp_bmax ms, plus the ${ALLOW_MS} ms allowed: aeth0 stalled"
-    fi
+    fail "host ping to aeth0 over the FORCE window: $why"
 fi
 # A sanity check only: the host ping runs for the whole leg.
 if spans "$HPING_START" "$HPING_END"; then
