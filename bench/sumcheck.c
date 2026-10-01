@@ -20,7 +20,9 @@
 
 #include <stdio.h>
 
-extern ULONG n68k_copy_sum_longwords(ULONG *to, const ULONG *from, ULONG count);
+/* Assembly that reads the stack: __stdargs, as src/net68k/net68k.h pins it. */
+extern __stdargs ULONG n68k_copy_sum_longwords(ULONG *to, const ULONG *from,
+                                               ULONG count);
 
 static ULONG v_reference(ULONG *to, const ULONG *from, ULONG count)
 {

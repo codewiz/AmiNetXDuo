@@ -26,19 +26,23 @@ struct Device      *TimerBase;
 static struct IORequest  timer_req;
 static struct MsgPort   *timer_port;
 
-extern ULONG v_addadd(ULONG *to, const ULONG *from, ULONG count);
-extern ULONG v_addx(ULONG *to, const ULONG *from, ULONG count);
-extern ULONG v_discrete(ULONG *to, const ULONG *from, ULONG count);
-extern ULONG v_disc16(ULONG *to, const ULONG *from, ULONG count);
-extern ULONG v_disc4(ULONG *to, const ULONG *from, ULONG count);
-extern ULONG v_ldmovem(ULONG *to, const ULONG *from, ULONG count);
-extern ULONG v_addx14(ULONG *to, const ULONG *from, ULONG count);
-extern ULONG v_lm14(ULONG *to, const ULONG *from, ULONG count);
-extern ULONG v_lmsep(ULONG *to, const ULONG *from, ULONG count);
-extern ULONG v_shift2(ULONG *to, const ULONG *from, ULONG count);
+/* sumvar*.S read their arguments from the stack: __stdargs (the compiler's
+   own spelling of AMIGA_ASM_ARGS) keeps that true under -mregparm, here and
+   on every pointer the variants are timed through. */
+extern __stdargs ULONG v_addadd(ULONG *to, const ULONG *from, ULONG count);
+extern __stdargs ULONG v_addx(ULONG *to, const ULONG *from, ULONG count);
+extern __stdargs ULONG v_discrete(ULONG *to, const ULONG *from, ULONG count);
+extern __stdargs ULONG v_disc16(ULONG *to, const ULONG *from, ULONG count);
+extern __stdargs ULONG v_disc4(ULONG *to, const ULONG *from, ULONG count);
+extern __stdargs ULONG v_ldmovem(ULONG *to, const ULONG *from, ULONG count);
+extern __stdargs ULONG v_addx14(ULONG *to, const ULONG *from, ULONG count);
+extern __stdargs ULONG v_lm14(ULONG *to, const ULONG *from, ULONG count);
+extern __stdargs ULONG v_lmsep(ULONG *to, const ULONG *from, ULONG count);
+extern __stdargs ULONG v_shift2(ULONG *to, const ULONG *from, ULONG count);
 
-/* The contract, from src/net68k/n68k_checksum.c. */
-static ULONG v_reference(ULONG *to, const ULONG *from, ULONG count)
+/* The contract, from src/net68k/n68k_checksum.c.  Timed through the same
+   pinned pointer as the assembly, so pinned the same way. */
+static __stdargs ULONG v_reference(ULONG *to, const ULONG *from, ULONG count)
 {
     ULONG acc = 0;
 
@@ -90,7 +94,7 @@ static ULONG failures;
  * writes one too many.
  */
 static void check(const char *name,
-                  ULONG (*fn)(ULONG *, const ULONG *, ULONG))
+                  __stdargs ULONG (*fn)(ULONG *, const ULONG *, ULONG))
 {
     ULONG n;
 
@@ -185,7 +189,7 @@ static ULONG ns_tenths_per_byte(ULONG ticks, ULONG bytes)
  * byte written must match the C reference over the SAME bytes.
  */
 static void check_skewed(const char *name,
-                         ULONG (*fn)(ULONG *, const ULONG *, ULONG))
+                         __stdargs ULONG (*fn)(ULONG *, const ULONG *, ULONG))
 {
     const ULONG *from = (const ULONG *)(const APTR)((const UBYTE *)src + 2);
     ULONG n = 64UL;
@@ -233,7 +237,7 @@ static void check_skewed(const char *name,
 }
 
 static void bench_skewed(const char *name,
-                         ULONG (*fn)(ULONG *, const ULONG *, ULONG),
+                         __stdargs ULONG (*fn)(ULONG *, const ULONG *, ULONG),
                          ULONG words, ULONG reps)
 {
     const ULONG *from = (const ULONG *)(const APTR)((const UBYTE *)src + 2);
@@ -257,7 +261,7 @@ static void bench_skewed(const char *name,
 }
 
 static void bench(const char *name,
-                  ULONG (*fn)(ULONG *, const ULONG *, ULONG),
+                  __stdargs ULONG (*fn)(ULONG *, const ULONG *, ULONG),
                   ULONG words, ULONG reps)
 {
     ULONG t0, ticks, i, bytes;
