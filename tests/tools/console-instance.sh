@@ -135,6 +135,14 @@ if [ "$(curl -s -m 4 -o /dev/null -w '%{http_code}' "http://$ADDRESS:$PORT/" || 
     exit 2
 fi
 
+# The drive, before anything below assembles, wipes or restages it.  Wait 0:
+# a standing guest is up for hours (tools/emu-rig-lock.sh has the codes).
+rig_claim_drive "$HD" "console-instance in $RUN" "$BACKEND" 0 || {
+    rc=$?
+    say RESULT INFRA
+    exit "$rc"
+}
+
 HTTPD="$BUILD/src/tools/httpd"
 BSD="$BUILD/src/bsdsocket/bsdsocket.library"
 for f in "$HTTPD" "$BSD"; do
@@ -279,7 +287,7 @@ EOF
 ( trap '' PIPE; exec "$AMIBERRY" -f "$CFG" ) >>"$EMULOG" 2>&1 &
 printf '%s\n' "$!" > "$PIDFILE"
 # The emulator holds the standing lock now; the reader below may not.
-rig_drop_standing
+rig_drop_standing; rig_drop_drive
 
 # The reader, retried: /wait holds the emulator until this connects, and the
 # emulator has to have opened the listener first.  Appends, so a restart of the

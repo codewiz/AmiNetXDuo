@@ -95,6 +95,12 @@ rig_standing_exempt "demo-rtg $TAG in $ROOT" "$MAC" "$BACKEND" || {
     exit "$rc"
 }
 
+# Keyed by the MAC: one address, one drive.  Two instances that hash to one
+# address are refused above, so they cannot share a drive either; the drive
+# lock (wait 0: a standing guest is up for hours) covers a pinned MAC too.
+HD="$ROOT/build/demo-rtg-dh0-$(printf '%s' "$MAC" | tr -d ':')"
+rig_claim_drive "$HD" "demo-rtg $TAG in $ROOT" "$BACKEND" 0 || exit $?
+
 # ------------------------------------------------------ Workbench 3.1 SYS: --
 
 # shellcheck source=tests/tools/wb31-sys.sh
@@ -155,10 +161,6 @@ EOF
 }
 
 # ------------------------------------------------------------- the drive ----
-
-# Keyed by the MAC: one address, one drive.  Two instances that hash to one
-# address are refused above, so they cannot share a drive either.
-HD="$ROOT/build/demo-rtg-dh0-$(printf '%s' "$MAC" | tr -d ':')"
 
 rm -rf "$HD"
 mkdir -p "$HD/Public/Docs" "$HD/Console"
@@ -283,7 +285,7 @@ for n in $(seq 90 99); do
     [ -e "/tmp/.X11-unix/X$n" ] || { XDISP=":$n"; break; }
 done
 [ -n "$XDISP" ] || { say error "no free X display in :90..:99"; exit 2; }
-( rig_drop_standing; exec Xvfb "$XDISP" -screen 0 1280x1024x24 ) >/dev/null 2>&1 &
+( rig_drop_standing; rig_drop_drive; exec Xvfb "$XDISP" -screen 0 1280x1024x24 ) >/dev/null 2>&1 &
 XVFB_PID=$!
 sleep 2
 export DISPLAY="$XDISP"
@@ -323,7 +325,7 @@ EMULOG="$ROOT/build/amiberry-$TAG.log"
 WIRE="$ROOT/build/demo-rtg-wire-$TAG.txt"
 : > "$WIRE"
 # Helpers close the standing lock: only the emulator may keep the address.
-( rig_drop_standing
+( rig_drop_standing; rig_drop_drive
   exec tcpdump -i "$BACKEND" -n -l -e \
       "arp or (udp port 67 or udp port 68) or (udp port 5353)" ) \
     >> "$WIRE" 2>/dev/null &
@@ -334,7 +336,7 @@ sleep 1
 setsid "$AMIBERRY" -f "$CFG" >"$EMULOG" 2>&1 &
 EMU_PID=$!
 # The emulator holds the standing lock now; nothing started below may.
-rig_drop_standing
+rig_drop_standing; rig_drop_drive
 say emulator_pid "$EMU_PID"
 
 # The window.  A demo that is left up needs an end, and the emulator is the
