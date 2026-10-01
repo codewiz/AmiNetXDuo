@@ -1036,6 +1036,21 @@ ${rlwhy:+ -- }${rlwhy:-, see the log above}" ;;
         return 1
     fi
 
+    # -mregparm=3 passes our own arguments in registers; everything the
+    # compiler does not see on both sides -- assembly, its own runtime calls,
+    # the OS, another binary -- has to say it wants the stack.  GCC accepts a
+    # pointer of either convention for the other without a word, and six of
+    # these shipped one at a time (#123-#126).
+    if tools/check-call-abi.sh > "$BUILD/call-abi.log" 2>&1; then
+        note "call abi: $(sed -n 's/^call_abi=ok files=\([0-9]*\).*/\1 files/p' \
+              "$BUILD/call-abi.log")"
+    else
+        cat "$BUILD/call-abi.log"
+        fail "a call crosses a calling-convention boundary unpinned\
+ (tools/check-call-abi.sh)"
+        return 1
+    fi
+
     # An option's OFF side must define every function its ON side does.  The
     # link only notices on the arm that turns the option off, which is the arm
     # nobody builds locally; raw.c cost three of them in one sitting.
