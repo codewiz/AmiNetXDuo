@@ -10,6 +10,7 @@
 #include "c68k_sha256.h"
 #include "c68k_chacha20.h"
 
+#include "aminetxduo/asm_abi.h"
 #include "aminetxduo/crashguard.h"
 
 #include "nx_crypto_aes.h"
@@ -91,38 +92,40 @@ static ULONG b_kbs(ULONG micros)
 }
 
 
-extern VOID bk_empty(ULONG reps);
-extern VOID bk_add(ULONG reps);
-extern VOID bk_eor(ULONG reps);
-extern VOID bk_and(ULONG reps);
-extern VOID bk_moveb_dd(ULONG reps);
-extern VOID bk_swapd(ULONG reps);
-extern VOID bk_ror1(ULONG reps);
-extern VOID bk_ror8(ULONG reps);
-extern VOID bk_rorreg(ULONG reps);
-extern VOID bk_lsr3(ULONG reps);
-extern VOID bk_addself(ULONG reps);
-extern VOID bk_exg_da(ULONG reps);
-extern VOID bk_movel_ad(ULONG reps);
-extern VOID bk_movel_da(ULONG reps);
-extern VOID bk_addx(ULONG reps);
-extern VOID bk_andi(ULONG reps);
-extern VOID bk_rol6(ULONG reps);
-extern VOID bk_mulu_dd(APTR table, ULONG reps);
-extern VOID bk_mulu_an(APTR table, ULONG reps);
-extern VOID bk_mulu_d16(APTR table, ULONG reps);
-extern VOID bk_idx1k(APTR table, ULONG reps);
-extern VOID bk_idx4k(APTR table, ULONG reps);
-extern VOID bk_idxb(APTR table, ULONG reps);
-extern VOID bk_movel_d16(APTR table, ULONG reps);
-extern VOID bk_moveb_d16(APTR table, ULONG reps);
-extern VOID bk_movel_store(APTR table, ULONG reps);
-extern VOID bk_ic32(ULONG reps);
-extern VOID bk_ic128(ULONG reps);
-extern VOID bk_ic256(ULONG reps);
-extern VOID bk_ic512(ULONG reps);
-extern VOID bk_ic1024(ULONG reps);
-extern VOID bk_ic2048(ULONG reps);
+/* c68k_bulk_kernels.S reads its arguments from the stack, so every kernel
+   carries the stack pin (aminetxduo/asm_abi.h). */
+extern AMIGA_ASM_ARGS VOID bk_empty(ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_add(ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_eor(ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_and(ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_moveb_dd(ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_swapd(ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_ror1(ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_ror8(ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_rorreg(ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_lsr3(ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_addself(ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_exg_da(ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_movel_ad(ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_movel_da(ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_addx(ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_andi(ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_rol6(ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_mulu_dd(APTR table, ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_mulu_an(APTR table, ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_mulu_d16(APTR table, ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_idx1k(APTR table, ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_idx4k(APTR table, ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_idxb(APTR table, ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_movel_d16(APTR table, ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_moveb_d16(APTR table, ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_movel_store(APTR table, ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_ic32(ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_ic128(ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_ic256(ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_ic512(ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_ic1024(ULONG reps);
+extern AMIGA_ASM_ARGS VOID bk_ic2048(ULONG reps);
 
 #define B_KERNEL_REPS   40000UL
 #define B_KERNEL_SLOTS  16UL
@@ -131,8 +134,10 @@ static ULONG    b_empty_ps;             /* loop overhead, ps per body slot */
 static ULONG    b_add_ps;               /* one ADD.L, the yardstick        */
 static APTR     b_table;                /* 4 KB of Fast RAM                */
 
-typedef VOID (*B_REG_KERNEL)(ULONG);
-typedef VOID (*B_MEM_KERNEL)(APTR, ULONG);
+/* Pinned like the kernels: a call through an unpinned pointer passes reps in
+   d0 whatever the declaration of the routine said. */
+typedef AMIGA_ASM_ARGS VOID (*B_REG_KERNEL)(ULONG);
+typedef AMIGA_ASM_ARGS VOID (*B_MEM_KERNEL)(APTR, ULONG);
 
 static ULONG b_scale(ULONG micros, ULONG slots)
 {

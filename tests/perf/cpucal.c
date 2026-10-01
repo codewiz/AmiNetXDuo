@@ -22,6 +22,7 @@
 #include <stdarg.h>
 #include <string.h>
 
+#include "aminetxduo/asm_abi.h"
 #include "aminetxduo/compat.h"
 
 
@@ -128,16 +129,19 @@ ULONG            i, t0, t1, total;
 
 /* ------------------------------------------------------------- kernels --- */
 
-extern VOID cal_empty (ULONG reps);
-extern VOID cal_add   (ULONG reps);
-extern VOID cal_move  (ULONG reps);
-extern VOID cal_addx  (ULONG reps);
-extern VOID cal_mulu  (ULONG reps);
-extern VOID cal_mulu64(ULONG reps);
-extern VOID cal_read  (APTR buf, ULONG longs, ULONG reps);
-extern VOID cal_write (APTR buf, ULONG longs, ULONG reps);
-extern VOID cal_m2m   (APTR dst, APTR src, ULONG longs, ULONG reps);
-extern VOID cal_movem (APTR dst, APTR src, ULONG longs, ULONG reps);
+/* cpucal.S reads its arguments from the stack, so each kernel carries the
+   stack pin (aminetxduo/asm_abi.h); unpinned they got `reps' in d0 and
+   counted whatever the stack held. */
+extern AMIGA_ASM_ARGS VOID cal_empty (ULONG reps);
+extern AMIGA_ASM_ARGS VOID cal_add   (ULONG reps);
+extern AMIGA_ASM_ARGS VOID cal_move  (ULONG reps);
+extern AMIGA_ASM_ARGS VOID cal_addx  (ULONG reps);
+extern AMIGA_ASM_ARGS VOID cal_mulu  (ULONG reps);
+extern AMIGA_ASM_ARGS VOID cal_mulu64(ULONG reps);
+extern AMIGA_ASM_ARGS VOID cal_read  (APTR buf, ULONG longs, ULONG reps);
+extern AMIGA_ASM_ARGS VOID cal_write (APTR buf, ULONG longs, ULONG reps);
+extern AMIGA_ASM_ARGS VOID cal_m2m   (APTR dst, APTR src, ULONG longs, ULONG reps);
+extern AMIGA_ASM_ARGS VOID cal_movem (APTR dst, APTR src, ULONG longs, ULONG reps);
 
 #define K_EMPTY     0
 #define K_ADD       1
