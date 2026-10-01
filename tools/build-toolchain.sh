@@ -360,9 +360,10 @@ PY
     echo "==> patched CONFIG_BINUTILS += --disable-gdb --disable-sim"
 fi
 
-# -flto.  Two changes to binutils; GCC needs no patch, only the pin above,
-# which moved from 6f4ca1b4 to 60f21496 -- the tip of amiga16.2, and the only
-# one of the two that still exists on the branch.
+# -flto.  Two changes to binutils; GCC needs no patch for it, only the pin
+# above, which moved from 6f4ca1b4 to 60f21496 -- then the tip of amiga16.2,
+# and the only one of the two that still exists on the branch.  (GCC's one
+# patch, for sibcalls, is below the newlib one.)
 #
 # First, amiga-gcc configures binutils with --disable-plugins for every target
 # but m68k-elf, so ld accepts -plugin and ignores it.  GCC's liblto_plugin.so
@@ -450,6 +451,26 @@ elif git -C "$SRC/projects/newlib-cygwin" apply --check \
 else
     echo "!! newlib crt0 argc/argv contract is neither the pinned source" >&2
     echo "!! nor the reviewed fixed source; refusing an unverified build." >&2
+    exit 2
+fi
+
+# A sibcall that puts its target over an a0 argument.  An indirect sibcall (and
+# a direct one on 68000 with -fbaserel, -resident or -mpcrel) loads its target
+# into a0, and m68k_is_ok_for_sibcall allowed an argument there anyway: under
+# -mregparm, or with an __asm ("a0") parameter at the default ABI, the target
+# replaced it.  bsd_wait_sliced()'s `return call(arg, wait)' entered
+# bsd_send_once() with its own address as `arg'.  Backport of the upstream
+# AmigaPorts/gcc fix; the same three ways out as newlib above.
+GCC_PATCH="$HERE/patches/gcc/sibcall-a0.diff"
+if git -C "$SRC/projects/gcc" apply --reverse --check \
+       "$GCC_PATCH" 2>/dev/null; then
+    echo "==> gcc sibcall a0 fix already upstream"
+elif git -C "$SRC/projects/gcc" apply --check "$GCC_PATCH" 2>/dev/null; then
+    echo "==> gcc sibcall a0 fix: $(basename "$GCC_PATCH")"
+    git -C "$SRC/projects/gcc" apply "$GCC_PATCH"
+else
+    echo "!! gcc m68k_is_ok_for_sibcall is neither the pinned source nor" >&2
+    echo "!! the reviewed fixed source; refusing an unverified build." >&2
     exit 2
 fi
 
