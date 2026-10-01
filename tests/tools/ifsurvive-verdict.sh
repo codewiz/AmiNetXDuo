@@ -98,3 +98,37 @@ ifs_host_verdict() {
  ms, $(( wmax - med )) ms over the baseline median $med ms, under $3 ms"
     return 0
 }
+
+# ifs_peer_leg <peer> <peer ping -V output, then peer_can_ping=1 if a ping ran>  -> 0 the leg runs; 2 SKIP, the
+# reason on stdout.  The host cannot probe its own bridged guest (its frames
+# do not loop back into the bridge), so the 0.2 s probe runs on
+# AMINETXDUO_PEER, a third machine; without one, or without iputils there
+# (the verdict reads its -D stamps), the leg is SKIPPED and says so, never
+# passed.
+ifs_peer_leg() {
+    if [ -z "$1" ]; then
+        echo "AMINETXDUO_PEER is not set: the Amiberry host cannot ping its own\
+ bridged guest, and no third machine was named"
+        return 2
+    fi
+    if ! printf '%s\n' "$2" | grep -qi iputils; then
+        echo "the peer $1 has no iputils ping (ping -V said: $(printf '%s' "$2" |
+              head -1)), and the verdict needs its -D stamps"
+        return 2
+    fi
+    if ! printf '%s\n' "$2" | grep -qx 'peer_can_ping=1'; then
+        echo "the peer $1 cannot send ICMP as this user (its ping lacks\
+ cap_net_raw or setuid)"
+        return 2
+    fi
+    echo "probing from $1"
+    return 0
+}
+
+# ifs_peer_offset <host before> <peer stamp> <host after>
+#   -> "offset_s err_s": peer clock = host clock + offset, +- err
+ifs_peer_offset() {
+    awk -v a="$1" -v p="$2" -v b="$3" 'BEGIN {
+        if (p == "" || b < a) { print "none none"; exit }
+        printf "%.3f %.3f\n", p - (a + b) / 2, (b - a) / 2 }'
+}

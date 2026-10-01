@@ -247,11 +247,42 @@ rm -f "$REPORT"
 #                     the process is started, and before the FORCE header)
 #   guest_ping_end    its statistics line (ping's output reaches the file
 #                     when it exits)
-#   host_ping_start / host_ping_end  launch and stop of the host's ping,
-#                     launched at "AddNetInterface zforce", stopped
-#                     HOST_PING_TAIL_S after force_end
+#   host_ping_start / host_ping_end  launch and stop of the peer's ping
+#                     (host clock), launched at "AddNetInterface zforce",
+#                     stopped HOST_PING_TAIL_S after force_end
 EVENTS="$ROOT/build/ifsurvive-events.txt"
 HOSTPING="$ROOT/build/ifsurvive-hostping.txt"
+
+# THE 0.2 s PROBE RUNS ON THE PEER.  This host's frames never loop back into
+# its own bridged guest ("Destination Host Unreachable" from playhouse3), so
+# the probe needs AMINETXDUO_PEER, a third machine on the segment, as
+# install/test/run-workbench.sh -H does.  Its -D stamps are the PEER's clock:
+# the offset to this host's is read before and after the run (ssh date,
+# bracketed by this host's), and the window is moved into the peer's clock
+# and widened by the read's uncertainty.  No peer, or no iputils on it: the
+# leg is SKIPPED, and says so.
+PEER="${AMINETXDUO_PEER:-}"
+PEER_SSH="ssh -n -o BatchMode=yes -o ConnectTimeout=10"
+PEER_PIDFILE="/tmp/claudecode-ifsurvive-ping.$(hostname -s 2> /dev/null || echo host).$$.pid"
+peer_version=""
+# Which ping, and whether this user may send ICMP with it at all: a ping
+# without cap_net_raw ("Operation not permitted") cannot probe anything.
+[ -n "$PEER" ] && peer_version=$($PEER_SSH "$PEER" 'ping -V 2>&1 | head -1;\
+ ping -n -c 1 -W 1 127.0.0.1 > /dev/null 2>&1 && echo peer_can_ping=1' 2> /dev/null)
+peer_why=$(ifs_peer_leg "$PEER" "$peer_version"); PEER_LEG=$?
+peer_offset_read() {
+    local a p b
+    a=$(date +%s.%N)
+    p=$($PEER_SSH "$PEER" 'date +%s.%N' 2> /dev/null)
+    b=$(date +%s.%N)
+    ifs_peer_offset "$a" "$p" "$b"
+}
+PEER_OFF="none none"
+[ "$PEER_LEG" = 0 ] && PEER_OFF=$(peer_offset_read)
+echo "host_ping_leg=$( [ "$PEER_LEG" = 0 ] && echo run || echo skip)\
+ host_ping_from=${PEER:-none} peer_ping_version=\"$(printf '%s' "${peer_version:-none}" | head -1)\"\
+ peer_clock_offset_s=${PEER_OFF% *} peer_clock_err_s=${PEER_OFF#* }"
+[ "$PEER_LEG" = 0 ] || echo "  host ping leg will be SKIPPED: $peer_why"
 GUESTPING_HDR="===== &SYS:ping $GATEWAY -i 0 -c $GUEST_PING_COUNT -t $GUEST_PING_TIMEOUT >DH0:ifs-ping.txt ====="
 FORCE_HDR="===== SYS:RemoveNetInterface zforce FORCE ====="
 : > "$EVENTS"
@@ -271,10 +302,14 @@ ifs_watch() {
            printf '%s\n' "$txt" | grep -qxF "===== SYS:AddNetInterface zforce ====="
         then
             add=1
-            ping -D -i "$interval_s" -W 1 -w $((GUEST_PING_TIMEOUT + 60)) \
-                 "$ADDRESS" > "$HOSTPING" 2>&1 &
-            hp_pid=$!
-            echo "host_ping_start=$now" >> "$EVENTS"
+            if [ "$PEER_LEG" = 0 ]; then
+                # The remote shell writes its pid, then becomes ping; the
+                # stop below sends it SIGINT there, so its summary comes back.
+                $PEER_SSH "$PEER" "echo \$\$ > $PEER_PIDFILE; exec ping -D\
+ -i $interval_s -W 1 -w $((TIMEOUT + 120)) $ADDRESS" > "$HOSTPING" 2>&1 &
+                hp_pid=$!
+                echo "host_ping_start=$now" >> "$EVENTS"
+            fi
         fi
         if [ -z "$gs" ] && printf '%s\n' "$txt" | grep -qxF "$GUESTPING_HDR"; then
             gs=1; echo "guest_ping_start=$now" >> "$EVENTS"
@@ -301,7 +336,8 @@ ifs_watch() {
         if [ -n "$hp_pid" ] && [ -n "$hp_stop" ] &&
            awk -v n="$now" -v s="$hp_stop" 'BEGIN { exit !(n >= s) }'
         then
-            kill -INT "$hp_pid" 2> /dev/null; wait "$hp_pid" 2> /dev/null
+            $PEER_SSH "$PEER" "kill -INT \$(cat $PEER_PIDFILE) 2> /dev/null; rm -f $PEER_PIDFILE" 2> /dev/null
+            wait "$hp_pid" 2> /dev/null
             echo "host_ping_end=$(date +%s.%N)" >> "$EVENTS"
             hp_pid=""
         fi
@@ -310,7 +346,8 @@ ifs_watch() {
     done
 
     if [ -n "$hp_pid" ]; then
-        kill -INT "$hp_pid" 2> /dev/null; wait "$hp_pid" 2> /dev/null
+        $PEER_SSH "$PEER" "kill -INT \$(cat $PEER_PIDFILE) 2> /dev/null; rm -f $PEER_PIDFILE" 2> /dev/null
+        wait "$hp_pid" 2> /dev/null
         echo "host_ping_end=$(date +%s.%N)" >> "$EVENTS"
     fi
 }
@@ -726,20 +763,42 @@ else
  ${gping_cad} ms cadence and the ${ALLOW_MS} ms allowed: aeth0 stalled"
 fi
 
-# The host's ping to aeth0 runs on a fixed clock, so a stall shows as late or
+# The peer's ping to aeth0 runs on a fixed clock, so a stall shows as late or
 # lost replies, not as a send gap.  ifs_host_window walks every probe SENT
 # (see it, above); probes before the window are the baseline, those inside it
-# are judged.  The window is the host-observed one widened by POLL_MS at each
-# end, so a late poll can only add probes to it.
-WIN_S=$(awk -v s="${FORCE_START:-0}" -v p="$POLL_MS" 'BEGIN { printf "%.3f", s - p / 1000 }')
-WIN_E=$(awk -v e="${FORCE_END:-0}"   -v p="$POLL_MS" 'BEGIN { printf "%.3f", e + p / 1000 }')
+# are judged.  The window is the host-observed one, moved into the peer's
+# clock and widened by POLL_MS and the clock uncertainty at each end, so
+# neither a late poll nor the offset can drop a probe from it.
+if [ "$PEER_LEG" != 0 ]; then
+    echo "host_ping_verdict=SKIP reason=\"$peer_why\""
+    echo "  SKIP host ping leg: $peer_why"
+    # Two checks fewer, said out loud above: not passed, not counted.
+    MIN_CHECKS=$((MIN_CHECKS - 2))
+else
+PEER_OFF2=$(peer_offset_read)
+# Into the peer's clock: offset from before the run, widened by the larger
+# of the two reads' uncertainty and the drift between them.
+read -r P_OFF P_ERR <<< "$PEER_OFF"
+read -r P_OFF2 P_ERR2 <<< "$PEER_OFF2"
+P_WIDEN=$(awk -v e1="$P_ERR" -v e2="$P_ERR2" -v o1="$P_OFF" -v o2="$P_OFF2" '
+    BEGIN { d = o2 - o1; if (d < 0) d = -d; m = e1
+            if (e2 + 0 > m) m = e2; if (d > m) m = d
+            if (o1 == "none" || o2 == "none") m = 1
+            printf "%.3f", m }')
+WIN_S=$(awk -v s="${FORCE_START:-0}" -v p="$POLL_MS" -v o="$P_OFF" -v w="$P_WIDEN" \
+        'BEGIN { printf "%.3f", s + o - p / 1000 - w }')
+WIN_E=$(awk -v e="${FORCE_END:-0}" -v p="$POLL_MS" -v o="$P_OFF" -v w="$P_WIDEN" \
+        'BEGIN { printf "%.3f", e + o + p / 1000 + w }')
+HPING_END_PEER=$(awk -v e="${HPING_END:-0}" -v o="$P_OFF" 'BEGIN { printf "%.3f", e + o }')
 hp=$(ifs_host_window "$HOSTPING" "$WIN_S" "$WIN_E" "$HOST_PING_INTERVAL_MS" \
-                     "${HPING_END:-0}")
+                     "$HPING_END_PEER")
 read -r hp_have hp_tx hp_rx hp_nb hp_bmin hp_med hp_bmax hp_wmax hp_sent \
     hp_summary hp_last <<< "${hp:-0 0 0 0 0 0 0 0 0 0 0}"
 echo "force_ms=${force_ms:-none} force_ms_source=guest_datestamp\
  force_ms_err=20 window_edges=host_observed poll_ms=$POLL_MS\
- host_window_start=$WIN_S host_window_end=$WIN_E\
+ host_ping_from=$PEER peer_clock_offset_s=$P_OFF peer_clock_err_s=$P_ERR\
+ peer_clock_offset_after_s=$P_OFF2 peer_clock_err_after_s=$P_ERR2\
+ peer_window_widen_s=$P_WIDEN peer_window_start=$WIN_S peer_window_end=$WIN_E\
  host_ping_interval_ms=$HOST_PING_INTERVAL_MS\
  host_ping_start=${HPING_START:-none} host_ping_end=${HPING_END:-none}\
  host_ping_sent=$hp_sent host_ping_window_tx=$hp_tx host_ping_window_rx=$hp_rx\
@@ -750,18 +809,22 @@ echo "force_ms=${force_ms:-none} force_ms_source=guest_datestamp\
  stall_cap_ms=$STALL_CAP_MS half_force_ms=$HALF_FORCE_MS allowed_stall_ms=$ALLOW_MS\
  stall_fixed_ms=$STALL_CAP_MS host_stall_fixed=$( [ $((hp_wmax - hp_med)) -lt "$STALL_CAP_MS" ] && echo pass || echo fail)"
 if why=$(ifs_host_verdict "$hp" "$WIN_E" "$ALLOW_MS" "${force_ms:-0}"); then
-    pass "host ping to aeth0 every ${HOST_PING_INTERVAL_MS} ms over the FORCE\
- window (host-observed edges, widened ${POLL_MS} ms each side): $why\
- (baseline min/median/max $hp_bmin/$hp_med/$hp_bmax ms over $hp_nb probes)"
+    echo "host_ping_verdict=PASS"
+    pass "peer ($PEER) ping to aeth0 every ${HOST_PING_INTERVAL_MS} ms over the\
+ FORCE window (host-observed edges, widened ${POLL_MS} ms and ${P_WIDEN} s of\
+ clock uncertainty each side, in the peer's clock): $why (baseline\
+ min/median/max $hp_bmin/$hp_med/$hp_bmax ms over $hp_nb probes)"
 else
-    fail "host ping to aeth0 over the FORCE window: $why"
+    echo "host_ping_verdict=FAIL"
+    fail "peer ($PEER) ping to aeth0 over the FORCE window: $why"
 fi
-# A sanity check only: the host ping runs for the whole leg.
+# A sanity check only: the probe runs for the whole leg.  Host clock both sides.
 if spans "$HPING_START" "$HPING_END"; then
-    pass "and the host ping spanned the FORCE window"
+    pass "and the peer's ping spanned the FORCE window"
 else
-    fail "the host ping did not span the FORCE window ($HPING_START..$HPING_END\
+    fail "the peer's ping did not span the FORCE window ($HPING_START..$HPING_END\
  against $FORCE_START..$FORCE_END)"
+fi
 fi
 
 status3=$(block "SYS:ShowNetStatus" 3)

@@ -60,6 +60,38 @@ gen one_probe_long_force 99 99 0 0 1
                                     check one_probe_long_force fail 102.05 102.25 1220
 gen empty 1 30 0 0 0;  : > "$f";    check empty fail
 gen no_baseline 1 30 0 0 0;         check no_baseline fail
+# A peer that cannot reach the guest: iputils' error lines, no reply.
+f="$dir/unreachable.txt"
+{ echo "PING 192.168.1.5 (192.168.1.5) 56(84) bytes of data."
+  echo "[100.100] From 192.168.1.2 icmp_seq=1 Destination Host Unreachable"
+  echo "6 packets transmitted, 0 received, +6 errors, 100% packet loss"; } > "$f"
+check unreachable fail
+
+# The leg itself: no peer, or a peer without iputils, is a SKIP.
+leg() { # name want(run|skip) peer version
+    local why rc
+    why=$(ifs_peer_leg "$3" "$4"); rc=$?
+    if { [ "$2" = run ] && [ "$rc" = 0 ]; } || { [ "$2" = skip ] && [ "$rc" = 2 ]; }; then
+        ok=$((ok + 1)); echo "ifsurvive_selftest case=$1 want=$2 ok=1 reason=\"$why\""
+    else
+        bad=$((bad + 1)); echo "ifsurvive_selftest case=$1 want=$2 ok=0 rc=$rc reason=\"$why\""
+    fi
+}
+leg no_peer skip "" ""
+leg peer_without_iputils skip turo@peer "ping from BusyBox v1.36.1
+peer_can_ping=1"
+leg peer_without_raw_icmp skip turo@peer "ping from iputils 20240117"
+leg peer_with_iputils run turo@peer "ping from iputils 20240117
+peer_can_ping=1"
+
+# The clock offset: a peer 2.5 s ahead, read inside a 40 ms round trip.
+o=$(ifs_peer_offset 1000.000 1002.520 1000.040)
+if [ "$o" = "2.500 0.020" ]; then
+    ok=$((ok + 1)); echo "ifsurvive_selftest case=peer_offset ok=1 got=\"$o\""
+else
+    bad=$((bad + 1)); echo "ifsurvive_selftest case=peer_offset ok=0 got=\"$o\""
+fi
+
 rm -rf "$dir"
 echo "ifsurvive_selftest_cases=$((ok + bad)) failed=$bad"
 [ "$bad" = 0 ] && echo "ifsurvive-verdict selftest: $ok of $((ok + bad)) cases" && exit 0
