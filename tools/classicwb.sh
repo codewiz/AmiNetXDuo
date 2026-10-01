@@ -130,22 +130,24 @@ case "$MAC_COMPACT" in
     *) say error "bad ClassicWB MAC '$MAC'"; exit 2 ;;
 esac
 
+if [ -z "$NAME" ]; then
+    NAME="amiga-$(printf '%s' "$MODEL" | tr '[:upper:]' '[:lower:]')-$VARIANT-${MAC_COMPACT: -6}"
+fi
+say mac "$MAC"
+say hostname "$NAME"
+
 # A STANDING guest: up for hours, so it takes no bridge lock and does not hold
 # every test run off; its MAC range keeps it apart instead.  CHECKED HERE,
 # where the MAC is first known and before anything is wiped, staged or
-# started, so a refused launch leaves everything as it was.
+# started, so a refused launch leaves everything as it was.  The identity
+# above is only printed, so tools/classicwb-identity-selftest.sh can read it
+# on a host with no flock(1) and no Kickstart.
 # shellcheck source=emu-rig-lock.sh
 . "$ROOT/tools/emu-rig-lock.sh"
 rig_standing_exempt "classicwb $MODEL:$VARIANT in $ROOT" "$MAC" "$BACKEND" || {
     rc=$?
     exit "$rc"
 }
-
-if [ -z "$NAME" ]; then
-    NAME="amiga-$(printf '%s' "$MODEL" | tr '[:upper:]' '[:lower:]')-$VARIANT-${MAC_COMPACT: -6}"
-fi
-say mac "$MAC"
-say hostname "$NAME"
 
 # The asset store carries the ROMs and exports the Kickstart each model needs.
 # Skipping it boots a machine with no ROM, and the error names the ROM rather
