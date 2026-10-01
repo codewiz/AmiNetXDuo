@@ -1070,6 +1070,19 @@ if(NOT CMAKE_CROSSCOMPILING)
 
     add_test(NAME iface_retain COMMAND test_iface_retain)
 
+    # RemoveNetInterface FORCE on a device that never gives its reads back:
+    # the stop waits with neither ami_ns_lock nor nx_ip_protection held,
+    # another interface is usable meanwhile, and the removal completes.  And
+    # which TCP states count as connections open.
+    add_executable(test_iface_remove
+        host/test_iface_remove_host.c ${NETSTACK_HOST_TU})
+
+    target_include_directories(test_iface_remove PRIVATE ${NETSTACK_HOST_INCLUDES})
+    target_compile_definitions(test_iface_remove PRIVATE ${NETSTACK_HOST_DEFINES})
+    target_compile_options(test_iface_remove PRIVATE ${NETSTACK_HOST_OPTIONS})
+
+    add_test(NAME iface_remove COMMAND test_iface_remove)
+
     # netstack_interface_dhcp_start()'s re-arm.  NX_DHCP_ALREADY_STARTED never
     # arises in the arm the lab can run, so stop-and-start-again was never
     # exercised; here the DHCP client answers it on demand.

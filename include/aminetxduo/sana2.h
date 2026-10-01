@@ -47,6 +47,14 @@ VOID ami_sana2_driver_entry(NX_IP_DRIVER *driver_req);
 #define AMI_LINK_STACK_DISABLE  (NX_LINK_USER_COMMAND + 1)
 
 /*
+ * The removal's first step, under nx_ip_protection and without a device call:
+ * link down, and from here the driver entry makes no device call and no wait
+ * for this interface.  ami_sana2_quiesce() then stops it with nx_ip_protection
+ * free, so a device that keeps its requests stalls only the removal.
+ */
+#define AMI_LINK_DETACH_BEGIN   (NX_LINK_USER_COMMAND + 2)
+
+/*
  * Open the SANA-II device named in cfg and prepare it for use. Does not bring
  * the link online, NX_LINK_ENABLE does that. Returns NULL on failure and sets
  * *err to an AMI_NET_ERR_* code.
@@ -63,6 +71,14 @@ AmiSana2If *ami_sana2_open(const AmiIfConfig *cfg, LONG *err);
  * Callers hold ami_ns_lock: the list is changed only under it.
  */
 BOOL        ami_sana2_close(AmiSana2If *iface);
+
+/*
+ * After AMI_LINK_DETACH_BEGIN, in a ThreadX bracket, with neither
+ * nx_ip_protection nor ami_ns_lock held: stop the readers, drain the writes,
+ * S2_OFFLINE.  Every wait in it is bounded (sana2_internal.h); what the device
+ * still holds afterwards makes ami_sana2_close() retain the interface.
+ */
+VOID        ami_sana2_quiesce(AmiSana2If *iface);
 
 /* Interfaces on the retained list.  A read of one word: safe under Forbid(). */
 UWORD       ami_sana2_retained_count(VOID);
