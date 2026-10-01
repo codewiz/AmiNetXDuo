@@ -361,9 +361,10 @@ fi
 # shellcheck source=tools/emu-rig-lock.sh
 . "$ROOT/tools/emu-rig-lock.sh"
 
-rig_claim_name_shared bridged-rig "console ($BACKEND) in $ROOT" || {
+rig_claim_bridge "$BACKEND" "console ($BACKEND) in $ROOT" || {
+    rc=$?
     say RESULT INFRA
-    exit 2
+    exit "$rc"
 }
 
 if [ "$ADDRESS_SET" = 0 ]; then

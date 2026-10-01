@@ -77,8 +77,7 @@ echo "cpu=$(sed -n 's/^AMINETXDUO_CPU:STRING=//p' \
      "arch=$(sed -n 's/^AMIGA_ARCH_FLAGS:STRING=//p' \
     "$BUILDDIR/CMakeCache.txt" 2>/dev/null || echo unknown)"
 echo "divisors=$DIVISORS fastmem=${AMINETXDUO_FASTMEM:-unset}"
-echo "model=$MODEL board=$BOARD seconds=$SECONDS_ARM" \
-     "exclusive=${AMINETXDUO_RIG_EXCLUSIVE-yes}"
+echo "model=$MODEL board=$BOARD seconds=$SECONDS_ARM"
 echo "guest_address=$ADDRESS"
 
 # shellcheck source=netstatkv.sh
@@ -161,11 +160,6 @@ IFEOF
     export AMINETXDUO_RUN_TAG="$TAG"
     ARM_T0=$(date +%s)
     ARM_LOAD0=$(cut -d' ' -f1 /proc/loadavg 2>/dev/null)
-    # Exclusive by default, because an arm that shares the host NIC and the
-    # host CPUs is measuring the other run as much as this one.  An override
-    # rather than a hardcode, so a lab with eight guests on it can still take
-    # the figure it can get; the exclusive= key says which one it was.
-    AMINETXDUO_RIG_EXCLUSIVE="${AMINETXDUO_RIG_EXCLUSIVE-poolshare arm $DIV}" \
     "$ROOT/tools/amiberry-run.sh" -N "$BOARD" -B "$IFACE" -m "$MODEL" \
         -t $((SECONDS_ARM + 180)) \
         "$TOOLS/ToolsSmoke" "$STAGE/commands.txt" "$STAGE/devs" \

@@ -201,50 +201,59 @@ else
     bad "the named claim stayed held after its holder died"
 fi
 
-# -------------------------------------- 5. shared claims exclude a writer --
+# ------------------------------------------ 5. one bridged guest per host --
 
-SHARED1=$(mktemp "$AMINETXDUO_RIG_LOCKDIR/shared1.XXXXXX")
-SHARED2=$(mktemp "$AMINETXDUO_RIG_LOCKDIR/shared2.XXXXXX")
+# A lock file of its own, so this never waits on a live guest.
+export AMINETXDUO_BRIDGE_LOCK="$AMINETXDUO_RIG_LOCKDIR/bridge.lock"
+B_HELD=$(mktemp "$AMINETXDUO_RIG_LOCKDIR/bridge-held.XXXXXX")
+B_GONE=$(mktemp "$AMINETXDUO_RIG_LOCKDIR/bridge-gone.XXXXXX")
 (
     . "$ROOT/tools/emu-rig-lock.sh"
-    rig_claim_name_shared selftest-shared "shared-one" > /dev/null 2>&1 &&
-        echo held > "$SHARED1"
-    sleep 5
+    rig_claim_bridge ens18 "the-first-guest" > /dev/null 2>&1 &&
+        echo held > "$B_HELD"
+    sleep 3
+    echo gone > "$B_GONE"
 ) &
-S1PID=$!
-(
-    . "$ROOT/tools/emu-rig-lock.sh"
-    rig_claim_name_shared selftest-shared "shared-two" > /dev/null 2>&1 &&
-        echo held > "$SHARED2"
-    sleep 5
-) &
-S2PID=$!
+B_PID=$!
 for _ in 1 2 3 4 5 6 7 8 9 10; do
-    [ -s "$SHARED1" ] && [ -s "$SHARED2" ] && break
-    sleep 0.3
+    [ -s "$B_HELD" ] && break
+    sleep 0.2
 done
 
-if [ -s "$SHARED1" ] && [ -s "$SHARED2" ]; then
-    ok "two shared users can hold one named claim"
+if [ ! -s "$B_HELD" ]; then
+    bad "the child never took the bridge"
 else
-    bad "the two shared users did not acquire together"
-fi
-if rig_claim_name selftest-shared "exclusive-during-shared" > /dev/null 2>&1; then
-    bad "an exclusive user acquired over shared holders"
-    rig_release_name selftest-shared
-else
-    ok "an exclusive user is refused while shared users hold the claim"
-fi
+    REFUSAL=$(AMINETXDUO_BRIDGE_WAIT=1 rig_claim_bridge ens18 "too-soon" 2>&1)
+    RC=$?
+    if [ "$RC" = 0 ]; then
+        bad "a second bridged claim was granted while the first was held"
+        rig_drop_bridge
+    elif printf '%s' "$REFUSAL" | grep -q "the-first-guest"; then
+        ok "a bridged claim past its wait is refused, naming the holder"
+    else
+        bad "refused, but without naming the holder: $REFUSAL"
+    fi
 
-kill "$S1PID" "$S2PID" 2> /dev/null
-wait "$S1PID" 2> /dev/null
-wait "$S2PID" 2> /dev/null
-if rig_claim_name selftest-shared "exclusive-after-shared" > /dev/null 2>&1; then
-    ok "the exclusive user acquires after shared users leave"
-    rig_release_name selftest-shared
-else
-    bad "the shared claim stayed held after both users left"
+    if rig_claim_bridge slirp "slirp-beside" > /dev/null 2>&1 &&
+       [ -z "$RIG_BRIDGE_FD" ]; then
+        ok "a slirp run is not held back by a bridged one"
+    else
+        bad "a slirp run was refused or took the bridge"
+    fi
+
+    if AMINETXDUO_BRIDGE_WAIT=20 rig_claim_bridge ens18 "the-second-guest" \
+           > /dev/null 2>&1; then
+        if [ -s "$B_GONE" ]; then
+            ok "a waiting bridged claim is granted once the first exits"
+        else
+            bad "the waiting claim was granted before the first had exited"
+        fi
+        rig_drop_bridge
+    else
+        bad "the waiting claim was refused although the first exited"
+    fi
 fi
+wait "$B_PID" 2> /dev/null
 
 # ----------------------------------------- 6. an orphaned reader is found --
 #

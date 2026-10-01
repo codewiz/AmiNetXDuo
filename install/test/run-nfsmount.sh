@@ -99,7 +99,7 @@ export AMINETXDUO_RUN_TAG="$TAG"
 # answered last.
 # shellcheck source=../../tools/emu-mac.sh
 . "$ROOT/tools/emu-mac.sh"
-[ -n "$MAC" ] || MAC=$(emu_mac_for_tag "$TAG")
+[ -n "$MAC" ] || MAC=$(emu_mac_default "$TAG")
 
 need() { [ -e "$1" ] || { echo "!! missing $1${2:+ -- $2}" >&2; exit 2; }; }
 
@@ -144,6 +144,14 @@ done
 PEERNAME="${PEERHOST#*@}"
 PEERADDR=$(getent ahostsv4 "$PEERNAME" 2>/dev/null | awk 'NR==1{print $1}')
 [ -n "$PEERADDR" ] || PEERADDR="$PEERNAME"
+
+# ONE BRIDGED GUEST PER HOST, claimed before this run wipes and restages its
+# drive: a second run of the same tag would otherwise delete the drive of the
+# guest running under the lock.  Held until this script exits; the codes and
+# the why are at rig_claim_bridge in tools/emu-rig-lock.sh.
+# shellcheck source=../../tools/emu-rig-lock.sh
+. "$ROOT/tools/emu-rig-lock.sh"
+rig_claim_bridge "$BACKEND" "run-nfsmount $TAG in $ROOT" || exit $?
 
 OUT="$ROOT/build/nfsmount-$TAG"
 HD="$ROOT/build/nfshd-$TAG"

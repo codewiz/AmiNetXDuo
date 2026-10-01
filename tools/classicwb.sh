@@ -121,7 +121,9 @@ esac
 # name.  Keep the readable model/variant and append the three-byte tail used by
 # the stack's own hardware-derived host names.  An explicit -n is untouched.
 . "$ROOT/tools/emu-mac.sh"
-MAC="${AMINETXDUO_CWB_MAC:-$(emu_mac_for_tag "cwb:$MODEL:$VARIANT:$ROOT")}"
+# A standing guest, so the standing range: no test guest can have it, and it
+# takes no bridge lock (tools/emu-mac.sh, emu_mac_standing).
+MAC="${AMINETXDUO_CWB_MAC:-$(emu_mac_standing classicwb "$MODEL:$VARIANT:$ROOT")}"
 MAC_COMPACT=$(printf '%s' "$MAC" | tr -d ':' | tr '[:upper:]' '[:lower:]')
 case "$MAC_COMPACT" in
     [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
@@ -133,6 +135,27 @@ if [ -z "$NAME" ]; then
 fi
 say mac "$MAC"
 say hostname "$NAME"
+
+# A STANDING guest: up for hours, so it takes no bridge lock and does not hold
+# every test run off; its MAC range keeps it apart instead.  CHECKED HERE,
+# where the MAC is first known and before anything is wiped, staged or
+# started, so a refused launch leaves everything as it was.  The identity
+# above is only printed, so tools/classicwb-identity-selftest.sh can read it
+# on a host with no flock(1) and no Kickstart.
+# shellcheck source=emu-rig-lock.sh
+. "$ROOT/tools/emu-rig-lock.sh"
+rig_standing_exempt "classicwb $MODEL:$VARIANT in $ROOT" "$MAC" "$BACKEND" || {
+    rc=$?
+    exit "$rc"
+}
+
+# TEST ONLY: tools/classicwb-identity-selftest.sh stops here, after the
+# identity and the standing check and before anything reads the asset store,
+# so no ambient Kickstart or snapshot path can carry it into a wipe.
+if [ "${AMINETXDUO_CWB_IDENTITY_ONLY:-0}" = 1 ]; then
+    say identity_only 1
+    exit 0
+fi
 
 # The asset store carries the ROMs and exports the Kickstart each model needs.
 # Skipping it boots a machine with no ROM, and the error names the ROM rather
@@ -386,7 +409,8 @@ start_emulator() {
     LOGPIPE="$log.pipe"
     rm -f "$LOGPIPE"
     if [ -x "$ROOT/tools/logcap.sh" ] && mkfifo "$LOGPIPE" 2>/dev/null; then
-        "$ROOT/tools/logcap.sh" < "$LOGPIPE" > "$log" &
+        ( rig_drop_standing; exec "$ROOT/tools/logcap.sh" ) \
+            < "$LOGPIPE" > "$log" &
         LOGCAP_PID=$!
     else
         say warning "no tools/logcap.sh; $log is UNCAPPED"
@@ -836,7 +860,8 @@ if [ "$VARIANT" = rtg ]; then
         [ -e "/tmp/.X11-unix/X$n" ] || { XDISP=":$n"; break; }
     done
     [ -n "$XDISP" ] || { say error "no free X display in :90..:99"; exit 2; }
-    Xvfb "$XDISP" -screen 0 1280x1024x24 >/dev/null 2>&1 &
+    ( rig_drop_standing; exec Xvfb "$XDISP" -screen 0 1280x1024x24 ) \
+        >/dev/null 2>&1 &
     XVFB_PID=$!
     sleep 2
     export DISPLAY="$XDISP"
@@ -883,14 +908,18 @@ EMULOG="$ROOT/build/amiberry-$TAG.log"
 # the guest is up catches them by luck only.
 WIRE="$ROOT/build/classicwb-wire-$TAG.txt"
 : > "$WIRE"
-tcpdump -i "$BACKEND" -n -l -e \
-    "arp or (udp port 67 or udp port 68) or (udp port 5353)" \
+# Helpers close the standing lock: only the emulator may keep the address.
+( rig_drop_standing
+  exec tcpdump -i "$BACKEND" -n -l -e \
+      "arp or (udp port 67 or udp port 68) or (udp port 5353)" ) \
     >> "$WIRE" 2>/dev/null &
 SNIFFER=$!
 trap 'kill "$SNIFFER" 2>/dev/null || true' INT TERM
 sleep 1
 
 start_emulator "$CFG" "$EMULOG"
+# The emulator holds the standing lock now; nothing started below may.
+rig_drop_standing
 say emulator_pid "$EMU_PID"
 
 # A guest that is left up needs an end, and the emulator is the thing that has
