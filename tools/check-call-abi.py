@@ -355,15 +355,20 @@ def collect_files(root):
     out = []
     for top in SCAN:
         base = os.path.join(root, top)
-        if not os.path.isdir(base):
-            continue
+        found = 0
         for d, dirs, files in os.walk(base):
             dirs[:] = sorted(x for x in dirs if x not in SKIP_DIR)
             for f in sorted(files):
                 if f.endswith((".c", ".h", ".S", ".s")):
+                    found += 1
                     rel = os.path.relpath(os.path.join(d, f), root)
                     if not is_host_only(rel):
                         out.append(rel)
+        # An unpopulated submodule is an empty directory: skipping it read
+        # as findings=0 for a fork nobody had looked at.
+        if found == 0:
+            sys.exit("call_abi=FAILED reason=empty_scan_root root=%s "
+                     "(git submodule update --init?)" % top)
     return out
 
 
