@@ -364,8 +364,8 @@ fi
 # 68000 a direct one under -fbaserel/-resident/-mpcrel, loads its target into
 # a0, and m68k_is_ok_for_sibcall allowed an argument there; under -mregparm or
 # an __asm ("a0") parameter the target replaced it (bsd_wait_sliced() entered
-# bsd_send_once() with its own address as `arg').  The same fix is upstream
-# as AmigaPorts/gcc d435dc175 on 873ba1cb.
+# bsd_send_once() with its own address as `arg').  The same fix, on
+# 873ba1cb, is prepared for upstream review as tinic/gcc d435dc175.
 #
 # First, amiga-gcc configures binutils with --disable-plugins for every target
 # but m68k-elf, so ld accepts -plugin and ignores it.  GCC's liblto_plugin.so
