@@ -33,7 +33,11 @@ OUTPUT
   One `----- <command>` line per command, then what it printed, then
   `shell_rc=<RC>`.  The exit
   status is 0 when every command was reached, 3 when the machine did not
-  answer at all -- which is not a failed run, it is no run.
+  answer at all -- which is not a failed run, it is no run.  4 when a command
+  timed out and the break brought the prompt back (shell_command=stopped;
+  the commands after it still ran), 5 when the prompt did not come back after
+  the break (shell_break=no_prompt, shell_command=unknown; nothing after it
+  was sent).
 
 SPDX-License-Identifier: MIT
 """
@@ -201,15 +205,30 @@ def main():
             # input with no newline behind it, so the NEXT line anyone typed
             # began with it -- the next run's `Prompt` became an unknown
             # command and that run reported no_prompt.
-            ws.send(d.ws_frame(1, "break"))
-            back = until(ends, 10.0)
+            #
+            # GIVING UP IS NOT THE COMMAND ENDING.  shell_state=timeout says
+            # only that this client stopped waiting.  The command is reported
+            # stopped -- and the next one sent -- only when the prompt comes
+            # back after the break, because that prompt is the one proof the
+            # Shell is idle and reading.  Without it nothing more is typed
+            # into a session whose state is unknown.
             print("shell_state=timeout")
-            print("shell_break=%s" % ("prompt" if back is not None
-                                      else "no_prompt"))
             print("hwshell: %r did not return to a prompt in %.0f s"
                   % (cmd, a.timeout), file=sys.stderr)
+            ws.send(d.ws_frame(1, "break"))
+            back = until(ends, 10.0)
+            if back is None:
+                print("shell_break=no_prompt")
+                print("shell_command=unknown")
+                print("hwshell: no prompt after the break; nothing more is "
+                      "sent", file=sys.stderr)
+                rc = 5
+                break
+            print("shell_break=prompt")
+            print("shell_command=stopped")
+            print("shell_rc=%d" % back[1])
             rc = 4
-            break
+            continue
         # The Shell echoes nothing; the page does.  What comes back is the
         # command's own output and no more.
         out, shell_rc = got

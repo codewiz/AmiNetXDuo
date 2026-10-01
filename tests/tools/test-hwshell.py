@@ -10,12 +10,18 @@ as httpd's does, and that reads a line the way dos.library's ReadItem() does:
 a control character is part of the command name, so "\\x03Prompt" is an
 unknown command.
 
-Two runs against the same Shell:
+Runs against the same Shell:
 
-  1. a command that never returns.  hwshell must break it with the `break`
-     word, and must leave no byte behind in the Shell's input.
+  1. a command that never returns, then another in the SAME run.  hwshell
+     must break it with the `break` word, leave no byte behind in the
+     Shell's input, report it stopped only on the prompt, and run the next
+     command cleanly with its own prompt.
   2. a failing command and `Echo "rc=$RC"`.  The Prompt has to take, which a
      stray 0x03 from run 1 prevents, and each command's RC has to come back.
+  3. a timeout, then a command in a NEW connection, which must run cleanly.
+  4. a command that ignores the break.  hwshell must say shell_break=
+     no_prompt and shell_command=unknown, exit 5, and type nothing more into
+     a Shell it cannot prove is idle.
 
 Output is key=value; the exit status is the number of failed checks.
 
@@ -42,6 +48,7 @@ class Shell:
         self.rc = 0
         self.vars = {}
         self.busy = False           # a command that only Ctrl-C ends
+        self.deaf = False           # ...and one that ignores Ctrl-C too
         self.keys = b""             # every keystroke byte, for the checks
         self.words = []             # every control word, for the checks
 
@@ -78,6 +85,10 @@ class Shell:
         if name == "Hang":
             self.busy = True
             return b""
+        if name == "Deaf":
+            self.busy = True
+            self.deaf = True
+            return b""
         if name == "Fail":
             self.rc = 5
             return b"Fail: no\n"
@@ -97,7 +108,7 @@ class Shell:
 
     def word(self, w):
         self.words.append(w)
-        if w == "break" and self.busy:
+        if w == "break" and self.busy and not self.deaf:
             self.busy = False
             self.rc = 20
             return b"***Break\n" + self.show_prompt() + \
@@ -194,17 +205,34 @@ def main():
                            stderr=subprocess.STDOUT, timeout=60)
         return p.returncode, p.stdout.decode("latin-1")
 
-    rc, out = run("Hang")
-    check(rc == 4, "hang_reports_timeout")
+    rc, out = run("Hang", 'Echo "after"')
+    check(rc == 4, "hang_exit_4")
     check("break" in shell.words, "hang_sent_break_word")
     check(b"\x03" not in shell.keys, "hang_sent_no_ctrl_c_byte")
-    check(not shell.busy, "hang_command_was_broken")
-    check(shell.pending == b"", "hang_left_no_input")
+    check(not shell.busy and shell.pending == b"", "hang_broken_input_clean")
+    check("shell_state=timeout\nshell_break=prompt\nshell_command=stopped\n"
+          "shell_rc=20\n" in out, "hang_stopped_only_on_prompt")
+    check('----- Echo "after"\nafter\nshell_rc=0\n' in out,
+          "same_run_next_command_clean")
 
     rc, out = run("Fail", 'Echo "rc=$RC"')
     check(rc == 0 and "shell_state=ready" in out, "next_run_prompt_takes")
     check("shell_rc=5" in out, "failing_command_rc_reported")
     check("rc=5\n" in out, "rc_carries_to_next_command")
+
+    rc, out = run("Hang")
+    check(rc == 4, "lone_hang_exit_4")
+    rc, out = run('Echo "fresh"')
+    check(rc == 0 and '----- Echo "fresh"\nfresh\nshell_rc=0\n' in out,
+          "new_connection_after_timeout_clean")
+
+    before = len(shell.keys)
+    rc, out = run("Deaf", 'Echo "never"')
+    check(rc == 5, "deaf_exit_5")
+    check("shell_break=no_prompt\nshell_command=unknown\n" in out,
+          "deaf_reports_no_prompt_unknown")
+    check("shell_command=stopped" not in out, "deaf_not_reported_stopped")
+    check(b"never" not in shell.keys[before:], "deaf_nothing_more_sent")
 
     stop.set()
     lsock.close()
