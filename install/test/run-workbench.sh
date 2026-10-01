@@ -161,6 +161,11 @@ if [ "$EXPERT_CUSTOM" = "1" ] && [ "$LEVEL" != "EXPERT" ]; then
     echo "-E needs -l EXPERT: unit and interface name are Expert-only pages" >&2
     exit 2
 fi
+if [ "$NO_BOOT" = "1" ] && [ "$DRAWER" = "1" ]; then
+    echo "-B and -D conflict: the drawer arm installs twice and marks the" >&2
+    echo "S:Network-Startup that a boot-disabled install does not write." >&2
+    exit 2
+fi
 if [ "$NO_BOOT" = "1" ] && [ "$TERMINAL" = "1" ]; then
     echo "-B and -H conflict: httpd-at-boot is not asked when boot networking" >&2
     echo "is disabled." >&2
