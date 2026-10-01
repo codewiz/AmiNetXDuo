@@ -829,6 +829,17 @@ ${rlwhy:+ -- }${rlwhy:-, see the log above}" ;;
         return 1
     fi
 
+    # hwshell.py drives the real A1200's /shell, where no runner reaches.  A
+    # stand-in /shell checks its wire: Ctrl-C is the `break` word, never a
+    # 0x03 byte left in the Shell's input, and every command's RC comes back.
+    if python3 tests/tools/test-hwshell.py > "$BUILD/test-hwshell.log" 2>&1; then
+        note "hwshell: $(grep -c '=ok$' "$BUILD/test-hwshell.log") checks"
+    else
+        cat "$BUILD/test-hwshell.log"
+        fail "tests/tools/hwshell.py against a stand-in /shell (tests/tools/test-hwshell.py)"
+        return 1
+    fi
+
     # And that the backlog still points at the tree it describes.  A row whose
     # file has moved sends a reader to a directory that does not have it --
     # `rfbbench` cannot price the banded path named tests/perf/rfbbench.c for
