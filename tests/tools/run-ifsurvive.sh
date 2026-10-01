@@ -196,9 +196,11 @@ printf 'DEVICE=a2065.device\nUNIT=0\nCONFIGURE=STATIC\nADDRESS=%s\nNETMASK=255.2
 # ignores every ICMP request from some rig addresses (192.168.1.224 and .232 on
 # 2026-10-01: no reply on the wire, on-link or forwarded, with aeth0 alone,
 # while .244 got every one), which failed the ping checks on a bad address.
-# The peer is a Linux host on the segment and answers any source.  No peer:
-# the gateway, as before.  The gateway is still pinged once with aeth0 alone,
-# for the gateway_icmp_* line only; it decides nothing.
+# The peer is a Linux host on the segment and answers any source.  No peer
+# and no AMINETXDUO_IFSURVIVE_PROBE: this box cannot run the test, since a
+# silent gateway fallback turns a bad address back into a "no wire" FAIL.
+# The gateway is still pinged once with aeth0 alone, for the gateway_icmp_*
+# line only; it decides nothing.
 PEER="${AMINETXDUO_PEER:-}"
 PROBE="${AMINETXDUO_IFSURVIVE_PROBE:-}"
 if [ -z "$PROBE" ] && [ -n "$PEER" ]; then
@@ -206,8 +208,12 @@ if [ -z "$PROBE" ] && [ -n "$PEER" ]; then
             "ip -4 -o route get $GATEWAY" 2> /dev/null |
             sed -n 's/.* src \([0-9][0-9.]*\).*/\1/p' | head -1)
 fi
-[ -n "$PROBE" ] || PROBE="$GATEWAY"
-echo "icmp_target=$PROBE icmp_target_from=$( [ "$PROBE" = "$GATEWAY" ] && echo gateway || echo peer)"
+if [ -z "$PROBE" ]; then
+    echo "verdict=SKIP reason=no_icmp_peer peer=${PEER:-unset}"
+    echo "no ICMP target: set AMINETXDUO_PEER (reachable) or AMINETXDUO_IFSURVIVE_PROBE" >&2
+    exit 2
+fi
+echo "icmp_target=$PROBE icmp_target_from=$( [ -n "${AMINETXDUO_IFSURVIVE_PROBE:-}" ] && echo probe || echo peer)"
 BASEPING="SYS:ping $GATEWAY -c 3 -t 15"
 
 {
