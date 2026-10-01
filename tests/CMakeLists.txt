@@ -1,5 +1,11 @@
 # On-Amiga test harnesses.
 
+# Host targets that compile vendored NetX sources also include our nx_user.h.
+# Its crypto-memory overrides live in the project's public include tree.
+if(NOT CMAKE_CROSSCOMPILING)
+    include_directories("${CMAKE_SOURCE_DIR}/include")
+endif()
+
 add_subdirectory(common)
 add_subdirectory(ram_driver)
 add_subdirectory(soak)
