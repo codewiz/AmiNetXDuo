@@ -13,6 +13,7 @@
 #include "sana2_internal.h"
 
 #include "aminetxduo/netstack.h"
+#include "aminetxduo/nxstatus.h"
 
 #include <proto/exec.h>
 
@@ -220,8 +221,10 @@ static BOOL ami_sana2_detaching_entry(NX_IP_DRIVER *driver_req,
     case NX_LINK_ARP_SEND:
     case NX_LINK_ARP_RESPONSE_SEND:
     case NX_LINK_RARP_SEND:
+        /* Teardown: the interface is going, as in ami_sana2_tx_drain(). */
         if (driver_req->nx_ip_driver_packet != NULL)
-            nx_packet_transmit_release(driver_req->nx_ip_driver_packet);
+            AMI_NX_CLEANUP(nx_packet_transmit_release(
+                               driver_req->nx_ip_driver_packet));
         iface->stats.tx_errors++;
         driver_req->nx_ip_driver_status = NX_NOT_ENABLED;
         return TRUE;
