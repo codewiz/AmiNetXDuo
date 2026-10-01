@@ -153,7 +153,9 @@ static u32 ami_umul16(u32 a, u32 b)
 u32     product = a;
 
 
-    __asm__ ("mulu.w %1,%0" : "+d" (product) : "dmi" (b));
+    /* "d", not "dmi": MULU.W reads 16 bits, and a u32 in memory gives it
+       the high word on this big-endian machine. */
+    __asm__ ("mulu.w %1,%0" : "+d" (product) : "d" (b));
 
     return(product);
 
@@ -188,7 +190,8 @@ static u32 ami_divu32_16_step(u32 numerator, u32 divisor, u32 *remainder)
 u32     step = numerator;
 
 
-    __asm__ ("divu.w %1,%0" : "+d" (step) : "dmi" (divisor));
+    /* "d", not "dmi", for the reason ami_umul16() gives. */
+    __asm__ ("divu.w %1,%0" : "+d" (step) : "d" (divisor));
 
     *remainder = step >> 16;
     return((u32)(u16)step);
