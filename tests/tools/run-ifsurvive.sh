@@ -219,6 +219,7 @@ printf 'DEVICE=a2065.device\nUNIT=0\nCONFIGURE=STATIC\nADDRESS=%s\nNETMASK=255.2
     echo "&SYS:ping $GATEWAY -i 0 -c $GUEST_PING_COUNT -t $GUEST_PING_TIMEOUT >DH0:ifs-ping.txt"
     echo "SYS:RemoveNetInterface zforce FORCE"
     echo "wait $((GUEST_PING_TIMEOUT + 5))"
+    echo "SYS:ShowNetStatus ICMP"
     echo "SYS:ShowNetStatus"
     echo "SYS:nslookup example.edu $OFFLINK"
     echo "SYS:RemoveNetInterface aeth0"
@@ -616,10 +617,11 @@ ev() { sed -n "s/^$1=//p" "$EVENTS" | head -1; }
 FORCE_START=$(ev force_start);           FORCE_END=$(ev force_end)
 GPING_START=$(ev guest_ping_start);      GPING_END=$(ev guest_ping_end)
 HPING_START=$(ev host_ping_start);       HPING_END=$(ev host_ping_end)
-# The stack's own ICMP counters after each leg's pings (opt-in in
+# The stack's own ICMP counters after each leg's pings, leg 3 being the
+# FORCE leg's -i 0 stream (opt-in in
 # ShowNetStatus): requests sent against replies received and checksum
 # errors say whether a lost reply reached the stack at all.
-for leg in 1 2; do
+for leg in 1 2 3; do
     block "SYS:ShowNetStatus ICMP" $leg | tr -s ' \t' ' ' |
         awk -v leg=$leg 'NF { gsub(/^ /, ""); print "icmp_leg" leg ": " $0 }'
 done
