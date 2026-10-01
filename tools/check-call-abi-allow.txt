@@ -1,0 +1,32 @@
+# Crossings tools/check-call-abi.py reports that are right as they are.
+#
+#   rule  file  name  reason
+#
+# One line each, keyed by rule, file and name, so an entry covers only the
+# place it names.  An entry the tree no longer needs fails the check: delete
+# it with the code it described.
+
+# tool_startup.S loads the two flags into d0/d1 AND pushes them, so the call
+# is right under either convention; the toolchain file says why it is the one
+# unpinned call from assembly (cmake/toolchain-m68k-amigaos.cmake).
+asm-call src/tools/tool_startup.S ami_rt_cpu_select both conventions loaded at the call site
+
+# Built by their own scripts without -mregparm, against libgcc, which pushes.
+rt-helper tests/endurance/fitz-kprintf.c __udivdi3 tests/endurance/build.sh, no -mregparm
+rt-helper tests/endurance/fitz-kprintf.c __umoddi3 tests/endurance/build.sh, no -mregparm
+rt-helper tests/toolchain/lto-late-libcall/runtime.c __muldi3 reproduce.sh, plain m68k-amigaos-gcc
+
+# Function-pointer types in include/aminetxduo that never leave the image
+# that sets them: caller and callee are linked into one binary, built with
+# one set of flags.
+shared-type include/aminetxduo/bpf.h AmiBpfInjectFn src/bpf and src/sana2, bsdsocket.library only
+shared-type include/aminetxduo/bpf.h inject bsdsocket.library only
+shared-type include/aminetxduo/bpf.h AmiBpfAddrFn src/bpf and src/netstack, bsdsocket.library only
+shared-type include/aminetxduo/bpf.h AmiBpfCaptureFn src/bpf and src/netstack, bsdsocket.library only
+shared-type include/aminetxduo/bpf.h fn bsdsocket.library only
+shared-type include/aminetxduo/compat.h AmiLogLineFn src/common/ami_diag.c, set and called in each image
+shared-type include/aminetxduo/compat.h fn src/common/ami_diag.c, set and called in each image
+shared-type include/aminetxduo/config.h AmiCfgReporter src/config, passed by a caller in the same image
+shared-type include/aminetxduo/config.h reporter src/config, passed by a caller in the same image
+shared-type include/aminetxduo/netstack.h AmiNetGiveUpFn src/netstack and src/bsdsocket, bsdsocket.library only
+shared-type include/aminetxduo/netstack.h give_up bsdsocket.library only

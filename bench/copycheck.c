@@ -18,7 +18,8 @@
 
 #include <stdio.h>
 
-extern VOID n68k_copy_bytes(UBYTE *to, const UBYTE *from, ULONG len);
+/* Assembly that reads the stack: __stdargs, as src/net68k/net68k.h pins it. */
+extern __stdargs VOID n68k_copy_bytes(UBYTE *to, const UBYTE *from, ULONG len);
 
 #define PAD     8
 #define MAXLEN  80

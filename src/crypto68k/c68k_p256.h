@@ -91,7 +91,9 @@ extern const c68k_limb c68k_p256_comb[C68K_P256_COMB_POINTS][16];
  * The three routines c68k_p256.S hand-writes, with portable C fallbacks in
  * c68k_p256.c under the same build flag as c68k_prim.S.  Exposed rather than
  * static because the assembly has to define them, and because the test drives
- * the reduction directly against the vendored one.
+ * the reduction directly against the vendored one.  The assembly reads its
+ * arguments from the stack, so every one carries AMIGA_ASM_ARGS: unpinned, a
+ * 68020 or 68040 build handed them a0/a1/a2 (aminetxduo/asm_abi.h).
  *
  * GCC cannot generate the ADD.L / ADDX.L pair these need, C has no carry
  * flag, and the disassembly of both plausible C spellings is in the header
@@ -101,16 +103,18 @@ extern const c68k_limb c68k_p256_comb[C68K_P256_COMB_POINTS][16];
  */
 
 /* r = a + b over eight limbs, no modular reduction.  Returns the carry out. */
-c68k_limb c68k_p256_add_raw(c68k_limb *r, const c68k_limb *a, const c68k_limb *b);
+AMIGA_ASM_ARGS c68k_limb c68k_p256_add_raw(c68k_limb *r, const c68k_limb *a,
+                                           const c68k_limb *b);
 
 /* r = a - b over eight limbs, no modular reduction.  Returns the borrow out. */
-c68k_limb c68k_p256_sub_raw(c68k_limb *r, const c68k_limb *a, const c68k_limb *b);
+AMIGA_ASM_ARGS c68k_limb c68k_p256_sub_raw(c68k_limb *r, const c68k_limb *a,
+                                           const c68k_limb *b);
 
 /*
  * One pass of the Solinas reduction: writes r[0..7] and returns the leftover
  * signed coefficient of 2^256, which c68k_p256_fe_reduce() folds in.
  */
-INT c68k_p256_reduce_core(c68k_limb *r, const c68k_limb *t);
+AMIGA_ASM_ARGS INT c68k_p256_reduce_core(c68k_limb *r, const c68k_limb *t);
 
 
 /* ------------------------------------------------------ field, exposed --- */

@@ -75,6 +75,7 @@ want rx-posted      tools/ci.sh                      'check-rx-posted\.sh'
 want option-stubs   tools/ci.sh                      'check-option-stubs\.sh'
 want lvo-matrix     tools/ci.sh                      'check-lvo-matrix\.sh'
 want lvo-clobbers   tools/ci.sh                      'check-lvo-clobbers\.sh'
+want call-abi       tools/ci.sh                      'check-call-abi\.sh'
 want generated      .githooks/pre-commit             'check-generated\.sh'
 
 # Gate 5: the push itself.  .githooks/pre-push refuses a tree the host stage
