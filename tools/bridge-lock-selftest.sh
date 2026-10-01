@@ -30,9 +30,11 @@
 #                   boots while the lock is held, and leaves the lock free
 #   optout_testmac  the same opt-out on a test-range MAC is refused with 2
 #   demo_standing   tools/demo.sh opts out, on a standing MAC
-#   override_range  rig_standing_exempt, which every standing launcher goes
-#                   through, refuses a test-range override (AMINETXDUO_CWB_MAC,
-#                   AMINETXDUO_DEMO_MAC) with 2 and accepts a standing one
+#   override_range  each standing launcher's own refusal block, executed:
+#                   a test-range MAC (what AMINETXDUO_CWB_MAC or
+#                   AMINETXDUO_DEMO_MAC could hold) exits non-zero before the
+#                   emulator start, a standing one reaches it; the block comes
+#                   before the launcher's first emulator start in the file
 #   mac_pinned      AMINETXDUO_AMIBERRY_MAC is used as given
 #
 # Output is key=value and an exit code: 0 all held, 1 one did not, 3 not
@@ -420,24 +422,43 @@ case "$demo" in
     *) kv demo_standing "wrong:tools/demo.sh does not opt out on a standing MAC" ;;
 esac
 
-# Every standing launcher calls rig_standing_exempt with the MAC it will use,
-# override included, and exits on its refusal; the check itself is then one
-# function, exercised here with what those overrides could hold.
+# Every standing launcher's own refusal block, RUN: the lines from its
+# rig_standing_exempt call to the block's closing brace are cut out of the
+# launcher and executed with the MAC an override could hold, followed by a
+# stand-in for the emulator start.  A test-range MAC must exit non-zero with
+# the stand-in never reached; a standing one must reach it.  And in the file
+# the block must come before the launcher's first emulator start.
 ov_bad=""
-for f in tools/classicwb.sh tools/demo-rtg.sh tests/tools/console-instance.sh; do
-    grep -qE '^rig_standing_exempt .*"\$MAC" "\$BACKEND" \|\| \{' "$ROOT/$f" ||
-        ov_bad="$ov_bad $f"
+for spec in "tools/classicwb.sh:start_emulator \"\$CFG\"" \
+            "tools/demo-rtg.sh:setsid \"\$AMIBERRY\"" \
+            "tests/tools/console-instance.sh:exec \"\$AMIBERRY\""; do
+    f=${spec%%:*}; launch=${spec#*:}
+    blk=$(awk '/^rig_standing_exempt /{on=1} on{print} on&&/^}/{exit}' "$ROOT/$f")
+    at=$(grep -n '^rig_standing_exempt ' "$ROOT/$f" | head -1 | cut -d: -f1)
+    emu=$(grep -nF "$launch" "$ROOT/$f" | grep -v '^[0-9]*:[[:space:]]*#' |
+          head -1 | cut -d: -f1)
+    [ -n "$blk" ] && [ -n "$at" ] && [ -n "$emu" ] && [ "$at" -lt "$emu" ] ||
+        { ov_bad="$ov_bad $f:order(${at:-none}<${emu:-none})"; continue; }
+    for mac in 02:41:4d:49:00:77 02:41:4d:47:2a:01; do
+        rm -f "$S/launched"
+        printf '%s\n' ". \"$ROOT/tools/emu-rig-lock.sh\"" 'say() { :; }' \
+            'SNIFFER=""; TAG=t; RUN=r; BACKEND=ens18' "MAC=$mac" \
+            "$blk" "touch \"$S/launched\"" > "$S/block.sh"
+        bash "$S/block.sh" > /dev/null 2>&1
+        brc=$?
+        case "$mac" in
+            02:41:4d:49:*) [ "$brc" != 0 ] && [ ! -e "$S/launched" ] ||
+                               ov_bad="$ov_bad $f:test-mac-rc=$brc" ;;
+            *)             [ "$brc" = 0 ] && [ -e "$S/launched" ] ||
+                               ov_bad="$ov_bad $f:standing-mac-rc=$brc" ;;
+        esac
+    done
+    echo "override_block_$(basename "$f" .sh)=line$at<emulator_line$emu"
 done
-ov_test=$( . "$ROOT/tools/emu-rig-lock.sh"
-           rig_standing_exempt cwb 02:41:4d:49:00:77 ens18 > /dev/null 2>&1
-           echo $? )
-ov_stand=$( . "$ROOT/tools/emu-rig-lock.sh"
-            rig_standing_exempt cwb 02:41:4D:47:2a:01 ens18 > /dev/null 2>&1
-            echo $? )
-if [ -z "$ov_bad" ] && [ "$ov_test" = 2 ] && [ "$ov_stand" = 0 ]; then
+if [ -z "$ov_bad" ]; then
     kv override_range ok
 else
-    kv override_range "wrong:unchecked=[${ov_bad# }]:test=$ov_test:standing=$ov_stand"
+    kv override_range "wrong:${ov_bad# }"
 fi
 
 echo "bridge_selftest=$WRONG"
