@@ -1886,8 +1886,15 @@ fi
 # Installer spinning on its "select at least one" page.  Ordinary scenarios
 # keep their old driver-file fallback, and the explicit no-card fixture still
 # boots with no board.
+#
+# An anxnet run is the same case: the staged file is anxnet.device, which is
+# not in the Installer's driver-file fallback, so with no board present the
+# card page comes up with nothing ticked and installdrive's Proceed loops on
+# "Select at least one network device."
 INSTALL_CARD=""
 if [ "$MANUAL_CARD" = 1 ]; then
+    INSTALL_CARD=net
+elif [ "$SANA2_SEL_SOURCE" = anxnet ] && [ "$NO_CARD" = 0 ]; then
     INSTALL_CARD=net
 fi
 boot install "$INSTALL_TIMEOUT" "$INSTALL_CARD"
