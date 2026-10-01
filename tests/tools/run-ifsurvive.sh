@@ -199,6 +199,7 @@ printf 'DEVICE=a2065.device\nUNIT=0\nCONFIGURE=STATIC\nADDRESS=%s\nNETMASK=255.2
     echo "SYS:ShowNetStatus"
     echo "SYS:ping $GATEWAY -c 3 -t 20"
     echo "SYS:ping $OFFLINK -c 3 -t 20"
+    echo "SYS:ShowNetStatus ICMP"
     echo "SYS:nslookup example.com $OFFLINK"
     echo "SYS:nslookup www.example.com $OFFLINK"
     echo "SYS:nslookup example.org $OFFLINK"
@@ -207,6 +208,7 @@ printf 'DEVICE=a2065.device\nUNIT=0\nCONFIGURE=STATIC\nADDRESS=%s\nNETMASK=255.2
     echo "SYS:ShowNetStatus"
     echo "SYS:ping $GATEWAY -c 3 -t 20"
     echo "SYS:ping $OFFLINK -c 3 -t 20"
+    echo "SYS:ShowNetStatus ICMP"
     echo "SYS:nslookup example.net $OFFLINK"
     echo "SYS:AddNetInterface zforce"
     echo "&SYS:nc -l $FORCE_PORT -v -w 120 >DH0:ifs-server.txt"
@@ -614,6 +616,13 @@ ev() { sed -n "s/^$1=//p" "$EVENTS" | head -1; }
 FORCE_START=$(ev force_start);           FORCE_END=$(ev force_end)
 GPING_START=$(ev guest_ping_start);      GPING_END=$(ev guest_ping_end)
 HPING_START=$(ev host_ping_start);       HPING_END=$(ev host_ping_end)
+# The stack's own ICMP counters after each leg's pings (opt-in in
+# ShowNetStatus): requests sent against replies received and checksum
+# errors say whether a lost reply reached the stack at all.
+for leg in 1 2; do
+    block "SYS:ShowNetStatus ICMP" $leg | tr -s ' \t' ' ' |
+        awk -v leg=$leg 'NF { gsub(/^ /, ""); print "icmp_leg" leg ": " $0 }'
+done
 echo "force_rc=${force_rc:-none} force_ms=${force_ms:-none}\
  force_bound_ms=$FORCE_MS force_start=${FORCE_START:-none}\
  force_end=${FORCE_END:-none}"
