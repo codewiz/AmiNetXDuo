@@ -198,6 +198,12 @@ done
 
 TAG="${AMINETXDUO_RUN_TAG:-cwb-$(printf '%s' "$MODEL" | tr '[:upper:]' '[:lower:]')-$VARIANT}"
 
+# THE DRIVE, before the archive build or the copy below can wipe it.  A
+# standing guest is up for hours, so a second launch on this drive is refused
+# at once (wait 0) rather than queued; tools/emu-rig-lock.sh has the codes.
+HD="$ROOT/build/classicwb-$TAG-dh0"
+rig_claim_drive "$HD" "classicwb $MODEL:$VARIANT in $ROOT" 0 || exit $?
+
 say model "$MODEL"
 say variant "$VARIANT"
 say classicwb "$DIST"
@@ -256,7 +262,6 @@ say archive_bytes "$(wc -c < "$ARCHIVE" | tr -d ' ')"
 
 # A copy, every time.  The snapshot is the install and is never written to, so
 # a run that wedges its drive is recovered by deleting the copy.
-HD="$ROOT/build/classicwb-$TAG-dh0"
 rm -rf "$HD"
 mkdir -p "$HD"
 cp -a "$SNAP/." "$HD/"
@@ -409,7 +414,7 @@ start_emulator() {
     LOGPIPE="$log.pipe"
     rm -f "$LOGPIPE"
     if [ -x "$ROOT/tools/logcap.sh" ] && mkfifo "$LOGPIPE" 2>/dev/null; then
-        ( rig_drop_standing; exec "$ROOT/tools/logcap.sh" ) \
+        ( rig_drop_standing; rig_drop_drive; exec "$ROOT/tools/logcap.sh" ) \
             < "$LOGPIPE" > "$log" &
         LOGCAP_PID=$!
     else
@@ -860,7 +865,7 @@ if [ "$VARIANT" = rtg ]; then
         [ -e "/tmp/.X11-unix/X$n" ] || { XDISP=":$n"; break; }
     done
     [ -n "$XDISP" ] || { say error "no free X display in :90..:99"; exit 2; }
-    ( rig_drop_standing; exec Xvfb "$XDISP" -screen 0 1280x1024x24 ) \
+    ( rig_drop_standing; rig_drop_drive; exec Xvfb "$XDISP" -screen 0 1280x1024x24 ) \
         >/dev/null 2>&1 &
     XVFB_PID=$!
     sleep 2
@@ -909,7 +914,7 @@ EMULOG="$ROOT/build/amiberry-$TAG.log"
 WIRE="$ROOT/build/classicwb-wire-$TAG.txt"
 : > "$WIRE"
 # Helpers close the standing lock: only the emulator may keep the address.
-( rig_drop_standing
+( rig_drop_standing; rig_drop_drive
   exec tcpdump -i "$BACKEND" -n -l -e \
       "arp or (udp port 67 or udp port 68) or (udp port 5353)" ) \
     >> "$WIRE" 2>/dev/null &
@@ -919,7 +924,7 @@ sleep 1
 
 start_emulator "$CFG" "$EMULOG"
 # The emulator holds the standing lock now; nothing started below may.
-rig_drop_standing
+rig_drop_standing; rig_drop_drive
 say emulator_pid "$EMU_PID"
 
 # A guest that is left up needs an end, and the emulator is the thing that has

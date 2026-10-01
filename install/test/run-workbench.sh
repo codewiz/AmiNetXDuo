@@ -389,6 +389,13 @@ if [ "$SPACES" = "1" ]; then
 fi
 WORK="$ROOT/build/testwork-$TAG"
 
+# THIS TAG'S DRIVE, ON EVERY BACKEND, before anything below can wipe or
+# restage it: a second run of the tag would otherwise delete the live guest's
+# DH0: and Work: and then wait for the bridge.  One claim covers both
+# directories (they are named by the same tag), and it is held until the
+# script exits.  Drive before bridge, always: tools/emu-rig-lock.sh.
+rig_claim_drive "$HD" "run-workbench $TAG in $ROOT" || exit $?
+
 # ------------------------------------------------------------ ingredients --
 
 INSTALLER="${AMINETXDUO_INSTALLER:-}"

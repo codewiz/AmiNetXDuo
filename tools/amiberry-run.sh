@@ -55,12 +55,13 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # cannot take anything away, and it covers every artefact a guest writes rather
 # than the one that was noticed.
 #
-# EXCEPT THAT ON A BRIDGED RUN THE BRIDGE LOCK COMES FIRST.  A second run of
-# the same tag in the same checkout would otherwise delete the drive of the
-# guest that is running under the lock and then wait for it.  So -B is read
-# here, in a quiet first pass, and a host-NIC run claims the bridge before the
-# wipe.  A run refused there exits 6 or 2 with the drive untouched, which is
-# right: it is the holder's drive, and a nonzero exit is never a result.
+# EXCEPT THAT THE DRIVE LOCK COMES FIRST, ON EVERY BACKEND, THEN THE BRIDGE.
+# A second run of the same tag in the same checkout would otherwise delete the
+# drive of the guest that is running and then wait for it.  So -B is read
+# here, in a quiet first pass, and the drive (then, on a host NIC, the bridge)
+# is claimed before the wipe.  A run refused there exits 6 or 2 with the drive
+# untouched, which is right: it is the holder's drive, and a nonzero exit is
+# never a result.
 #
 # ONE BRIDGED GUEST ON THIS HOST, taken here so that no harness can boot one
 # without it.  The emulator inherits the descriptor and holds it until it
@@ -92,7 +93,13 @@ if [ -n "$STANDING" ] && rig_backend_bridged "$_pre_backend"; then
     rig_standing_exempt "$STANDING ${AMINETXDUO_RUN_TAG:-amiberry} in $ROOT" \
         "$AMINETXDUO_AMIBERRY_MAC" "$_pre_backend" || exit $?
     export AMINETXDUO_AMIBERRY_MAC
-else
+fi
+# The drive, on every backend, and BEFORE the bridge (tools/emu-rig-lock.sh,
+# rig_claim_drive): two SLIRP runs of one tag in this checkout are one drive.
+# The standing check above never waits, so it may come first.
+rig_claim_drive "$ROOT/build/amiberry-testhd-${AMINETXDUO_RUN_TAG:-amiberry}" \
+    "${AMINETXDUO_RUN_TAG:-amiberry} ($_pre_backend) in $ROOT" || exit $?
+if [ -z "$STANDING" ] || ! rig_backend_bridged "$_pre_backend"; then
     rig_claim_bridge "$_pre_backend" \
         "${AMINETXDUO_RUN_TAG:-amiberry} ($_pre_backend) in $ROOT" || exit $?
 fi
@@ -661,6 +668,7 @@ cleanup() {
     rig_release_port
     rig_drop_bridge
     rig_drop_standing
+    rig_drop_drive
     return 0
 }
 trap cleanup EXIT INT TERM HUP
@@ -700,7 +708,8 @@ fi
 LOGPIPE="$ROOT/build/amiberry-$TAG.logpipe"
 rm -f "$LOGPIPE"
 if [ -x "$ROOT/tools/logcap.sh" ] && mkfifo "$LOGPIPE" 2>/dev/null; then
-    ( rig_drop_bridge; rig_drop_standing; exec "$ROOT/tools/logcap.sh" ) \
+    ( rig_drop_bridge; rig_drop_standing; rig_drop_drive
+      exec "$ROOT/tools/logcap.sh" ) \
         < "$LOGPIPE" > "$UAELOG" &
     LOGCAP_PID=$!
 else
@@ -754,6 +763,7 @@ fi
     [ -z "${RIG_PORT_FD:-}" ] || eval "exec ${RIG_PORT_FD}>&-" 2>/dev/null || true
     rig_drop_bridge
     rig_drop_standing
+    rig_drop_drive
     reader=""
     trap '[ -z "$reader" ] || kill -TERM "$reader" 2>/dev/null; exit 0' TERM INT
     for _ in $(seq 1 60); do

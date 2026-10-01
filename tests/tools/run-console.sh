@@ -361,6 +361,14 @@ fi
 # shellcheck source=tools/emu-rig-lock.sh
 . "$ROOT/tools/emu-rig-lock.sh"
 
+# The drive first, on every backend, then the bridge (tools/emu-rig-lock.sh):
+# stage() below wipes $HD, which is one directory for every run in this tree.
+HD="$ROOT/build/console-dh0"
+rig_claim_drive "$HD" "console ($BACKEND) in $ROOT" || {
+    rc=$?
+    say RESULT INFRA
+    exit "$rc"
+}
 rig_claim_bridge "$BACKEND" "console ($BACKEND) in $ROOT" || {
     rc=$?
     say RESULT INFRA
@@ -448,8 +456,6 @@ with open(sys.argv[1], "wb") as fh:
     fh.write(obj + image + bits + tt)
 EOF
 }
-
-HD="$ROOT/build/console-dh0"
 
 stage() {
     local depth="$1" mode_id="${2:-}"

@@ -207,7 +207,7 @@ run A holder ens18 STUB_SECS=4 &
 HOLD=$!
 for _ in $(seq 1 50); do grep -q '^start holder' "$EV" && break; sleep 0.2; done
 HDA="$S/A/build/amiberry-testhd-ifsurvive"
-run A sametree ens18 AMINETXDUO_BRIDGE_WAIT=1
+run A sametree ens18 AMINETXDUO_BRIDGE_WAIT=1 AMINETXDUO_DRIVE_WAIT=1
 if [ -e "$HDA/stub-alive" ] && [ "$(cat "$S/sametree.rc")" = 6 ]; then
     kv same_tree_hd ok
 else
@@ -261,7 +261,7 @@ fi
 : > "$EV"
 run C unwritable ens18 AMINETXDUO_BRIDGE_LOCK="$S/no/such/dir/bridge.lock"
 if [ "$(cat "$S/unwritable.rc")" = 2 ] && [ ! -s "$EV" ] &&
-   grep -q 'cannot create the bridge lock' "$S/unwritable.out"; then
+   grep -qE 'cannot create the (drive|bridge) lock' "$S/unwritable.out"; then
     kv unwritable_rc ok
 else
     kv unwritable_rc "wrong:rc=$(cat "$S/unwritable.rc")"
@@ -483,15 +483,18 @@ for spec in tools/classicwb.sh:1 tools/demo-rtg.sh:1 \
         wait 2> /dev/null; rm -f "$S/mac-held"
     done
 
-    # Every long-lived helper closes the standing lock in its own subshell
-    # (Xvfb, tcpdump, the log capper), and the script drops its copy right
-    # after the emulator starts, so the watchdog and readers never get it.
+    # Every long-lived helper closes the standing and drive locks in its own
+    # subshell (Xvfb, tcpdump, the log capper), and the script drops its
+    # copies right after the emulator starts, so the watchdog and readers
+    # never get them.
     while IFS=: read -r n _; do
-        sed -n "$((n - 1)),${n}p" "$ROOT/$f" | grep -q 'rig_drop_standing' ||
+        sed -n "$((n - 1)),${n}p" "$ROOT/$f" |
+            grep -q 'rig_drop_standing; rig_drop_drive' ||
             ov_bad="$ov_bad $f:$n:helper-keeps-lock"
-    done < <(grep -nE '^[[:space:]]*(\( *rig_drop_standing; *)?(exec +)?(Xvfb |tcpdump -i|"[$]ROOT/tools/logcap\.sh")' "$ROOT/$f")
+    done < <(grep -nE '^[[:space:]]*(\( *rig_drop_standing; *(rig_drop_drive; *)?)?(exec +)?(Xvfb |tcpdump -i|"[$]ROOT/tools/logcap\.sh")' "$ROOT/$f")
     while IFS=: read -r n _; do
-        sed -n "$((n + 1)),$((n + 4))p" "$ROOT/$f" | grep -q '^rig_drop_standing' ||
+        sed -n "$((n + 1)),$((n + 4))p" "$ROOT/$f" |
+            grep -q '^rig_drop_standing; rig_drop_drive' ||
             ov_bad="$ov_bad $f:$n:script-keeps-lock"
     done < <(grep -nE '^(setsid "[$]AMIBERRY"|start_emulator "[$]CFG"|\( trap .* exec "[$]AMIBERRY")' "$ROOT/$f")
 done
@@ -551,6 +554,122 @@ if [ "$helper_alive" = yes ] && [ "$again" = 0 ]; then
     kv standing_helper_free ok
 else
     kv standing_helper_free "wrong:helper_alive=$helper_alive:relaunch_rc=$again"
+fi
+
+# ------------------------------------------------ one run per drive, any backend
+# Two SLIRP runs of one tag in one checkout share a drive: the second waits,
+# without touching it, and boots once the first has exited.
+: > "$EV"
+run A d1 slirp STUB_SECS=3 &
+D1=$!
+for _ in $(seq 1 50); do grep -q '^start d1' "$EV" && break; sleep 0.2; done
+run A d2 slirp STUB_SECS=0.5 &
+D2=$!
+sleep 1.5
+HDA="$S/A/build/amiberry-testhd-ifsurvive"
+kept=no; [ -e "$HDA/stub-alive" ] && grep -q '^start d1' "$EV" &&
+    ! grep -q '^start d2' "$EV" && kept=yes
+wait "$D1" "$D2"
+order=$(awk '{print $1 "-" $2}' "$EV" | tr '\n' ' ')
+if [ "$kept" = yes ] && [ "$order" = "start-d1 end-d1 start-d2 end-d2 " ] &&
+   [ "$(cat "$S/d1.rc")" = 0 ] && [ "$(cat "$S/d2.rc")" = 0 ] &&
+   grep -q 'another run is using' "$S/d2.out"; then
+    kv drive_serial ok
+else
+    kv drive_serial "wrong:kept_while_waiting=$kept:order=[$order]:rc=$(cat "$S/d1.rc"),$(cat "$S/d2.rc")"
+fi
+
+# Two tags in one checkout are two drives: parallel.
+: > "$EV"
+run A t1 slirp STUB_SECS=2 AMINETXDUO_RUN_TAG=drive-t1 &
+run A t2 slirp STUB_SECS=2 AMINETXDUO_RUN_TAG=drive-t2 &
+wait
+order=$(awk '{print $1}' "$EV" | tr '\n' ' ')
+if [ "$order" = "start start end end " ] &&
+   [ "$(cat "$S/t1.rc")" = 0 ] && [ "$(cat "$S/t2.rc")" = 0 ]; then
+    kv drive_parallel ok
+else
+    kv drive_parallel "wrong:order=[$order]:rc=$(cat "$S/t1.rc"),$(cat "$S/t2.rc")"
+fi
+
+# A run that cannot get the drive in time exits 6, unbooted, and the holder's
+# drive is untouched.
+: > "$EV"
+run A dh slirp STUB_SECS=4 &
+DH=$!
+for _ in $(seq 1 50); do grep -q '^start dh' "$EV" && break; sleep 0.2; done
+run A dr slirp AMINETXDUO_DRIVE_WAIT=1
+if [ "$(cat "$S/dr.rc")" = 6 ] && ! grep -q '^start dr' "$EV" &&
+   [ -e "$HDA/stub-alive" ] && grep -q 'REFUSING to touch' "$S/dr.out"; then
+    kv drive_refuse ok
+else
+    kv drive_refuse "wrong:rc=$(cat "$S/dr.rc"):drive=$([ -e "$HDA/stub-alive" ] && echo kept || echo gone)"
+fi
+wait "$DH"
+
+# LOCK ORDER: drive before bridge.  A holder up on tag t1 and the bridge;
+# behind it a t1 SLIRP run (wants the drive), a t2 bridged run (wants the
+# bridge) and a t1 bridged run (wants both).  With one order nothing can hold
+# one lock while waiting for the other's, so all four finish well inside the
+# bound; mixed orders would sit out both waits.
+: > "$EV"
+t0=$(date +%s)
+run A oh ens18 STUB_SECS=2 AMINETXDUO_RUN_TAG=order-t1 &
+for _ in $(seq 1 50); do grep -q '^start oh' "$EV" && break; sleep 0.2; done
+run A ox slirp STUB_SECS=1 AMINETXDUO_RUN_TAG=order-t1 \
+    AMINETXDUO_DRIVE_WAIT=30 AMINETXDUO_BRIDGE_WAIT=30 &
+run A oy ens18 STUB_SECS=1 AMINETXDUO_RUN_TAG=order-t2 \
+    AMINETXDUO_DRIVE_WAIT=30 AMINETXDUO_BRIDGE_WAIT=30 &
+run A oz ens18 STUB_SECS=1 AMINETXDUO_RUN_TAG=order-t1 \
+    AMINETXDUO_DRIVE_WAIT=30 AMINETXDUO_BRIDGE_WAIT=30 &
+wait
+took=$(( $(date +%s) - t0 ))
+rcs=$(cat "$S/oh.rc" "$S/ox.rc" "$S/oy.rc" "$S/oz.rc" | tr -d '\n')
+ends=$(grep -c '^end o' "$EV")
+if [ "$rcs" = 0000 ] && [ "$ends" = 4 ] && [ "$took" -lt 25 ]; then
+    kv lock_order_live ok
+else
+    kv lock_order_live "wrong:rc=$rcs:ended=$ends:took=${took}s"
+fi
+echo "lock_order_took_s=$took"
+
+# EVERY LAUNCHER, statically: any script that starts the emulator claims its
+# drive before its first destructive step (a wipe, an extraction, a mkdir or
+# cp restage, the shared Workbench build, Xvfb, tcpdump, a kill or the
+# emulator), and a bridged one claims the bridge after the drive and before
+# the emulator.  Found by what they do, so a new launcher with no claim fails
+# here rather than waiting for a reviewer to spot it.
+START='(exec|setsid) +(setsid +)?"[$]AMIBERRY"|"[$]AMIBERRY" +(--log +)?-f|start_emulator "'
+DESTRUCTIVE_ALL="$DESTRUCTIVE|lha +x|tar x"
+lo_bad=""
+launchers=$(cd "$ROOT" && grep -rlE "$START" --include='*.sh' tools tests install |
+            grep -v '^tools/bridge-lock-selftest\.sh$' | sort)
+for f in $launchers; do
+    from=1
+    [ "$f" != tests/tools/console-instance.sh ] ||
+        from=$(grep -n '^esac' "$ROOT/$f" | head -1 | cut -d: -f1)
+    first() { awk -v from="$from" -v re="$1" '
+        NR >= from && $0 !~ /^[[:space:]]*#/ && $0 ~ re { print NR; exit }' "$ROOT/$f"; }
+    d=$(first '^[[:space:]]*rig_claim_drive ')
+    b=$(first '^[[:space:]]*rig_claim_bridge ')
+    x=$(first "$DESTRUCTIVE_ALL")
+    e=$(first "$START")
+    echo "launcher_$(basename "$f" .sh)=drive:${d:-none} bridge:${b:-none} first_destructive:${x:-none} emulator:${e:-none}"
+    [ -n "$d" ] || { lo_bad="$lo_bad $f:no-drive-claim"; continue; }
+    [ -z "$x" ] || [ "$d" -lt "$x" ] || lo_bad="$lo_bad $f:drive($d)>=destructive($x)"
+    if [ -n "$b" ]; then
+        [ "$d" -lt "$b" ] || lo_bad="$lo_bad $f:bridge($b)-before-drive($d)"
+        [ -z "$e" ] || [ "$b" -lt "$e" ] || lo_bad="$lo_bad $f:bridge($b)>=emulator($e)"
+    fi
+done
+case "$launchers" in
+    *tools/amiberry-run.sh*install/test/run-workbench.sh*|*install/test/run-workbench.sh*tools/amiberry-run.sh*) ;;
+    *) lo_bad="$lo_bad discovery-missed-known-launchers" ;;
+esac
+if [ -z "$lo_bad" ]; then
+    kv launcher_order ok
+else
+    kv launcher_order "wrong:${lo_bad# }"
 fi
 
 echo "bridge_selftest=$WRONG"

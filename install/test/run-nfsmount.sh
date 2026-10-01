@@ -145,16 +145,18 @@ PEERNAME="${PEERHOST#*@}"
 PEERADDR=$(getent ahostsv4 "$PEERNAME" 2>/dev/null | awk 'NR==1{print $1}')
 [ -n "$PEERADDR" ] || PEERADDR="$PEERNAME"
 
-# ONE BRIDGED GUEST PER HOST, claimed before this run wipes and restages its
-# drive: a second run of the same tag would otherwise delete the drive of the
-# guest running under the lock.  Held until this script exits; the codes and
-# the why are at rig_claim_bridge in tools/emu-rig-lock.sh.
-# shellcheck source=../../tools/emu-rig-lock.sh
-. "$ROOT/tools/emu-rig-lock.sh"
-rig_claim_bridge "$BACKEND" "run-nfsmount $TAG in $ROOT" || exit $?
-
+# THIS TAG'S DRIVE, THEN ONE BRIDGED GUEST PER HOST, both claimed before this
+# run wipes and restages its drive: a second run of the same tag would
+# otherwise delete the drive of the guest that is running.  Drive before
+# bridge, always.  Held until this script exits; the codes and the why are at
+# rig_claim_drive and rig_claim_bridge in tools/emu-rig-lock.sh.
 OUT="$ROOT/build/nfsmount-$TAG"
 HD="$ROOT/build/nfshd-$TAG"
+# shellcheck source=../../tools/emu-rig-lock.sh
+. "$ROOT/tools/emu-rig-lock.sh"
+rig_claim_drive "$HD" "run-nfsmount $TAG in $ROOT" || exit $?
+rig_claim_bridge "$BACKEND" "run-nfsmount $TAG in $ROOT" || exit $?
+
 rm -rf "$OUT"; mkdir -p "$OUT"
 
 echo "==> $MODEL, OS 3.1, $(basename "$KICKSTART")"

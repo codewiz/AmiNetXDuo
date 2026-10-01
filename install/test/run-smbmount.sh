@@ -271,12 +271,14 @@ else
     echo "==> share $URL (host $SMBHOST), client smb2-handler.$CPUSFX (SMB2/3)"
 fi
 
-# ONE BRIDGED GUEST PER HOST, claimed before this run wipes and restages its
-# drive: a second run of the same tag would otherwise delete the drive of the
-# guest running under the lock.  Held until this script exits; the codes and
-# the why are at rig_claim_bridge in tools/emu-rig-lock.sh.
+# THIS TAG'S DRIVE, THEN ONE BRIDGED GUEST PER HOST, both claimed before this
+# run wipes and restages its drive: a second run of the same tag would
+# otherwise delete the drive of the guest that is running.  Drive before
+# bridge, always.  Held until this script exits; the codes and the why are at
+# rig_claim_drive and rig_claim_bridge in tools/emu-rig-lock.sh.
 # shellcheck source=../../tools/emu-rig-lock.sh
 . "$ROOT/tools/emu-rig-lock.sh"
+rig_claim_drive "$HD" "run-smbmount $TAG in $ROOT" || exit $?
 rig_claim_bridge "$BACKEND" "run-smbmount $TAG in $ROOT" || exit $?
 
 # --------------------------------------------------------------- the SYS: --
