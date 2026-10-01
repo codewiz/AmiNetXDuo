@@ -349,29 +349,6 @@ def after_params(code, close):
     return code[start:i], "", i
 
 
-def strip_trailing_attributes(t):
-    """t without its trailing __attribute__((...)) groups.  Parentheses are
-    matched by scanning, not by a regex: nested repeats around .* backtrack
-    exponentially on a line of many attributes."""
-    while True:
-        t = t.rstrip()
-        if not t.endswith(")"):
-            return t
-        depth, j = 0, len(t) - 1
-        while j >= 0:
-            if t[j] == ")":
-                depth += 1
-            elif t[j] == "(":
-                depth -= 1
-                if depth == 0:
-                    break
-            j -= 1
-        head = t[:j].rstrip() if j > 0 else ""
-        if not head.endswith("__attribute__"):
-            return t
-        t = head[:-len("__attribute__")]
-
-
 # ------------------------------------------------------------- scanning ---
 
 def collect_files(root):
@@ -494,7 +471,7 @@ def scan_c(ctx, rel, code, strings):
                     kind = "init"
                 elif re.search(r'\b(?:struct|union|enum)\b[^()]*$', t):
                     kind = "struct"
-                elif strip_trailing_attributes(t).endswith(")"):
+                elif t.endswith(")"):
                     kind = "func"
                     func_decl(ctx, rel, code, stmt, i, True)
             elif body_kind[-1] == "init":
