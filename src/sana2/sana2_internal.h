@@ -901,6 +901,9 @@ struct AmiSana2If
     /* Administrative state: the stack's intent, not the wire's condition.
        Only the driver entry's enable/disable cases write it. */
     BOOL                admin_up;
+    /* AMI_LINK_DETACH_BEGIN has run: the removal owns the teardown, and the
+       driver entry leaves the device alone.  Never cleared. */
+    BOOL                detaching;
     /* A status query wants the device-derived counters of now: it sets
        stats_want and wakes the reader (ami_sana2_stats_request()), the reader
        runs the two device commands and bumps stats_epoch.  Never on the

@@ -783,6 +783,87 @@ static void test_detach_unbinds(void)
             "so nothing can reach it afterwards");
 }
 
+/*
+ * A removal: AMI_LINK_DETACH_BEGIN inside nx_ip_protection makes no device call,
+ * and from then on nothing the IP thread or another task sends reaches the
+ * device or waits on it.  ami_sana2_quiesce() does the stop, outside.
+ */
+static void test_detach_begin_leaves_the_device_alone(void)
+{
+    static const UINT quiet[] =
+    {
+        NX_LINK_MULTICAST_JOIN, NX_LINK_MULTICAST_LEAVE,
+        NX_LINK_DEFERRED_PROCESSING, NX_LINK_GET_TX_COUNT,
+        NX_LINK_GET_RX_COUNT, NX_LINK_GET_ERROR_COUNT,
+        NX_LINK_DISABLE, AMI_LINK_STACK_DISABLE, NX_LINK_UNINITIALIZE,
+        NX_LINK_SET_PHYSICAL_ADDRESS
+    };
+    UWORD i;
+
+    printf("sana2: after detach-begin the driver entry leaves the device "
+           "alone\n");
+
+    fixture_init(AMI_ETH_ADDR_SIZE);
+    ami_sana2_attach(&iface, &ip, 0);
+    interface_obj.nx_interface_link_up = NX_TRUE;
+    iface.admin_up = TRUE;
+
+    drive(AMI_LINK_DETACH_BEGIN);
+    h_check(h_log[0] == '\0', "detach-begin calls nothing");
+    h_check(req.nx_ip_driver_status == NX_SUCCESS, "and succeeds");
+    h_check(interface_obj.nx_interface_link_up == NX_FALSE &&
+            !iface.admin_up && iface.detaching,
+            "the link is down and the removal owns the interface");
+
+    for (i = 0; i < (UWORD)(sizeof(quiet) / sizeof(quiet[0])); i++)
+        drive(quiet[i]);
+    h_check(h_log[0] == '\0',
+            "no multicast DoIO, reap, stats, stop or drain afterwards");
+
+    drive(NX_LINK_ENABLE);
+    h_check(req.nx_ip_driver_status == NX_NOT_SUCCESSFUL && h_log[0] == '\0',
+            "an Online in the meantime is refused, with no S2_ONLINE");
+
+    h_releases = 0;
+    memset(&req, 0, sizeof(req));
+    req.nx_ip_driver_command   = NX_LINK_PACKET_SEND;
+    req.nx_ip_driver_ptr       = &ip;
+    req.nx_ip_driver_interface = &interface_obj;
+    req.nx_ip_driver_packet    = &packet;
+    ami_sana2_driver_entry(&req);
+    h_check(h_sends == 0 && h_releases == 1 &&
+            req.nx_ip_driver_status == NX_NOT_ENABLED,
+            "a send is handed back to the pool, not to the device");
+
+    ami_sana2_quiesce(&iface);
+    h_check(strcmp(h_log, "rx_stop tx_drain offline ") == 0,
+            "the quiesce stops the readers, the ring, then the wire");
+
+    h_log[0] = '\0';
+    drive(NX_LINK_INTERFACE_DETACH);
+    h_check(h_log[0] == '\0', "the detach does not stop them again");
+    h_check(iface.interface_ptr == NULL &&
+            interface_obj.nx_interface_additional_link_info == NULL,
+            "but it still unbinds");
+    h_check(drive(NX_LINK_GET_SPEED) == 0xDEADBEEFUL,
+            "so nothing can reach it afterwards");
+}
+
+/* Without detach-begin the quiesce does nothing: it is the removal's only. */
+static void test_quiesce_needs_detach_begin(void)
+{
+    printf("sana2: the quiesce is the removal's only\n");
+
+    fixture_init(AMI_ETH_ADDR_SIZE);
+    ami_sana2_attach(&iface, &ip, 0);
+
+    ami_sana2_quiesce(&iface);
+    ami_sana2_quiesce(NULL);
+    h_check(h_log[0] == '\0', "nothing is stopped");
+
+    ami_sana2_unbind(&iface);
+}
+
 static void test_multicast(void)
 {
     printf("sana2: a refused multicast join does not fail the command\n");
@@ -961,6 +1042,8 @@ int main(void)
     test_stack_disable_leaves_the_readers();
     test_uninitialize();
     test_detach_unbinds();
+    test_detach_begin_leaves_the_device_alone();
+    test_quiesce_needs_detach_begin();
 
     test_multicast();
     test_counters();

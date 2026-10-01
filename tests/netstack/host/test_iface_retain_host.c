@@ -182,21 +182,25 @@ static void t_add_same_unit_refused(void)
           "one CloseDevice() for every OpenDevice(), none under a hold");
 }
 
-/* The read preflight stands: a reader the device kept refuses the removal
-   before anything is detached. */
-static void t_read_preflight_refuses(void)
+/* A reader the device kept is a hold like a write: the removal detaches and
+   retains rather than leaving the interface attached and down. */
+static void t_read_held_is_retained(void)
 {
-    ULONG detaches;
+    NshSana2If *m = &nsh.sana2[0];
+    ULONG       detaches;
 
-    printf("retain: a reader orphaned before the detach\n");
+    printf("retain: a reader the device kept past the stop\n");
 
     CHECK(h_up_with("a2065.device", 0), "the interface is up in slot 0");
 
     detaches = nsh.iface_detaches;
-    nsh.sana2_orphaned = TRUE;
-    CHECK(netstack_interface_remove(0, TRUE) == AMI_NET_ERR_STATE,
-          "refused before the detach");
-    CHECK(nsh.iface_detaches == detaches, "nothing was detached");
+    m->keeps_reads = TRUE;
+    CHECK(netstack_interface_remove(0, TRUE) == AMI_NET_ERR_RETAINED,
+          "the removal answers AMI_NET_ERR_RETAINED");
+    CHECK(nsh.iface_detaches == detaches + 1, "the interface was detached");
+    CHECK(m->state == NSH_IF_RETAINED && m->device_closes == 0,
+          "src/sana2 holds it, not closed");
+    m->keeps_reads = FALSE;
     nsh.sana2_orphaned = FALSE;
 
     h_teardown();
@@ -371,7 +375,7 @@ int main(void)
 {
     t_remove_keeps_a_held_write();
     t_add_same_unit_refused();
-    t_read_preflight_refuses();
+    t_read_held_is_retained();
     t_shutdown_holds_the_unload();
     t_new_stack_over_a_held_one();
     t_no_bracket_defers_the_sweep();

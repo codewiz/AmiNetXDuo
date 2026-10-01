@@ -201,6 +201,76 @@ static UWORD ami_sana2_ether_type(NX_IP_DRIVER *req, NX_PACKET *packet)
                                                : AMI_ETHERTYPE_IPV6;
 }
 
+/* --------------------------------------------------------------- removal */
+
+/*
+ * A removal holds this interface from AMI_LINK_DETACH_BEGIN on.  Every command
+ * that would reach the device, wait, or touch the rings the removal is
+ * stopping without nx_ip_protection is answered here instead.  TRUE when the
+ * command is done; the rest (attach, the queries) take the normal path.
+ */
+static BOOL ami_sana2_detaching_entry(NX_IP_DRIVER *driver_req,
+                                      AmiSana2If *iface,
+                                      NX_INTERFACE *interface_ptr)
+{
+    switch (driver_req->nx_ip_driver_command)
+    {
+    case NX_LINK_PACKET_SEND:
+    case NX_LINK_PACKET_BROADCAST:
+    case NX_LINK_ARP_SEND:
+    case NX_LINK_ARP_RESPONSE_SEND:
+    case NX_LINK_RARP_SEND:
+        if (driver_req->nx_ip_driver_packet != NULL)
+            nx_packet_transmit_release(driver_req->nx_ip_driver_packet);
+        iface->stats.tx_errors++;
+        driver_req->nx_ip_driver_status = NX_NOT_ENABLED;
+        return TRUE;
+
+    case NX_LINK_ENABLE:
+        driver_req->nx_ip_driver_status = NX_NOT_SUCCESSFUL;
+        return TRUE;
+
+    case NX_LINK_DISABLE:
+    case NX_LINK_UNINITIALIZE:
+    case AMI_LINK_STACK_DISABLE:
+        interface_ptr->nx_interface_link_up = NX_FALSE;
+        iface->admin_up = FALSE;
+        return TRUE;
+
+    /* ami_sana2_quiesce() has stopped the readers and drained the writes. */
+    case NX_LINK_INTERFACE_DETACH:
+        interface_ptr->nx_interface_additional_link_info = NULL;
+        iface->interface_ptr = NULL;
+        ami_sana2_unbind(iface);
+        return TRUE;
+
+    /* DoIO() with no deadline, under nx_ip_protection, to a device just taken
+       offline: nx_ip_interface_detach() leaves every group this way.  The
+       filter goes with the CloseDevice() that follows. */
+    case NX_LINK_MULTICAST_JOIN:
+    case NX_LINK_MULTICAST_LEAVE:
+    case NX_LINK_DEFERRED_PROCESSING:
+        return TRUE;
+
+    case NX_LINK_SET_PHYSICAL_ADDRESS:
+        driver_req->nx_ip_driver_status = NX_NOT_SUPPORTED;
+        return TRUE;
+
+    default:
+        return FALSE;
+    }
+}
+
+VOID ami_sana2_quiesce(AmiSana2If *iface)
+{
+    if (iface == NULL || !iface->detaching)
+        return;
+
+    ami_sana2_rx_stop(iface);
+    ami_sana2_tx_drain(iface);
+    ami_sana2_offline(iface);
+}
+
 /* --------------------------------------------------------------- the entry */
 
 VOID ami_sana2_driver_entry(NX_IP_DRIVER *driver_req)
@@ -243,6 +313,10 @@ VOID ami_sana2_driver_entry(NX_IP_DRIVER *driver_req)
         driver_req->nx_ip_driver_status = NX_INVALID_INTERFACE;
         return;
     }
+
+    if (iface->detaching &&
+        ami_sana2_detaching_entry(driver_req, iface, interface_ptr))
+        return;
 
     switch (driver_req->nx_ip_driver_command)
     {
@@ -371,6 +445,14 @@ VOID ami_sana2_driver_entry(NX_IP_DRIVER *driver_req)
         ami_sana2_tx_drain(iface);
         break;
 
+    /* No device call and no wait: ami_sana2_quiesce() does those after the
+       caller has given nx_ip_protection back. */
+    case AMI_LINK_DETACH_BEGIN:
+        interface_ptr->nx_interface_link_up = NX_FALSE;
+        iface->admin_up  = FALSE;
+        iface->detaching = TRUE;
+        break;
+
     case NX_LINK_PACKET_SEND:
     case NX_LINK_PACKET_BROADCAST:
     case NX_LINK_ARP_SEND:
@@ -433,19 +515,22 @@ VOID ami_sana2_driver_entry(NX_IP_DRIVER *driver_req)
         break;
 
     case NX_LINK_GET_ERROR_COUNT:
-        ami_sana2_refresh_stats(iface);
+        if (!iface->detaching)
+            ami_sana2_refresh_stats(iface);
         *(driver_req->nx_ip_driver_return_ptr) =
             iface->stats.bad_data + iface->stats.overruns +
             iface->stats.tx_errors + iface->stats.rx_errors;
         break;
 
     case NX_LINK_GET_RX_COUNT:
-        ami_sana2_refresh_stats(iface);
+        if (!iface->detaching)
+            ami_sana2_refresh_stats(iface);
         *(driver_req->nx_ip_driver_return_ptr) = iface->stats.packets_received;
         break;
 
     case NX_LINK_GET_TX_COUNT:
-        ami_sana2_tx_reap(iface);
+        if (!iface->detaching)
+            ami_sana2_tx_reap(iface);
         *(driver_req->nx_ip_driver_return_ptr) = iface->stats.packets_sent;
         break;
 

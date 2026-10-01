@@ -1082,6 +1082,44 @@ static void case_retain_rx_only(void)
     h_retain_done();
 }
 
+/*
+ * A removal's close: ami_sana2_quiesce() already stopped the readers, drained
+ * the ring and offlined the wire with no lock held.  The close, under
+ * ami_ns_lock, must not do any of it again, and still retains the reads.
+ */
+static void case_retain_after_quiesce(void)
+{
+    AmiSana2If *iface;
+    int         offlines;
+    int         flushes;
+
+    printf("  reads kept past a removal's quiesce\n");
+    iface = h_retain(H_READS, 0, FALSE);
+    h_check(iface != NULL, "quiesced: the interface opened");
+    if (iface == NULL)
+        return;
+
+    /* sana2_driver.c's AMI_LINK_DETACH_BEGIN, then its ami_sana2_quiesce(). */
+    iface->detaching = TRUE;
+    ami_sana2_rx_stop(iface);
+    ami_sana2_tx_drain(iface);
+    (VOID)ami_sana2_offline(iface);
+
+    offlines = h_dev.offline_cmds;
+    flushes  = h_dev.flush_cmds;
+    h_check(!ami_sana2_close(iface), "quiesced: the close is refused");
+    h_check(h_dev.offline_cmds == offlines && h_dev.flush_cmds == flushes,
+            "quiesced: no second S2_OFFLINE and no second reclaim");
+    h_check(ami_sana2_retained_holds("test.device", 0) == NETEVENT_HELD_RX,
+            "quiesced: retained, held on the read side");
+    h_check(h_dev.closes == 0, "quiesced: no CloseDevice() under the reads");
+
+    h_dev.reads_held = 0;
+    h_check(ami_sana2_retained_sweep(TRUE) == 0 && h_dev.closes == 1,
+            "quiesced: the reads back, the sweep closes it once");
+    h_retain_done();
+}
+
 /* Both sides, given back one at a time. */
 static void case_retain_mixed(void)
 {
@@ -1964,6 +2002,7 @@ int main(void)
     case_device_keeps_everything();
     case_retain_tx_only();
     case_retain_rx_only();
+    case_retain_after_quiesce();
     case_retain_mixed();
     case_retain_reader_join();
     case_retain_blocks_reopen();

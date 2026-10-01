@@ -40,6 +40,8 @@ typedef struct NshSana2If
     BOOL    join_pending;           /* the reader not joined, requests or no */
     ULONG   device_closes;          /* CloseDevice() on this one             */
     ULONG   frees;                  /* its memory given back                 */
+    BOOL    keeps_reads;            /* never answers a queued CMD_READ, nor
+                                       AbortIO(), S2_OFFLINE or CMD_FLUSH    */
 } NshSana2If;
 
 typedef struct NetStackHostEnv
@@ -110,6 +112,20 @@ typedef struct NetStackHostEnv
     ULONG   sana2_device_closes;    /* CloseDevice(), close or sweep         */
     ULONG   sweeps;                 /* ami_sana2_retained_sweep() calls      */
     NshSana2If sana2[NSH_SANA2_IFACES];
+
+    /* ---- stopping a device that keeps its reads ----------------------- */
+
+    /* Where the stop of a keeps_reads device waited: in the NX_LINK_DISABLE a
+       driver command runs inside nx_ip_protection, or in ami_sana2_quiesce()
+       outside it.  Either way, with ami_ns_lock held or not. */
+    ULONG   device_waits;
+    ULONG   waits_in_ip_mutex;
+    ULONG   waits_under_ns_lock;
+    LONG    sem_depth;              /* SignalSemaphores held, all of them    */
+    ULONG   quiesces;               /* ami_sana2_quiesce() calls             */
+    ULONG   detach_begins;          /* AMI_LINK_DETACH_BEGIN commands        */
+    /* Called while the stop waits: what another task does meanwhile. */
+    VOID  (*during_stop)(VOID);
 
     /* ---- the event ring ------------------------------------------------ */
 

@@ -148,11 +148,13 @@ VOID InitSemaphore(struct SignalSemaphore *sigSem)
 VOID ObtainSemaphore(struct SignalSemaphore *sigSem)
 {
     sigSem->ss_NestCount++;
+    nsh.sem_depth++;
 }
 
 VOID ReleaseSemaphore(struct SignalSemaphore *sigSem)
 {
     sigSem->ss_NestCount--;
+    nsh.sem_depth--;
 }
 
 ULONG AttemptSemaphore(struct SignalSemaphore *sigSem)
@@ -161,6 +163,7 @@ ULONG AttemptSemaphore(struct SignalSemaphore *sigSem)
         return 0;
 
     sigSem->ss_NestCount++;
+    nsh.sem_depth++;
 
     return 1;
 }
@@ -740,10 +743,13 @@ BOOL ami_sana2_close(AmiSana2If *iface)
         return TRUE;
     }
 
-    if (nsh.sana2_close_held != 0 || nsh.sana2_close_join)
+    /* An orphaned reader is a hold, as rx_orphaned is to the real close. */
+    if (nsh.sana2_close_held != 0 || nsh.sana2_close_join ||
+        (m->keeps_reads && nsh.sana2_orphaned))
     {
         m->state        = NSH_IF_RETAINED;
-        m->held         = nsh.sana2_close_held;
+        m->held         = (nsh.sana2_close_held != 0) ? nsh.sana2_close_held
+                                                      : NETEVENT_HELD_RX;
         m->join_pending = nsh.sana2_close_join;
         ami_event(NETEVENT_IFACE_RETAINED, 0, m->held);
         return FALSE;
@@ -806,6 +812,36 @@ BOOL ami_sana2_orphaned(const AmiSana2If *iface)
     (VOID)iface;
 
     return nsh.sana2_orphaned;
+}
+
+/*
+ * The stop of a device that keeps its reads, wherever it runs: the bounded
+ * waits in src/sana2 (S2_OFFLINE, its AbortIO(), the reader join, CMD_FLUSH)
+ * all expire, and the reads stay the device's.  What the real
+ * ami_sana2_rx_stop() leaves is an orphaned reader, which ami_sana2_close()
+ * then retains.
+ */
+static VOID nsh_device_stop(NshSana2If *m, BOOL in_ip_mutex)
+{
+    if (m == NULL || !m->keeps_reads)
+        return;
+
+    nsh.device_waits++;
+    if (in_ip_mutex)
+        nsh.waits_in_ip_mutex++;
+    if (nsh.sem_depth != 0)
+        nsh.waits_under_ns_lock++;
+
+    if (nsh.during_stop != NULL)
+        nsh.during_stop();
+
+    nsh.sana2_orphaned = TRUE;
+}
+
+VOID ami_sana2_quiesce(AmiSana2If *iface)
+{
+    nsh.quiesces++;
+    nsh_device_stop(nsh_sana2_of(iface), FALSE);
 }
 
 AmiMemStats *ami_mem_stats(VOID)
@@ -1338,12 +1374,21 @@ UINT _nxe_ip_delete(NX_IP *ip_ptr)
     return nsh.ip_delete_status;
 }
 
+/* The driver runs inside nx_ip_protection here, as in
+   _nx_ip_driver_interface_direct_command(). */
 UINT _nxe_ip_driver_interface_direct_command(NX_IP *ip_ptr, UINT command, UINT interface_index, ULONG *return_value_ptr)
 {
+    AmiNetStack *ns = netstack_get();
+
     (VOID)ip_ptr;
-    (VOID)command;
-    (VOID)interface_index;
     (VOID)return_value_ptr;
+
+    if (command == AMI_LINK_DETACH_BEGIN)
+        nsh.detach_begins++;
+
+    if (command == NX_LINK_DISABLE && ns != NULL &&
+        interface_index < (UINT)AMI_CFG_MAX_ATTACHED)
+        nsh_device_stop(nsh_sana2_of(ns->ns_Iface[interface_index]), TRUE);
 
     return TX_SUCCESS;
 }
