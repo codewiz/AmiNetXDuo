@@ -75,7 +75,11 @@ if(AMINETXDUO_WIFIPI_LINK AND CMAKE_CROSSCOMPILING)
         "WIFIPI_VERSION_HEADER=<aminetxduo/version.h>"
         WIFIPI_VERSION=1
         WIFIPI_REVISION=0)
+    # The tree's include/ FIRST: <aminetxduo/anxs2ext.h> is the library's own
+    # header, never a copy in the fork that drifts from it (the callback pin
+    # of #126 reached the driver only when #128 patched the copy by hand).
     target_include_directories(anxwifipi_device PRIVATE
+        "${CMAKE_SOURCE_DIR}/include"
         "${WIFIPI}/include"
         "${_dt_inc}"
         "${CMAKE_BINARY_DIR}/include")
