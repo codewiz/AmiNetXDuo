@@ -10,37 +10,177 @@
  * Exit status is RETURN_OK only for the same object, RETURN_WARN for two
  * different objects, and RETURN_ERROR when either name cannot be locked.
  *
+ * DEVICES: FIRST is a kept interface file, SECOND one or more Devs/Networks
+ * drawers of this installation.  A DEVICE line naming one of our drivers by
+ * an absolute path into one of them is rewritten to name it through
+ * AmiNetXDuo:, as a fresh drawer install writes it; every other byte stays
+ * (devicehome.c).  The Installer cannot read the line back, so this is the
+ * one place a kept file can follow the assign.  RETURN_OK when the file is
+ * as it should be, RETURN_ERROR when it could not be read or replaced, and
+ * then it is unchanged.
+ *
  * SPDX-License-Identifier: MIT
  */
 
 #include <exec/types.h>
+#include <exec/memory.h>
 #include <dos/dos.h>
+#include <dos/dosextens.h>
 #include <dos/rdargs.h>
 #include <proto/dos.h>
+#include <proto/exec.h>
 
 #include "aminetxduo/version.h"
+#include "devicehome.h"
 
 const char *const tool_name = "InstallSameFile";
 
 static const char version_tag[] __attribute__((used)) =
     TOOL_VERSTAG("InstallSameFile");
 
-#define TEMPLATE "FIRST/A,SECOND/A"
+#define TEMPLATE "FIRST/A,SECOND/A/M,DEVICES/S"
+
+/* An interface file is a few hundred bytes; the cap only bounds a stray. */
+#define DEVICES_FILE_MAX 65536L
+#define DEVICES_GROWTH   256L
 
 enum
 {
     ARG_FIRST = 0,
     ARG_SECOND,
+    ARG_DEVICES,
     ARG_COUNT
 };
 
+static int same_object(const char *a, const char *b)
+{
+    BPTR first  = Lock((CONST_STRPTR)a, ACCESS_READ);
+    BPTR second = Lock((CONST_STRPTR)b, ACCESS_READ);
+    LONG same   = LOCK_DIFFERENT;
+
+    if (first != 0 && second != 0)
+        same = SameLock(first, second);
+    if (second != 0)
+        UnLock(second);
+    if (first != 0)
+        UnLock(first);
+    if (first == 0 || second == 0)
+        return -1;
+    return same == LOCK_SAME;
+}
+
+static int ours(const char *dir, void *ctx)
+{
+    STRPTR *drawer;
+
+    for (drawer = (STRPTR *)ctx; *drawer != NULL; drawer++)
+        if (same_object(dir, (const char *)*drawer) == 1)
+            return 1;
+    return 0;
+}
+
+static ULONG cat(char *out, ULONG cap, const char *a, const char *b)
+{
+    ULONG n = 0;
+
+    while (*a != '\0' && n + 1 < cap) out[n++] = *a++;
+    while (*b != '\0' && n + 1 < cap) out[n++] = *b++;
+    out[n] = '\0';
+    return (*a == '\0' && *b == '\0') ? n : 0;
+}
+
+/* NetPrefs' order: the new bytes are whole on disk before the old name goes,
+   and both spare names end in .info, which the interface scan skips. */
+static BOOL replace_file(const char *path, const char *data, LONG length)
+{
+    char tmp[256];
+    char old[256];
+    BPTR fh;
+    LONG wrote;
+
+    if (cat(tmp, sizeof(tmp), path, ".new.info") == 0 ||
+        cat(old, sizeof(old), path, ".old.info") == 0)
+        return FALSE;
+
+    (VOID)DeleteFile((CONST_STRPTR)tmp);
+    fh = Open((CONST_STRPTR)tmp, MODE_NEWFILE);
+    if (fh == 0)
+        return FALSE;
+    wrote = Write(fh, (APTR)data, length);
+    Close(fh);
+    if (wrote != length)
+    {
+        (VOID)DeleteFile((CONST_STRPTR)tmp);
+        return FALSE;
+    }
+
+    (VOID)DeleteFile((CONST_STRPTR)old);
+    if (!Rename((CONST_STRPTR)path, (CONST_STRPTR)old))
+    {
+        (VOID)DeleteFile((CONST_STRPTR)tmp);
+        return FALSE;
+    }
+    if (!Rename((CONST_STRPTR)tmp, (CONST_STRPTR)path))
+    {
+        (VOID)Rename((CONST_STRPTR)old, (CONST_STRPTR)path);
+        (VOID)DeleteFile((CONST_STRPTR)tmp);
+        return FALSE;
+    }
+    (VOID)DeleteFile((CONST_STRPTR)old);
+    return TRUE;
+}
+
+static LONG rehome_devices(const char *path, STRPTR *drawers)
+{
+    BPTR   fh;
+    LONG   size;
+    LONG   got;
+    char  *old;
+    char  *out;
+    size_t newlen = 0;
+    long   rewritten;
+    LONG   rc = RETURN_ERROR;
+
+    fh = Open((CONST_STRPTR)path, MODE_OLDFILE);
+    if (fh == 0)
+        return RETURN_ERROR;
+    (VOID)Seek(fh, 0, OFFSET_END);
+    size = Seek(fh, 0, OFFSET_BEGINNING);      /* the previous position */
+    if (size < 0 || size > DEVICES_FILE_MAX)
+    {
+        Close(fh);
+        return RETURN_ERROR;
+    }
+    old = (char *)AllocVec((ULONG)(2 * size + DEVICES_GROWTH + 1), MEMF_ANY);
+    if (old == NULL)
+    {
+        Close(fh);
+        return RETURN_ERROR;
+    }
+    got = Read(fh, old, size);
+    Close(fh);
+    out = old + size;
+
+    if (got == size)
+    {
+        rewritten = dh_rehome(old, (size_t)size, out,
+                              (size_t)(size + DEVICES_GROWTH), &newlen,
+                              ours, drawers);
+        if (rewritten == 0)
+            rc = RETURN_OK;
+        else if (rewritten > 0 && replace_file(path, out, (LONG)newlen))
+            rc = RETURN_OK;
+    }
+    FreeVec(old);
+    return rc;
+}
+
 int main(int argc, char **argv)
 {
-    LONG           args[ARG_COUNT] = { 0, 0 };
+    LONG           args[ARG_COUNT] = { 0, 0, 0 };
     struct RDArgs *rda;
-    BPTR           first;
-    BPTR           second;
-    LONG           same;
+    STRPTR        *second;
+    LONG           rc;
 
     (VOID)argv;
 
@@ -51,22 +191,28 @@ int main(int argc, char **argv)
     if (rda == NULL)
         return RETURN_ERROR;
 
-    first  = Lock((CONST_STRPTR)args[ARG_FIRST], ACCESS_READ);
-    second = Lock((CONST_STRPTR)args[ARG_SECOND], ACCESS_READ);
-    if (first == 0 || second == 0)
+    second = (STRPTR *)args[ARG_SECOND];
+    if (args[ARG_DEVICES] != 0)
     {
-        if (first != 0)
-            UnLock(first);
-        if (second != 0)
-            UnLock(second);
-        FreeArgs(rda);
-        return RETURN_ERROR;
+        /* A DEVICE line naming a volume that is not mounted is simply not
+           ours; it must not stop the Installer at "Please insert". */
+        struct Process *me  = (struct Process *)FindTask(NULL);
+        APTR            win = me->pr_WindowPtr;
+
+        me->pr_WindowPtr = (APTR)-1;
+        rc = rehome_devices((const char *)args[ARG_FIRST], second);
+        me->pr_WindowPtr = win;
+    }
+    else if (second[1] != NULL)
+        rc = RETURN_ERROR;
+    else
+    {
+        int same = same_object((const char *)args[ARG_FIRST],
+                               (const char *)second[0]);
+
+        rc = same < 0 ? RETURN_ERROR : same ? RETURN_OK : RETURN_WARN;
     }
 
-    same = SameLock(first, second);
-    UnLock(second);
-    UnLock(first);
     FreeArgs(rda);
-
-    return (same == LOCK_SAME) ? RETURN_OK : RETURN_WARN;
+    return rc;
 }

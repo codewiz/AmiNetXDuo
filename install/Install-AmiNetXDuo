@@ -2350,6 +2350,33 @@
       (safe))
   ))
 
+; A KEPT FILE FOLLOWS THE ASSIGN TOO.  One written before the drawer named
+; its drivers through AmiNetXDuo: says DEVICE=SYS:AmiNetXDuo/Devs/Networks/...
+; and would go on opening that drawer's drivers under a library from wherever
+; the assign points next.  The Installer cannot read the line, so
+; InstallSameFile rewrites it: only a DEVICE line naming one of our drivers
+; in this drawer, or the one the assign still names, and only its value.
+; Another driver, or one of ours elsewhere, is the user's choice and stays.
+(if (AND KEEP_OLD DRAWER_LAYOUT)
+    (foreach D_IFDIR "~(#?.info)"
+      (if (< @each-type 0)
+        (
+          (set KEPT_IF (tackon D_IFDIR @each-name))
+          (if (<> 0
+                  (run ("\"%s\" \"%s\" \"%s\" \"%s\" DEVICES"
+                        S_SAMEFILE KEPT_IF (tackon D_DEVS "Networks")
+                        "AmiNetXDuo:Devs/Networks")
+                       (prompt "Pointing the kept configuration at this "
+                               "drawer's drivers")
+                       (help "A kept interface file that names a driver "
+                             "of this drawer by its full path is changed to "
+                             "name it through AmiNetXDuo:.  Nothing else in "
+                             "the file changes.")))
+              (message
+                "\"" KEPT_IF "\" could not be updated.  If its DEVICE line "
+                "names a driver by this drawer's full path, change it to "
+                "AmiNetXDuo:Devs/Networks/ followed by the driver's name."))))))
+
 ; --- the netdb files, only where there is nothing already ----------------
 ;
 ; A machine that has had Roadshow or AmiTCP on it already has these, very

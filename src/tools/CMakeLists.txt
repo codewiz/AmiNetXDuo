@@ -227,7 +227,7 @@ aminetxduo_add_tool(tool_addnetinterface AddNetInterface
 # object; dos.library can.  The archive keeps this beside the Installer and
 # does not copy it into C:.
 aminetxduo_add_tool(tool_installsamefile InstallSameFile
-    SOURCES installsamefile.c)
+    SOURCES installsamefile.c devicehome.c)
 
 # The other Installer-only primitive: identify Emu68's supported on-board
 # network devices from its device tree without opening either device.
@@ -910,6 +910,16 @@ if(NOT CMAKE_CROSSCOMPILING)
     target_compile_options(test_netprefs_text PRIVATE -Wall -Wextra)
     set_target_properties(test_netprefs_text PROPERTIES C_STANDARD 11)
 
+    # A kept interface file's DEVICE line follows the AmiNetXDuo: assign
+    # (InstallSameFile DEVICES): only our drivers in this drawer move.
+    add_executable(test_devicehome
+        test/test_devicehome.c
+        devicehome.c)
+    target_include_directories(test_devicehome PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_compile_options(test_devicehome PRIVATE -Wall -Wextra)
+    set_target_properties(test_devicehome PROPERTIES C_STANDARD 11)
+
     # NetPrefs lays itself out from the gadget font's metrics.  Every page at
     # topaz 8, 11, a proportional 13 and a wide 15 keeps labels off borders
     # and gadgets apart; a font too wide for 640 reports that it does not fit.
@@ -1149,6 +1159,7 @@ if(NOT CMAKE_CROSSCOMPILING)
     add_test(NAME fetchurl_rfc3986 COMMAND test_fetchurl)
     add_test(NAME toolsock_connect_budget COMMAND test_toolbudget)
     add_test(NAME netprefs_preserves_text COMMAND test_netprefs_text)
+    add_test(NAME devicehome_rewrites_only_ours COMMAND test_devicehome)
     add_test(NAME netprefs_font_layout COMMAND test_netprefs_layout)
     add_test(NAME httpframe_bodies COMMAND test_httpframe)
     add_test(NAME httplock_rfc4918 COMMAND test_httplock)
