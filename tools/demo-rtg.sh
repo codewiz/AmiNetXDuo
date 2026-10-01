@@ -79,6 +79,22 @@ KICKSTART="${KICKSTART:-${AMINETXDUO_KICKSTART:-}}"
 AMIBERRY="${AMIBERRY:-$(command -v amiberry || true)}"
 [ -n "$AMIBERRY" ] && [ -x "$AMIBERRY" ] || { say error "no amiberry"; exit 2; }
 
+# The MAC, from the standing range unless pinned.
+# shellcheck source=emu-mac.sh
+. "$ROOT/tools/emu-mac.sh"
+MAC="${AMINETXDUO_DEMO_MAC:-$(emu_mac_standing demo-rtg "$TAG:$ROOT")}"
+
+# A STANDING guest: up for hours, so it takes no bridge lock and does not hold
+# every test run off; its MAC range keeps it apart instead.  CHECKED HERE,
+# where the MAC is first known and before anything is wiped, staged or
+# started, so a refused launch leaves everything as it was.
+# shellcheck source=emu-rig-lock.sh
+. "$ROOT/tools/emu-rig-lock.sh"
+rig_standing_exempt "demo-rtg $TAG in $ROOT" "$MAC" "$BACKEND" || {
+    rc=$?
+    exit "$rc"
+}
+
 # ------------------------------------------------------ Workbench 3.1 SYS: --
 
 # shellcheck source=tests/tools/wb31-sys.sh
@@ -140,7 +156,9 @@ EOF
 
 # ------------------------------------------------------------- the drive ----
 
-HD="$ROOT/build/demo-rtg-dh0"
+# Keyed by the MAC: one address, one drive.  Two instances that hash to one
+# address are refused above, so they cannot share a drive either.
+HD="$ROOT/build/demo-rtg-dh0-$(printf '%s' "$MAC" | tr -d ':')"
 
 rm -rf "$HD"
 mkdir -p "$HD/Public/Docs" "$HD/Console"
@@ -265,17 +283,12 @@ for n in $(seq 90 99); do
     [ -e "/tmp/.X11-unix/X$n" ] || { XDISP=":$n"; break; }
 done
 [ -n "$XDISP" ] || { say error "no free X display in :90..:99"; exit 2; }
-Xvfb "$XDISP" -screen 0 1280x1024x24 >/dev/null 2>&1 &
+( rig_drop_standing; exec Xvfb "$XDISP" -screen 0 1280x1024x24 ) >/dev/null 2>&1 &
 XVFB_PID=$!
 sleep 2
 export DISPLAY="$XDISP"
 export SDL_VIDEODRIVER="${SDL_VIDEODRIVER:-x11}"
 say xvfb "$XDISP pid $XVFB_PID"
-
-# A standing guest: its own MAC range, no bridge lock (tools/emu-mac.sh).
-# shellcheck source=emu-mac.sh
-. "$ROOT/tools/emu-mac.sh"
-MAC="${AMINETXDUO_DEMO_MAC:-$(emu_mac_standing demo-rtg "$TAG:$ROOT")}"
 
 CFG="$ROOT/build/$TAG.uae"
 cat > "$CFG" <<EOF
@@ -309,24 +322,19 @@ EMULOG="$ROOT/build/amiberry-$TAG.log"
 # the MAC is known catches them by luck only.
 WIRE="$ROOT/build/demo-rtg-wire-$TAG.txt"
 : > "$WIRE"
-tcpdump -i "$BACKEND" -n -l -e \
-    "arp or (udp port 67 or udp port 68) or (udp port 5353)" \
+# Helpers close the standing lock: only the emulator may keep the address.
+( rig_drop_standing
+  exec tcpdump -i "$BACKEND" -n -l -e \
+      "arp or (udp port 67 or udp port 68) or (udp port 5353)" ) \
     >> "$WIRE" 2>/dev/null &
 SNIFFER=$!
 trap 'kill "$SNIFFER" 2>/dev/null || true' INT TERM
 sleep 1
 
-# A STANDING guest: up for the whole window, so it does not take the bridge
-# lock and hold every test run off; its MAC range keeps it apart instead.
-# shellcheck source=emu-rig-lock.sh
-. "$ROOT/tools/emu-rig-lock.sh"
-rig_standing_exempt "demo-rtg $TAG in $ROOT" "$MAC" "$BACKEND" || {
-    rc=$?
-    kill "$SNIFFER" 2>/dev/null || true
-    exit "$rc"
-}
 setsid "$AMIBERRY" -f "$CFG" >"$EMULOG" 2>&1 &
 EMU_PID=$!
+# The emulator holds the standing lock now; nothing started below may.
+rig_drop_standing
 say emulator_pid "$EMU_PID"
 
 # The window.  A demo that is left up needs an end, and the emulator is the

@@ -130,6 +130,17 @@ case "$MAC_COMPACT" in
     *) say error "bad ClassicWB MAC '$MAC'"; exit 2 ;;
 esac
 
+# A STANDING guest: up for hours, so it takes no bridge lock and does not hold
+# every test run off; its MAC range keeps it apart instead.  CHECKED HERE,
+# where the MAC is first known and before anything is wiped, staged or
+# started, so a refused launch leaves everything as it was.
+# shellcheck source=emu-rig-lock.sh
+. "$ROOT/tools/emu-rig-lock.sh"
+rig_standing_exempt "classicwb $MODEL:$VARIANT in $ROOT" "$MAC" "$BACKEND" || {
+    rc=$?
+    exit "$rc"
+}
+
 if [ -z "$NAME" ]; then
     NAME="amiga-$(printf '%s' "$MODEL" | tr '[:upper:]' '[:lower:]')-$VARIANT-${MAC_COMPACT: -6}"
 fi
@@ -377,9 +388,6 @@ EMU_PID=""
 LOGCAP_PID=""
 LOGPIPE=""
 
-# shellcheck source=emu-rig-lock.sh
-. "$ROOT/tools/emu-rig-lock.sh"
-
 # Start amiberry on $1 with its output capped into $2.  THROUGH A FIFO rather
 # than a pipeline, because $! after `a | b` is b and EMU_PID has to be the
 # emulator: it is what gets killed.  Degrades to the plain redirect when the
@@ -391,7 +399,8 @@ start_emulator() {
     LOGPIPE="$log.pipe"
     rm -f "$LOGPIPE"
     if [ -x "$ROOT/tools/logcap.sh" ] && mkfifo "$LOGPIPE" 2>/dev/null; then
-        "$ROOT/tools/logcap.sh" < "$LOGPIPE" > "$log" &
+        ( rig_drop_standing; exec "$ROOT/tools/logcap.sh" ) \
+            < "$LOGPIPE" > "$log" &
         LOGCAP_PID=$!
     else
         say warning "no tools/logcap.sh; $log is UNCAPPED"
@@ -841,7 +850,8 @@ if [ "$VARIANT" = rtg ]; then
         [ -e "/tmp/.X11-unix/X$n" ] || { XDISP=":$n"; break; }
     done
     [ -n "$XDISP" ] || { say error "no free X display in :90..:99"; exit 2; }
-    Xvfb "$XDISP" -screen 0 1280x1024x24 >/dev/null 2>&1 &
+    ( rig_drop_standing; exec Xvfb "$XDISP" -screen 0 1280x1024x24 ) \
+        >/dev/null 2>&1 &
     XVFB_PID=$!
     sleep 2
     export DISPLAY="$XDISP"
@@ -888,21 +898,18 @@ EMULOG="$ROOT/build/amiberry-$TAG.log"
 # the guest is up catches them by luck only.
 WIRE="$ROOT/build/classicwb-wire-$TAG.txt"
 : > "$WIRE"
-tcpdump -i "$BACKEND" -n -l -e \
-    "arp or (udp port 67 or udp port 68) or (udp port 5353)" \
+# Helpers close the standing lock: only the emulator may keep the address.
+( rig_drop_standing
+  exec tcpdump -i "$BACKEND" -n -l -e \
+      "arp or (udp port 67 or udp port 68) or (udp port 5353)" ) \
     >> "$WIRE" 2>/dev/null &
 SNIFFER=$!
 trap 'kill "$SNIFFER" 2>/dev/null || true' INT TERM
 sleep 1
 
-# A STANDING guest: up for the whole window, so it does not take the bridge
-# lock and hold every test run off; its MAC range keeps it apart instead.
-rig_standing_exempt "classicwb $TAG in $ROOT" "$MAC" "$BACKEND" || {
-    rc=$?
-    kill "$SNIFFER" 2>/dev/null || true
-    exit "$rc"
-}
 start_emulator "$CFG" "$EMULOG"
+# The emulator holds the standing lock now; nothing started below may.
+rig_drop_standing
 say emulator_pid "$EMU_PID"
 
 # A guest that is left up needs an end, and the emulator is the thing that has

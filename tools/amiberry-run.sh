@@ -660,6 +660,7 @@ cleanup() {
     # still be on them.
     rig_release_port
     rig_drop_bridge
+    rig_drop_standing
     return 0
 }
 trap cleanup EXIT INT TERM HUP
@@ -699,7 +700,8 @@ fi
 LOGPIPE="$ROOT/build/amiberry-$TAG.logpipe"
 rm -f "$LOGPIPE"
 if [ -x "$ROOT/tools/logcap.sh" ] && mkfifo "$LOGPIPE" 2>/dev/null; then
-    ( rig_drop_bridge; exec "$ROOT/tools/logcap.sh" ) < "$LOGPIPE" > "$UAELOG" &
+    ( rig_drop_bridge; rig_drop_standing; exec "$ROOT/tools/logcap.sh" ) \
+        < "$LOGPIPE" > "$UAELOG" &
     LOGCAP_PID=$!
 else
     echo "!! no tools/logcap.sh; $UAELOG is UNCAPPED for this run" >&2
@@ -751,6 +753,7 @@ fi
 (
     [ -z "${RIG_PORT_FD:-}" ] || eval "exec ${RIG_PORT_FD}>&-" 2>/dev/null || true
     rig_drop_bridge
+    rig_drop_standing
     reader=""
     trap '[ -z "$reader" ] || kill -TERM "$reader" 2>/dev/null; exit 0' TERM INT
     for _ in $(seq 1 60); do

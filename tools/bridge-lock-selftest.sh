@@ -30,11 +30,16 @@
 #                   boots while the lock is held, and leaves the lock free
 #   optout_testmac  the same opt-out on a test-range MAC is refused with 2
 #   demo_standing   tools/demo.sh opts out, on a standing MAC
+#   standing_one_per_mac  a second standing launch on a MAC that is up is
+#                   refused with 2 and leaves the first one's drive alone;
+#                   another standing MAC boots
+#   standing_helper_free  a helper outliving its guest does not keep the MAC
 #   override_range  each standing launcher's own refusal block, executed:
 #                   a test-range MAC (what AMINETXDUO_CWB_MAC or
 #                   AMINETXDUO_DEMO_MAC could hold) exits non-zero before the
 #                   emulator start, a standing one reaches it; the block comes
-#                   before the launcher's first emulator start in the file
+#                   before the launcher's first wipe, staging, Xvfb, tcpdump,
+#                   kill or emulator line
 #   mac_pinned      AMINETXDUO_AMIBERRY_MAC is used as given
 #
 # Output is key=value and an exit code: 0 all held, 1 one did not, 3 not
@@ -426,39 +431,126 @@ esac
 # rig_standing_exempt call to the block's closing brace are cut out of the
 # launcher and executed with the MAC an override could hold, followed by a
 # stand-in for the emulator start.  A test-range MAC must exit non-zero with
-# the stand-in never reached; a standing one must reach it.  And in the file
-# the block must come before the launcher's first emulator start.
+# the stand-in never reached; a standing one must reach it.
+#
+# AND IT MUST COME FIRST: the validation line has to precede the launcher's
+# first destructive step -- a wipe, a staging copy or mkdir, the shared
+# Workbench build, Xvfb, tcpdump, a kill or the emulator -- so a refused
+# launch leaves everything as it was.  console-instance is scanned from the
+# end of its action switch: above that are `stop` and `status`, which are not
+# the start path.
+DESTRUCTIVE='rm -r|rm -f|mkdir |cp |wb31_assemble|Xvfb |tcpdump -i|kill |pkill |stop_pid |start_emulator|(exec|setsid) +(setsid +)?"[$]AMIBERRY"|: > |lha '
 ov_bad=""
-for spec in "tools/classicwb.sh:start_emulator \"\$CFG\"" \
-            "tools/demo-rtg.sh:setsid \"\$AMIBERRY\"" \
-            "tests/tools/console-instance.sh:exec \"\$AMIBERRY\""; do
-    f=${spec%%:*}; launch=${spec#*:}
+for spec in tools/classicwb.sh:1 tools/demo-rtg.sh:1 \
+            tests/tools/console-instance.sh:"esac"; do
+    f=${spec%%:*}; from=${spec#*:}
+    [ "$from" != "esac" ] ||
+        from=$(grep -n '^esac' "$ROOT/$f" | head -1 | cut -d: -f1)
     blk=$(awk '/^rig_standing_exempt /{on=1} on{print} on&&/^}/{exit}' "$ROOT/$f")
     at=$(grep -n '^rig_standing_exempt ' "$ROOT/$f" | head -1 | cut -d: -f1)
-    emu=$(grep -nF "$launch" "$ROOT/$f" | grep -v '^[0-9]*:[[:space:]]*#' |
-          head -1 | cut -d: -f1)
-    [ -n "$blk" ] && [ -n "$at" ] && [ -n "$emu" ] && [ "$at" -lt "$emu" ] ||
-        { ov_bad="$ov_bad $f:order(${at:-none}<${emu:-none})"; continue; }
-    for mac in 02:41:4d:49:00:77 02:41:4d:47:2a:01; do
+    first=$(awk -v from="$from" -v re="$DESTRUCTIVE" '
+        NR >= from && $0 !~ /^[[:space:]]*#/ && $0 ~ re { print NR; exit }' \
+        "$ROOT/$f")
+    echo "standing_validation_$(basename "$f" .sh)=line$at first_destructive=line${first:-none}"
+    [ -n "$blk" ] && [ -n "$at" ] && [ -n "$first" ] && [ "$at" -lt "$first" ] ||
+        { ov_bad="$ov_bad $f:order(${at:-none}<${first:-none})"; continue; }
+    for mac in 02:41:4d:49:00:77 02:41:4d:47:2a:01 held; do
         rm -f "$S/launched"
-        printf '%s\n' ". \"$ROOT/tools/emu-rig-lock.sh\"" 'say() { :; }' \
-            'SNIFFER=""; TAG=t; RUN=r; BACKEND=ens18' "MAC=$mac" \
-            "$blk" "touch \"$S/launched\"" > "$S/block.sh"
+        if [ "$mac" = held ]; then
+            # The address is already up: another instance holds its lock.
+            mac=02:41:4d:47:2a:02
+            ( AMINETXDUO_BRIDGE_LOCK="$S/bridge.lock"
+              . "$ROOT/tools/emu-rig-lock.sh"
+              rig_standing_exempt other "$mac" ens18 > /dev/null 2>&1 &&
+                  touch "$S/mac-held"
+              sleep 4 ) &
+            for _ in $(seq 1 25); do [ -e "$S/mac-held" ] && break; sleep 0.2; done
+        fi
+        printf '%s\n' "export AMINETXDUO_BRIDGE_LOCK=\"$S/bridge.lock\"" \
+            ". \"$ROOT/tools/emu-rig-lock.sh\"" 'say() { :; }' \
+            'SNIFFER=""; TAG=t; RUN=r; BACKEND=ens18; MODEL=A1200; VARIANT=v' \
+            "MAC=$mac" "$blk" "touch \"$S/launched\"" > "$S/block.sh"
         bash "$S/block.sh" > /dev/null 2>&1
         brc=$?
         case "$mac" in
             02:41:4d:49:*) [ "$brc" != 0 ] && [ ! -e "$S/launched" ] ||
                                ov_bad="$ov_bad $f:test-mac-rc=$brc" ;;
+            *:02)          [ "$brc" = 2 ] && [ ! -e "$S/launched" ] ||
+                               ov_bad="$ov_bad $f:held-mac-rc=$brc" ;;
             *)             [ "$brc" = 0 ] && [ -e "$S/launched" ] ||
                                ov_bad="$ov_bad $f:standing-mac-rc=$brc" ;;
         esac
+        wait 2> /dev/null; rm -f "$S/mac-held"
     done
-    echo "override_block_$(basename "$f" .sh)=line$at<emulator_line$emu"
+
+    # Every long-lived helper closes the standing lock in its own subshell
+    # (Xvfb, tcpdump, the log capper), and the script drops its copy right
+    # after the emulator starts, so the watchdog and readers never get it.
+    while IFS=: read -r n _; do
+        sed -n "$((n - 1)),${n}p" "$ROOT/$f" | grep -q 'rig_drop_standing' ||
+            ov_bad="$ov_bad $f:$n:helper-keeps-lock"
+    done < <(grep -nE '^[[:space:]]*(\( *rig_drop_standing; *)?(exec +)?(Xvfb |tcpdump -i|"[$]ROOT/tools/logcap\.sh")' "$ROOT/$f")
+    while IFS=: read -r n _; do
+        sed -n "$((n + 1)),$((n + 4))p" "$ROOT/$f" | grep -q '^rig_drop_standing' ||
+            ov_bad="$ov_bad $f:$n:script-keeps-lock"
+    done < <(grep -nE '^(setsid "[$]AMIBERRY"|start_emulator "[$]CFG"|\( trap .* exec "[$]AMIBERRY")' "$ROOT/$f")
 done
 if [ -z "$ov_bad" ]; then
     kv override_range ok
 else
     kv override_range "wrong:${ov_bad# }"
+fi
+
+# ----------------------------------------- one standing address, one guest
+# Through amiberry-run.sh's opt-out: the same standing MAC a second time is
+# refused with 2, never boots, and leaves the first one's drive alone, even
+# in the same checkout under the same tag; another standing MAC boots.
+: > "$EV"
+run D sm1 ens18 STUB_SECS=60 STUB_LIFE=6 AMINETXDUO_STANDING=demo \
+    AMINETXDUO_AMIBERRY_MAC=02:41:4d:47:4a:01 &
+SM1=$!
+for _ in $(seq 1 50); do grep -q '^start sm1' "$EV" && break; sleep 0.2; done
+run D sm1dup ens18 AMINETXDUO_STANDING=demo \
+    AMINETXDUO_AMIBERRY_MAC=02:41:4d:47:4a:01
+run C sm2 ens18 STUB_SECS=0.5 AMINETXDUO_STANDING=demo \
+    AMINETXDUO_AMIBERRY_MAC=02:41:4d:47:4a:02
+HD1="$S/D/build/amiberry-testhd-ifsurvive"
+if [ "$(cat "$S/sm1dup.rc")" = 2 ] && ! grep -q '^start sm1dup' "$EV" &&
+   [ -e "$HD1/stub-alive" ] &&
+   grep -q 'mac=02:41:4d:47:4a:01 is already up' "$S/sm1dup.out" &&
+   [ "$(cat "$S/sm2.rc")" = 0 ] && grep -q '^start sm2' "$EV"; then
+    kv standing_one_per_mac ok
+else
+    kv standing_one_per_mac "wrong:dup_rc=$(cat "$S/sm1dup.rc"):drive=$([ -e "$HD1/stub-alive" ] && echo kept || echo gone):other_rc=$(cat "$S/sm2.rc")"
+fi
+wait "$SM1" 2> /dev/null
+
+# A helper that outlives its guest does not keep the address: the guest
+# inherits the lock, the helper drops it, the launcher drops its own copy.
+(
+    AMINETXDUO_BRIDGE_LOCK="$S/bridge.lock"
+    . "$ROOT/tools/emu-rig-lock.sh"
+    rig_standing_exempt helper-case 02:41:4d:47:4a:03 ens18 > /dev/null || exit
+    ( rig_drop_standing; exec sleep 15 ) &
+    echo $! > "$S/helper.pid"
+    sleep 2 &
+    echo $! > "$S/guest.pid"
+    rig_drop_standing
+)
+for _ in $(seq 1 30); do
+    kill -0 "$(cat "$S/guest.pid")" 2> /dev/null || break; sleep 0.2
+done
+helper_alive=no
+kill -0 "$(cat "$S/helper.pid")" 2> /dev/null && helper_alive=yes
+again=$( AMINETXDUO_BRIDGE_LOCK="$S/bridge.lock"
+         . "$ROOT/tools/emu-rig-lock.sh"
+         rig_standing_exempt relaunch 02:41:4d:47:4a:03 ens18 > /dev/null 2>&1
+         echo $? )
+kill "$(cat "$S/helper.pid")" 2> /dev/null
+if [ "$helper_alive" = yes ] && [ "$again" = 0 ]; then
+    kv standing_helper_free ok
+else
+    kv standing_helper_free "wrong:helper_alive=$helper_alive:relaunch_rc=$again"
 fi
 
 echo "bridge_selftest=$WRONG"

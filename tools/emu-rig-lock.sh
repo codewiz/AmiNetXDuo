@@ -295,11 +295,32 @@ rig_claim_bridge() { # backend who
 # hold every test run off for the whole of it.  It is kept apart by its own
 # MAC range instead (emu_mac_standing in tools/emu-mac.sh), and says so.
 #
+#   rig_standing_exempt <who> <mac> <backend>   # 0 exempt and held, 2 refused
+#   rig_drop_standing                           # in a child that is not the guest
+#
 # THE RANGE IS CHECKED HERE, so no launcher can skip it: an override such as
 # AMINETXDUO_CWB_MAC set to a test-range address would otherwise give a guest
-# that skips the lock AND can share a test guest's MAC.  Returns 2 (a rig
-# fault, as everywhere in this file) and says why; callers `|| exit $?`.
+# that skips the lock AND can share a test guest's MAC.
+#
+# AND THE ADDRESS IS CLAIMED: emu_mac_standing reduces an instance to one of
+# 4096 addresses per kind, so two instances can land on one.  A non-blocking
+# flock on aminetxduo-standing-<mac>.lock, beside the bridge lock and so
+# host-wide -- a lock on a drive directory would miss the same address from
+# another checkout.  The second is refused, naming the first.  Like the bridge
+# lock the descriptor is inherited by the emulator and held for its life;
+# helpers that are not the guest call rig_drop_standing first.
+#
+# Returns 2 (a rig fault, as everywhere in this file) and says why; callers
+# `|| exit $?`, before they wipe or start anything.
+RIG_STANDING_FD="${RIG_STANDING_FD:-}"
+
+rig_standing_path() { # mac
+    printf '%s/aminetxduo-standing-%s.lock\n' "$(dirname "$(rig_bridge_path)")" \
+           "$(printf '%s' "$1" | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+}
+
 rig_standing_exempt() { # who mac backend
+    local f fd
     if ! printf '%s' "$2" | grep -qiE '^02:41:4d:47(:[0-9a-f]{2}){2}$'; then
         echo "REFUSING to start standing guest $1 on mac=$2." >&2
         echo "  A standing guest skips the bridge lock only on a standing-range" >&2
@@ -308,7 +329,31 @@ rig_standing_exempt() { # who mac backend
         echo "  inside that range." >&2
         return 2
     fi
+    [ -z "$RIG_STANDING_FD" ] || return 0
+    rig_have_flock || { rig_no_flock; return 2; }
+    f=$(rig_standing_path "$2")
+    ( umask 000; : >> "$f" ) 2> /dev/null || {
+        echo "cannot create the standing lock $f" >&2; return 2; }
+    exec {fd}>>"$f" || { echo "cannot open the standing lock $f" >&2; return 2; }
+    if ! flock -n -x "$fd" 2> /dev/null; then
+        echo "REFUSING to start standing guest $1: mac=$2 is already up." >&2
+        sed 's/^/    /' "$f" >&2 2> /dev/null || true
+        echo "  Two standing instances hashed to one address; booting would" >&2
+        echo "  put two guests on the wire under it.  Pin another standing-range" >&2
+        echo "  MAC for one of them, or stop the other." >&2
+        exec {fd}>&-
+        return 2
+    fi
+    printf 'standing mac=%s pid=%s who=%s since=%s\n' \
+           "$2" "$$" "$1" "$(date +%FT%T)" > "$f"
+    RIG_STANDING_FD="$fd"
     printf 'bridge_lock=exempt standing=%s mac=%s backend=%s\n' "$1" "$2" "$3"
+}
+
+rig_drop_standing() {
+    [ -n "$RIG_STANDING_FD" ] || return 0
+    eval "exec ${RIG_STANDING_FD}>&-" 2> /dev/null || true
+    RIG_STANDING_FD=""
 }
 
 # Close this shell's copy.  In a subshell that only drops the subshell's.
