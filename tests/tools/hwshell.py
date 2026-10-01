@@ -21,10 +21,17 @@ HOW A COMMAND IS KNOWN TO HAVE FINISHED
   command prints: `Prompt` is set to a token generated for this run.  A Shell
   banner, a command that prints nothing and a command that prints the word
   "prompt" are all then unambiguous.  Nothing here counts lines or sleeps.
+  The prompt carries %R, the Shell's own return code, so every command's RC
+  comes back on the line that ends it.
+
+  `Prompt` is itself a command and leaves $RC at 0.  A connection that only
+  runs `Echo $RC` therefore reads 0 whatever the last connection ran; read
+  `shell_rc=` instead.
 
 OUTPUT
 
-  One `----- <command>` line per command, then what it printed.  The exit
+  One `----- <command>` line per command, then what it printed, then
+  `shell_rc=<RC>`.  The exit
   status is 0 when every command was reached, 3 when the machine did not
   answer at all -- which is not a failed run, it is no run.
 
@@ -34,6 +41,7 @@ SPDX-License-Identifier: MIT
 import argparse
 import importlib.util
 import os
+import re
 import socket
 import sys
 import time
@@ -129,10 +137,11 @@ def main():
         ws.send(d.ws_frame(2, text.encode("latin-1")))
 
     def until(token, seconds):
-        """Everything the Shell said up to `token`, or None when it never
-        came.  Opcode 1 is the server's own control channel and is not the
-        Shell talking, so it is kept out of what a command is said to have
-        printed."""
+        """(what the Shell said before the prompt, the RC the prompt carried),
+        or None when the prompt never came.  `token` is a regular expression
+        whose first group is the RC.  Opcode 1 is the server's own control
+        channel and is not the Shell talking, so it is kept out of what a
+        command is said to have printed.  WsConn.frame() answers pings."""
         got = ""
         deadline = time.time() + seconds
         while time.time() < deadline:
@@ -142,10 +151,10 @@ def main():
             fin, op, payload, masked = f
             if op == 2:
                 got += payload.decode("latin-1", "replace")
-                if token in got:
-                    return got[:got.index(token)]
-            elif op == 9:
-                ws.send(d.ws_frame(10, payload))
+                m = re.search(token, got)
+                if m is not None:
+                    # The Shell puts SI (0x0F) in front of every prompt.
+                    return got[:m.start()].rstrip("\x0f"), int(m.group(1))
             elif op == 8:
                 break
         return None
@@ -156,14 +165,15 @@ def main():
     # seconds is not a guess about the machine's speed: the sync below is
     # what waits, and this only keeps the banner out of the first command's
     # output.
-    until("\x00-never-\x00", 2.0)
+    until("\x00-never-\x00()", 2.0)
 
     # The Shell's line terminator here is newline, which is what
     # tests/tools/wsterm-console.py types.  A carriage return is taken as a
     # character and the line is never entered: every command below then
     # times out against a machine that is working.
-    send('Prompt "%s*N"\n' % token)
-    if until(token, a.timeout) is None:
+    send('Prompt "%s %%R*N"\n' % token)
+    ends = re.escape(token) + r" (-?\d+)\n"
+    if until(ends, a.timeout) is None:
         print("shell_state=no_prompt")
         print("hwshell: the Shell on %s:%d never echoed the run's prompt.  "
               "Either `Prompt` is not in its C: or nothing is reading the "
@@ -178,26 +188,35 @@ def main():
         print("----- %s" % cmd)
         sys.stdout.flush()
         send(cmd + "\n")
-        out = until(token, a.timeout)
-        if out is None:
+        got = until(ends, a.timeout)
+        if got is None:
             # BREAK IT BEFORE LETTING GO.  A Shell still running a command
-            # holds the one terminal session httpd serves, and every later
-            # connection is answered 503 -- so a run that timed out took the
-            # machine with it and the next thing to ask a question got
-            # "httpd serves /shell only with -T" about a machine serving it.
-            # Ctrl-C is what a person would send.
-            send("\x03")
-            until(token, 10.0)
+            # keeps running it after this socket closes, and the next
+            # connection attaches to that same Shell.
+            #
+            # CTRL-C IS THE `break` TEXT WORD, NOT A BYTE.  On an Amiga it is
+            # a signal; src/tools/httpterm.c sock_word() raises it for the
+            # word, and a binary 0x03 is only a character in the Shell's
+            # input.  Sent as a byte it broke nothing, and it stayed in the
+            # input with no newline behind it, so the NEXT line anyone typed
+            # began with it -- the next run's `Prompt` became an unknown
+            # command and that run reported no_prompt.
+            ws.send(d.ws_frame(1, "break"))
+            back = until(ends, 10.0)
             print("shell_state=timeout")
+            print("shell_break=%s" % ("prompt" if back is not None
+                                      else "no_prompt"))
             print("hwshell: %r did not return to a prompt in %.0f s"
                   % (cmd, a.timeout), file=sys.stderr)
             rc = 4
             break
         # The Shell echoes nothing; the page does.  What comes back is the
         # command's own output and no more.
+        out, shell_rc = got
         sys.stdout.write(out.replace("\r\n", "\n").replace("\r", "\n"))
         if not out.endswith("\n"):
             sys.stdout.write("\n")
+        print("shell_rc=%d" % shell_rc)
 
     try:
         ws.close()
