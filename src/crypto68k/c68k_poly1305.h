@@ -78,8 +78,13 @@ AMIGA_ASM_ARGS VOID c68k_poly1305_blocks_c(C68K_POLY1305 *ctx, const UCHAR *m, U
 UINT c68k_poly1305_blocks_is_asm(VOID);
 
 #ifdef C68K_MV
-extern VOID (*c68k_vec_poly1305_blocks)(C68K_POLY1305 *, const UCHAR *, ULONG,
-                                        ULONG);
+/* Pinned like its definition in c68k_cpu.c: both targets read the stack.
+   Unpinned, every call in c68k_poly1305.c passed its arguments in registers
+   and the kernel read stale stack words; a TLS 1.2 ChaCha20-Poly1305 server
+   hung in its first record. */
+extern AMIGA_ASM_ARGS VOID (*c68k_vec_poly1305_blocks)(C68K_POLY1305 *,
+                                                       const UCHAR *, ULONG,
+                                                       ULONG);
 #endif
 
 #ifdef __cplusplus
