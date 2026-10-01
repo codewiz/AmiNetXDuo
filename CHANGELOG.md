@@ -166,6 +166,8 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ### Commands, HTTP and remote consoles
 
+- `scp` finds its sibling SSH client in drawer installs and reports transport
+  startup failures instead of returning silently.
 - `fetch` rejects missing or oversized redirect targets, unsolicited protocol
   switching and downloads shorter than their declared `Content-Length`.
   Empty successful downloads truncate an existing `TO` file.

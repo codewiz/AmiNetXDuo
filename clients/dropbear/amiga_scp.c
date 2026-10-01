@@ -430,6 +430,24 @@ static BPTR scp_error_stream(void)
     return Output();
 }
 
+/* Upstream's download caller only increments errs when do_cmd() fails.
+   Report here, before any SSH process exists to print its own diagnostic. */
+static int scp_startup_error(int error)
+{
+    char message[512];
+    int length = snprintf(message, sizeof(message),
+                          "scp: cannot start SSH transport '%s' "
+                          "(helper '%s'): %s\n",
+                          ssh_program, SCP_RUNNER, strerror(error));
+
+    if (length > 0)
+        (void)Write(scp_error_stream(), message,
+                    length < (int)sizeof(message)
+                        ? length : (int)sizeof(message) - 1);
+    errno = error;
+    return -1;
+}
+
 static int append_shell_arg(char *line, size_t cap, size_t *used,
                             const char *arg)
 {
@@ -650,19 +668,18 @@ int do_cmd(char *host, char *remuser, char *remote_cmd,
     u_int i;
     int  readfd = -1;
     int  writefd = -1;
+    int  saved_error;
 
     if (host == NULL || remote_cmd == NULL || fdin == NULL || fdout == NULL
         || scp_child.active)
     {
-        errno = EINVAL;
-        return -1;
+        return scp_startup_error(EINVAL);
     }
     memset(&scp_child, 0, sizeof(scp_child));
     scp_child.signal_bit = AllocSignal(-1);
     if (scp_child.signal_bit < 0)
     {
-        errno = EAGAIN;
-        return -1;
+        return scp_startup_error(EAGAIN);
     }
     scp_child.parent = FindTask(NULL);
     scp_child.error_dest = scp_error_stream();
@@ -723,13 +740,14 @@ int do_cmd(char *host, char *remuser, char *remote_cmd,
 toolong:
     errno = E2BIG;
 fail:
+    saved_error = errno;
     if (readfd >= 0) (VOID)__wrap_close(readfd);
     if (writefd >= 0) (VOID)__wrap_close(writefd);
     if (scp_child.child_in != (BPTR)0) Close(scp_child.child_in);
     if (scp_child.child_out != (BPTR)0) Close(scp_child.child_out);
     if (scp_child.signal_bit >= 0) FreeSignal(scp_child.signal_bit);
     memset(&scp_child, 0, sizeof(scp_child));
-    return -1;
+    return scp_startup_error(saved_error);
 }
 
 pid_t waitpid(pid_t pid, int *status, int options)

@@ -52,7 +52,16 @@ RUN_LOG="$ROOT/build/scp-run-$TAG.log"
 
 rm -rf "$WORK" "$REMOTE"
 mkdir -p "$WORK/src/tree/sub/deeper" "$WORK/preexisting" \
-         "$REMOTE/source-tree/sub/deeper"
+         "$REMOTE/source-tree/sub/deeper" "$WORK/drawer/C" \
+         "$WORK/missing-helper/C"
+
+# Exercise the shipping default from a relocatable drawer. The old C:ssh
+# default never ran in this test because every transfer supplied -S.
+cp "$SCP" "$WORK/drawer/C/scp"
+cp "$SCP_RUNNER" "$WORK/drawer/C/scp-runner"
+cp "$ROOT/$DB_BUILD/dbclient" "$WORK/drawer/C/ssh"
+cp "$SCP" "$WORK/missing-helper/C/scp"
+cp "$ROOT/$DB_BUILD/dbclient" "$WORK/missing-helper/C/ssh"
 
 # Random input makes this a byte-placement test, not merely a length test.
 # 131,071 is intentionally neither a block size nor a ring multiple.
@@ -82,18 +91,21 @@ fi
 
 cat > "$COMMANDS" <<EOF
 SYS:AddNetInterface eth0
-SYS:scp -S SYS:dbclient -P $PORT -o StrictHostKeyChecking=no -i DH0:id_amiga DH0:src/big.bin $USER_NAME@$HOST:$REMOTE/upload.bin
-SYS:scp -S SYS:dbclient -P $PORT -o StrictHostKeyChecking=no -i DH0:id_amiga $USER_NAME@$HOST:$REMOTE/download.bin DH0:download.bin
+SYS:drawer/C/scp -P $PORT -o StrictHostKeyChecking=no -i DH0:id_amiga DH0:src/big.bin $USER_NAME@$HOST:$REMOTE/upload.bin
+SYS:drawer/C/scp -P $PORT -o StrictHostKeyChecking=no -i DH0:id_amiga $USER_NAME@$HOST:$REMOTE/download.bin DH0:download.bin
 SYS:scp -p -r -S SYS:dbclient -P $PORT -o StrictHostKeyChecking=no -i DH0:id_amiga DH0:src/tree $USER_NAME@$HOST:$REMOTE/upload-tree
 SYS:scp -p -r -S SYS:dbclient -P $PORT -o StrictHostKeyChecking=no -i DH0:id_amiga $USER_NAME@$HOST:$REMOTE/source-tree DH0:download-tree
 SYS:scp -S SYS:dbclient -P $PORT -o StrictHostKeyChecking=no -i DH0:id_amiga DH0:src/does-not-exist $USER_NAME@$HOST:$REMOTE/must-not-exist
 SYS:scp -S SYS:dbclient -P $PORT -o StrictHostKeyChecking=no -i DH0:id_amiga DH0:src/after-error.txt $USER_NAME@$HOST:$REMOTE/after-error.txt
+SYS:drawer/C/scp -S SYS:missing-ssh $USER_NAME@$HOST:$REMOTE/download.bin DH0:must-not-exist-ssh.bin
+SYS:missing-helper/C/scp $USER_NAME@$HOST:$REMOTE/download.bin DH0:must-not-exist-helper.bin
 EOF
 
 export AMINETXDUO_RUN_TAG="$TAG"
 set +e
 "$ROOT/clients/dropbear/run-dbclient.sh" "${args[@]}" \
     -C "$COMMANDS" -X "$SCP" -X "$SCP_RUNNER" -X "$WORK/src" \
+    -X "$WORK/drawer" -X "$WORK/missing-helper" \
     -X "$WORK/preexisting/download.bin" \
     2>&1 | tee "$RUN_LOG"
 RUN_RC=${PIPESTATUS[0]}
@@ -111,16 +123,22 @@ if ! grep -q '^run_rc=0$' "$RUN_LOG"; then
 fi
 mapfile -t COMMAND_RCS < <(sed -n 's/^--- rc \([-0-9][0-9]*\),.*/\1/p' \
                            "$HD/client.txt")
-if [ "${#COMMAND_RCS[@]}" -ne 7 ] ||
+if [ "${#COMMAND_RCS[@]}" -ne 9 ] ||
    [ "${COMMAND_RCS[0]:-1}" -ne 0 ] ||
    [ "${COMMAND_RCS[1]:-1}" -ne 0 ] ||
    [ "${COMMAND_RCS[2]:-1}" -ne 0 ] ||
    [ "${COMMAND_RCS[3]:-1}" -ne 0 ] ||
    [ "${COMMAND_RCS[4]:-1}" -ne 0 ] ||
    [ "${COMMAND_RCS[5]:-0}" -eq 0 ] ||
-   [ "${COMMAND_RCS[6]:-1}" -ne 0 ]; then
+   [ "${COMMAND_RCS[6]:-1}" -ne 0 ] ||
+   [ "${COMMAND_RCS[7]:-0}" -eq 0 ] ||
+   [ "${COMMAND_RCS[8]:-0}" -eq 0 ]; then
     echo "scp: unexpected Amiga command status sequence" >&2
     grep '^--- rc ' "$HD/client.txt" >&2 || true
+    exit 1
+fi
+if [ "$(grep -c 'scp: cannot start SSH transport' "$HD/client.txt")" -ne 2 ]; then
+    echo "scp: missing startup diagnostics for absent SSH/helper" >&2
     exit 1
 fi
 

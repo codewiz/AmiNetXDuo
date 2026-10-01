@@ -36,8 +36,9 @@
 #define DROPBEAR_USE_SSH_CONFIG 0
 #define DO_MOTD 0
 
-/* scp starts the separately installed client through AmigaDOS, not execvp(). */
-#define DROPBEAR_PATH_SSH_PROGRAM "C:ssh"
+/* Load the sibling client in both system and relocatable drawer installs.
+   LoadSeg() does not search the Shell's Path, and C: need not contain ssh. */
+#define DROPBEAR_PATH_SSH_PROGRAM "PROGDIR:ssh"
 
 /* dbrandom.c's seedrandom() has no fallback and there is no build without a
    device.  This string must match AMIGA_URANDOM_DEV in clients/dropbear/
