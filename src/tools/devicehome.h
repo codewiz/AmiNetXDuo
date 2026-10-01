@@ -1,5 +1,5 @@
 /* Where an interface file's DEVICE= finds one of this stack's drivers.  Pure
-   text, shared by InstallSameFile and CheckNetConfig and tested on the host. */
+   text, used by InstallSameFile and tested on the host (test_devicehome). */
 #ifndef AMINETXDUO_DEVICEHOME_H
 #define AMINETXDUO_DEVICEHOME_H
 

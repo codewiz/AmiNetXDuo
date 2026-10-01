@@ -89,6 +89,29 @@ static ULONG cat(char *out, ULONG cap, const char *a, const char *b)
     return (*a == '\0' && *b == '\0') ? n : 0;
 }
 
+/* The kept file's protection bits and filenote go with it; a file that
+   cannot be examined is replaced with the defaults, as before. */
+static VOID keep_attributes(const char *from, const char *to)
+{
+    struct FileInfoBlock *fib;
+    BPTR                  lock;
+
+    fib = (struct FileInfoBlock *)AllocDosObject(DOS_FIB, NULL);
+    if (fib == NULL)
+        return;
+    lock = Lock((CONST_STRPTR)from, ACCESS_READ);
+    if (lock != 0)
+    {
+        if (Examine(lock, fib))
+        {
+            (VOID)SetProtection((CONST_STRPTR)to, fib->fib_Protection);
+            (VOID)SetComment((CONST_STRPTR)to, (CONST_STRPTR)fib->fib_Comment);
+        }
+        UnLock(lock);
+    }
+    FreeDosObject(DOS_FIB, fib);
+}
+
 /* NetPrefs' order: the new bytes are whole on disk before the old name goes,
    and both spare names end in .info, which the interface scan skips. */
 static BOOL replace_file(const char *path, const char *data, LONG length)
@@ -113,6 +136,7 @@ static BOOL replace_file(const char *path, const char *data, LONG length)
         (VOID)DeleteFile((CONST_STRPTR)tmp);
         return FALSE;
     }
+    keep_attributes(path, tmp);
 
     (VOID)DeleteFile((CONST_STRPTR)old);
     if (!Rename((CONST_STRPTR)path, (CONST_STRPTR)old))
