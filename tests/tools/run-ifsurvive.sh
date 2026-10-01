@@ -52,7 +52,7 @@ cd "$ROOT" || exit 2
 BUILD="${AMINETXDUO_BUILD:-build/cm}"
 BOARD=a2065
 TIMEOUT=450
-MIN_CHECKS=22
+MIN_CHECKS=23
 IFACE="${AMINETXDUO_AMIBERRY_BACKEND:-ens18}"
 ADDRESS=
 ADDRESS2=
@@ -192,8 +192,17 @@ printf 'DEVICE=a2065.device\nUNIT=0\nCONFIGURE=DHCP\n' \
 printf 'DEVICE=a2065.device\nUNIT=0\nCONFIGURE=STATIC\nADDRESS=%s\nNETMASK=255.255.255.0\n' \
     "$ADDRESS2" > "$STAGE/devs/NetInterfaces/zforce"
 
+# THE GATEWAY MUST ANSWER ICMP FROM THIS ADDRESS AT ALL.  The lab router
+# answers some rig addresses and silently ignores every ICMP request from
+# others (192.168.1.224 and .232 on 2026-10-01: no reply on the wire, on-link
+# or forwarded off-link, with aeth0 alone, while .244 answered every one).
+# aeth0 pings it alone first; no reply there leaves the ping checks below
+# undecidable, so the run says so and exits 2 rather than FAIL.
+BASEPING="SYS:ping $GATEWAY -c 3 -t 15"
+
 {
     echo "SYS:AddNetInterface aeth0"
+    echo "$BASEPING"
     echo "SYS:AddNetInterface zeth1"
     echo "SYS:netstat -i"
     echo "SYS:ShowNetStatus"
@@ -227,6 +236,32 @@ printf 'DEVICE=a2065.device\nUNIT=0\nCONFIGURE=STATIC\nADDRESS=%s\nNETMASK=255.2
     echo "SYS:ShowNetStatus INTERFACES"
     echo "SYS:ShowNetStatus EVENTS"
 } > "$STAGE/commands.txt"
+
+# AMINETXDUO_IFSURVIVE_PINGFALS=1: SYS:ping (a raw socket) to the gateway with
+# aeth0 alone, after zeth1 attaches, and after zeth1 is removed again, with
+# the ICMP counters and netstat -i after each.  Same stage, same boot; the
+# verdict is the pingfals_* lines, not the checks below.
+PINGFALS="${AMINETXDUO_IFSURVIVE_PINGFALS:-0}"
+if [ "$PINGFALS" = 1 ]; then
+    {
+        echo "SYS:AddNetInterface aeth0"
+        for leg in alone with_zeth1 zeth1_removed; do
+            case "$leg" in
+                with_zeth1)    echo "SYS:AddNetInterface zeth1" ;;
+                zeth1_removed) echo "SYS:RemoveNetInterface zeth1" ;;
+            esac
+            echo "SYS:netstat -i"
+            echo "SYS:ShowNetStatus"
+            echo "SYS:ShowNetStatus ICMP"
+            echo "SYS:ping $GATEWAY -c 5 -t 20"
+            echo "SYS:ping $OFFLINK -c 3 -t 20"
+            echo "SYS:ShowNetStatus ICMP"
+            echo "SYS:netstat -i"
+        done
+        echo "SYS:RemoveNetInterface aeth0"
+    } > "$STAGE/commands.txt"
+    TIMEOUT=240
+fi
 
 # ------------------------------------------------------------------ run ---
 
@@ -396,6 +431,54 @@ tr -d '\r' < "$REPORT"
 echo "--------------------------------------------------------------"
 echo
 
+if [ "$PINGFALS" = 1 ]; then
+    # Per leg: replies to the five pings, the ICMP counters before and after
+    # them, and aeth0/zeth1 Ipkts and addresses from netstat -i.
+    pf_block() { # command n
+        tr -d '\r' < "$REPORT" | awk -v want="$1" -v n="$2" '
+            index($0, "===== ") == 1 {
+                cur = substr($0, 7); sub(/[ \t]*=====[ \t]*$/, "", cur)
+                if (cur == want) { seen++; on = (seen == n) } else { on = 0 }
+                next
+            }
+            on { print }'
+    }
+    pf_kv() { # ShowNetStatus ICMP text -> key=value per counter
+        printf '%s\n' "$1" | awk -F '  +' '
+            /^----- rc / { next }
+            {
+                for (i = 1; i < NF; i++)
+                    if ($(i + 1) ~ /^[0-9]+$/ && $i ~ /[a-z]/) {
+                        k = $i; gsub(/[^A-Za-z0-9]+/, "_", k)
+                        printf "%s=%s ", k, $(i + 1)
+                    }
+            }'
+    }
+    pf_if() { # netstat text -> name:address:ipkts:opkts per interface
+        printf '%s\n' "$1" | awk '
+            $1 ~ /^(aeth0|zeth1)$/ { printf "%s:%s:ipkts=%s:opkts=%s ", $1, $3, $5, $7 }'
+    }
+    pf_rc=0
+    n=0
+    for leg in alone with_zeth1 zeth1_removed; do
+        n=$((n + 1))
+        ping=$(pf_block "SYS:ping $GATEWAY -c 5 -t 20" "$n")
+        tx=$(printf '%s\n' "$ping" | sed -n 's/^\([0-9]*\) packets transmitted, .*/\1/p' | head -1)
+        rx=$(printf '%s\n' "$ping" | sed -n 's/^[0-9]* packets transmitted, \([0-9]*\) .*/\1/p' | head -1)
+        off=$(pf_block "SYS:ping $OFFLINK -c 3 -t 20" "$n")
+        otx=$(printf '%s\n' "$off" | sed -n 's/^\([0-9]*\) packets transmitted, .*/\1/p' | head -1)
+        orx=$(printf '%s\n' "$off" | sed -n 's/^[0-9]* packets transmitted, \([0-9]*\) .*/\1/p' | head -1)
+        echo "pingfals_leg=$leg ping_tx=${tx:-none} ping_rx=${rx:-none} offlink_tx=${otx:-none} offlink_rx=${orx:-none}"
+        echo "pingfals_leg=$leg icmp_before: $(pf_kv "$(pf_block "SYS:ShowNetStatus ICMP" $((2 * n - 1)))")"
+        echo "pingfals_leg=$leg icmp_after: $(pf_kv "$(pf_block "SYS:ShowNetStatus ICMP" $((2 * n)))")"
+        echo "pingfals_leg=$leg netstat_before: $(pf_if "$(pf_block "SYS:netstat -i" $((2 * n - 1)))")"
+        echo "pingfals_leg=$leg netstat_after: $(pf_if "$(pf_block "SYS:netstat -i" $((2 * n)))")"
+        [ -n "$rx" ] && [ "$rx" -gt 0 ] || pf_rc=1
+    done
+    echo "pingfals_verdict=$( [ "$pf_rc" = 0 ] && echo PASS || echo FAIL)"
+    exit "$pf_rc"
+fi
+
 # -------------------------------------------------------------- verdict ---
 
 CHECKS="$ROOT/build/ifsurvive-checks.txt"
@@ -484,6 +567,16 @@ if [ -n "$lease1" ] && [ "$lease1" != "$ADDRESS" ]; then
 else
     fail "zeth1 has no DHCP address, so it did not install the gateway"
 fi
+
+if ! replied "$(block "$BASEPING" 1)"; then
+    rig "the gateway $GATEWAY answered no ICMP from $ADDRESS with aeth0 ALONE:\
+ this rig's router ignores that source, so no ping check here decides anything"
+    verdict_kv "name=ifsurvive" "verdict=SKIP" "reason=gateway_no_icmp" \
+               "guest_address=$ADDRESS" "checks=0" "failures=0" \
+               "min_checks=$MIN_CHECKS" "run_rc=$RUN_RC" "transcript=$REPORT"
+    exit 2
+fi
+pass "the gateway answers ICMP from $ADDRESS with aeth0 alone"
 
 # The on-link target was written before boot.  The lease says what the
 # segment's router really is; a different one means -g is wrong for this rig,
