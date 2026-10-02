@@ -50,6 +50,8 @@ int main(void)
     UCHAR source[] = "direct";
     UCHAR out[8] = {0};
     ULONG moved = 0;
+    NX_PACKET *fragment = &packet;
+    ULONG fragment_offset = 42;
 
     memset(&packet, 0, sizeof(packet));
     packet.nx_packet_prepend_ptr = source;
@@ -62,6 +64,12 @@ int main(void)
     CHECK(extract_calls == 1UL);
     CHECK(moved == 5UL);
     CHECK(memcmp(out, "trace", 5UL) == 0);
+
+    CHECK(bsd_packet_extract_cached(&packet, 0UL, out, 5UL, &moved,
+                                    &fragment, &fragment_offset) == NX_SUCCESS);
+    CHECK(extract_calls == 2UL);
+    CHECK(moved == 5UL && memcmp(out, "trace", 5UL) == 0);
+    CHECK(fragment == NX_NULL && fragment_offset == 0UL);
 
     puts("packet extract: NetX helpers retained under event trace");
     return 0;

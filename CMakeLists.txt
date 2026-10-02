@@ -1271,6 +1271,15 @@ if(AMINETXDUO_RX_DIRECT_COMPLETE)
     add_compile_definitions(AMINETXDUO_RX_DIRECT_COMPLETE)
 endif()
 
+# Retain the current fragment across partial reads of a GRO packet chain.
+# OFF provides the original extractor for end-to-end throughput comparisons.
+# Experimental until an Amiga throughput comparison establishes the benefit.
+option(AMINETXDUO_RX_FRAGMENT_CURSOR
+       "Cache the TCP receive packet fragment across partial reads" OFF)
+if(AMINETXDUO_RX_FRAGMENT_CURSOR)
+    add_compile_definitions(AMINETXDUO_RX_FRAGMENT_CURSOR)
+endif()
+
 # RFC 2018 selective acknowledgment on the receive side.  Also a layout change
 # to NX_TCP_SOCKET, so also whole-tree.  Both arms of a with/without
 # measurement come out of one tree the same way as the option above.

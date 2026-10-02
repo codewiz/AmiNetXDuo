@@ -35,6 +35,11 @@ VOID bsd_rxdirect_pump(AmiSocket *sock, BOOL may_release)
     if (sock->as_RxPending != NULL)
         return;
 
+#ifdef AMINETXDUO_RX_FRAGMENT_CURSOR
+    sock->as_RxFragment = NULL;
+    sock->as_RxFragmentOffset = 0;
+#endif
+
     while (sock->as_RxDFilled < sock->as_RxDWant)
     {
         NX_PACKET *packet = NX_NULL;

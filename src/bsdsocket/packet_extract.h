@@ -73,4 +73,77 @@ static inline UINT bsd_packet_extract(NX_PACKET *packet, ULONG offset,
     return nx_packet_data_extract_offset(packet, offset, dst, want, moved);
 }
 
+/*
+ * Continue a partial TCP read at the last fragment visited. The head retains
+ * the logical length; fragment lengths describe only their own buffers, so
+ * calling NetX's extractor on a continuation would truncate a spanning read.
+ * The owner must clear *fragment whenever it acquires or releases the head.
+ * A backwards offset restarts at the head. No packet fields are modified.
+ * Keep trace builds on the native path so their extraction events survive.
+ */
+static inline UINT bsd_packet_extract_cached(NX_PACKET *packet, ULONG offset,
+                                             UCHAR *dst, ULONG want,
+                                             ULONG *moved,
+                                             NX_PACKET **fragment,
+                                             ULONG *fragment_offset)
+{
+#if !defined(TX_ENABLE_EVENT_TRACE) && !defined(NX_DISABLE_PACKET_CHAIN)
+    if (packet != NX_NULL && packet->nx_packet_next != NX_NULL &&
+        dst != NX_NULL && moved != NX_NULL &&
+        offset < packet->nx_packet_length &&
+        want <= packet->nx_packet_length - offset && want != 0)
+    {
+        NX_PACKET *part = *fragment;
+        ULONG base = *fragment_offset;
+        ULONG skip, left = want;
+        UCHAR *out = dst;
+
+        if (part == NX_NULL || offset < base)
+        {
+            part = packet;
+            base = 0;
+        }
+        skip = offset - base;
+
+        while (part != NX_NULL)
+        {
+            ULONG bytes, take;
+
+            if (part->nx_packet_prepend_ptr == NX_NULL ||
+                part->nx_packet_append_ptr < part->nx_packet_prepend_ptr)
+                break;
+            bytes = (ULONG)(part->nx_packet_append_ptr -
+                            part->nx_packet_prepend_ptr);
+            if (skip < bytes)
+            {
+                take = bytes - skip;
+                if (take > left)
+                    take = left;
+                memcpy(out, part->nx_packet_prepend_ptr + skip, take);
+                out += take;
+                left -= take;
+                if (left == 0)
+                {
+                    *fragment = part;
+                    *fragment_offset = base;
+                    *moved = want;
+                    return NX_SUCCESS;
+                }
+                skip = 0;
+            }
+            else
+                skip -= bytes;
+
+            base += bytes;
+            part = part->nx_packet_next;
+        }
+        /* A short/inconsistent chain keeps the native status and copy count.
+           It may recopy the prefix above; it must not retain a partial cache. */
+    }
+#endif
+    *fragment = NX_NULL;
+    *fragment_offset = 0;
+    return bsd_packet_extract(packet, offset, dst, want, moved);
+}
+
 #endif /* AMINETXDUO_BSDSOCKET_PACKET_EXTRACT_H */

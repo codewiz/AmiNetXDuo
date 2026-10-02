@@ -529,6 +529,12 @@ typedef struct AmiSocket
 
     /* Partially consumed receive packet (a stream read need not drain one). */
     NX_PACKET              *as_RxPending;
+#ifdef AMINETXDUO_RX_FRAGMENT_CURSOR
+    /* TCP extraction cursor, private to as_RxPending. Reset on each dequeue
+       and release, including when the pool reuses the same packet address. */
+    NX_PACKET              *as_RxFragment;
+    ULONG                   as_RxFragmentOffset;
+#endif
     /*
      * A BATCHED DEQUEUE WOULD LIVE BESIDE THIS, AND HERE IS WHAT IT COSTS.
      *

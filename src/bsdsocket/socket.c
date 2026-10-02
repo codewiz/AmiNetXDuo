@@ -1135,6 +1135,10 @@ static BOOL bsd_socket_destroy(AmiSocket *sock)
         bsd_cork_drop(sock);
 #endif
 
+#ifdef AMINETXDUO_RX_FRAGMENT_CURSOR
+    sock->as_RxFragment = NULL;
+    sock->as_RxFragmentOffset = 0;
+#endif
     if (sock->as_RxPending != NULL)
     {
         nx_packet_release(sock->as_RxPending);

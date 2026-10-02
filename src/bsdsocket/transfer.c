@@ -153,6 +153,10 @@ static VOID bsd_iov_advance(BsdIovCursor *cur, ULONG bytes)
 
 static VOID bsd_drop_pending(AmiSocket *sock)
 {
+#ifdef AMINETXDUO_RX_FRAGMENT_CURSOR
+    sock->as_RxFragment = NULL;
+    sock->as_RxFragmentOffset = 0;
+#endif
     if (sock->as_RxPending != NULL)
     {
         nx_packet_release(sock->as_RxPending);
@@ -1666,6 +1670,10 @@ static LONG bsd_recv_tcp(struct AmiSocketBase *base, AmiSocket *sock,
 #endif
                 sock->as_RxPending = packet;
                 sock->as_RxOffset  = 0;
+#ifdef AMINETXDUO_RX_FRAGMENT_CURSOR
+                sock->as_RxFragment = NULL;
+                sock->as_RxFragmentOffset = 0;
+#endif
             }
             else
             {
@@ -1712,6 +1720,13 @@ static LONG bsd_recv_tcp(struct AmiSocketBase *base, AmiSocket *sock,
             want = chunk;
 
         moved  = 0;
+#if defined(AMINETXDUO_RX_FRAGMENT_CURSOR) && !defined(NX_DISABLE_PACKET_CHAIN)
+        if (!peek && sock->as_RxPending->nx_packet_next != NX_NULL)
+            status = bsd_packet_extract_cached(sock->as_RxPending,
+                         sock->as_RxOffset, dst, want, &moved,
+                         &sock->as_RxFragment, &sock->as_RxFragmentOffset);
+        else
+#endif
         status = bsd_packet_extract(sock->as_RxPending, sock->as_RxOffset,
                                     dst, want, &moved);
         if (status != NX_SUCCESS || moved == 0)

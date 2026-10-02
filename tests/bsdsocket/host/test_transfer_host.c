@@ -35,6 +35,7 @@
 #include "udp_queue.h"
 #include "netmonitor.h"
 #include "aminetxduo/sana2.h"
+#include "nx_packet.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -167,6 +168,7 @@ static struct
     unsigned    rx_packets, recvs;
     ULONG       rx_len;
     BOOL        extract_real;
+    NX_PACKET  *rx_chain;             /* a real chain for cursor integration */
 } h;
 
 ULONG _tx_time_get(VOID) { return h.clock; }
@@ -780,6 +782,13 @@ UINT _nx_tcp_socket_receive(NX_TCP_SOCKET *socket_ptr, NX_PACKET **packet_ptr,
     h.recvs++;
     h_spend(wait_option);
 
+    if (h.rx_chain != NULL)
+    {
+        *packet_ptr = h.rx_chain;
+        h.rx_chain = NULL;
+        return NX_SUCCESS;
+    }
+
     if (h.rx_packets == 0)
         return NX_NO_PACKET;
 
@@ -879,6 +888,10 @@ UINT _nxe_packet_data_extract_offset(NX_PACKET *packet_ptr, ULONG offset,
                                      VOID *buffer_start, ULONG buffer_length,
                                      ULONG *bytes_copied)
 {
+    if (packet_ptr != NULL && packet_ptr->nx_packet_prepend_ptr != NULL)
+        return _nx_packet_data_extract_offset(packet_ptr, offset, buffer_start,
+                                              buffer_length, bytes_copied);
+
     if (h.extract_real && packet_ptr != NULL &&
         offset < packet_ptr->nx_packet_length)
     {
@@ -1825,11 +1838,86 @@ static void t_call_budget(void)
           "each receive waits only for what is left of the one budget");
 }
 
+static void t_recv_chain_cursor(void)
+{
+    UBYTE data[] = "abcdefghijklmnopqrstuvwx";
+    UBYTE out[24];
+    NX_PACKET tail[2];
+    NX_PACKET *head;
+    AmiSocket *sock;
+    struct msghdr msg;
+    struct iovec iov[2];
+
+    printf("transfer: cached chain across recv, peek, recvmsg and reuse\n");
+    h_reset();
+    sock = h_tcp(0);
+    head = &h_pkt[0].nx;
+    memset(tail, 0, sizeof(tail));
+    head->nx_packet_prepend_ptr = data;
+    head->nx_packet_append_ptr = data + 8;
+    head->nx_packet_length = 24;
+    head->nx_packet_next = &tail[0];
+    tail[0].nx_packet_prepend_ptr = data + 8;
+    tail[0].nx_packet_append_ptr = data + 16;
+    tail[0].nx_packet_next = &tail[1];
+    tail[1].nx_packet_prepend_ptr = data + 16;
+    tail[1].nx_packet_append_ptr = data + 24;
+    h_pkt[0].in_use = TRUE;
+    h.rx_chain = head;
+
+    CHECK(bsd_recv(0, out, 10, 0, &h_base) == 10 &&
+              memcmp(out, data, 10) == 0, "a read crosses the first fragment");
+#ifdef AMINETXDUO_RX_FRAGMENT_CURSOR
+    CHECK(sock->as_RxFragment == &tail[0] && sock->as_RxFragmentOffset == 8,
+          "the next read can start at the second fragment");
+#endif
+    CHECK(bsd_recv(0, out, 4, MSG_PEEK, &h_base) == 4 &&
+              memcmp(out, data + 10, 4) == 0, "peek sees the unread bytes");
+    CHECK(sock->as_RxOffset == 10, "peek does not consume bytes");
+#ifdef AMINETXDUO_RX_FRAGMENT_CURSOR
+    CHECK(sock->as_RxFragment == &tail[0] && sock->as_RxFragmentOffset == 8,
+          "peek leaves the cached cursor alone");
+#endif
+    memset(&msg, 0, sizeof(msg));
+    iov[0].iov_base = out;
+    iov[0].iov_len = 3;
+    iov[1].iov_base = out + 3;
+    iov[1].iov_len = 7;
+    msg.msg_iov = iov;
+    msg.msg_iovlen = 2;
+    CHECK(bsd_recvmsg(0, &msg, 0, &h_base) == 10 &&
+              memcmp(out, data + 10, 10) == 0,
+          "scatter/gather continues across the final fragment");
+    CHECK(bsd_recv(0, out, 4, MSG_WAITALL, &h_base) == 4 &&
+              memcmp(out, data + 20, 4) == 0, "the chain drains exactly");
+    CHECK(h.releases == 1 && sock->as_RxPending == NULL,
+          "the chain is released exactly once");
+#ifdef AMINETXDUO_RX_FRAGMENT_CURSOR
+    CHECK(sock->as_RxFragment == NULL, "release invalidates the cursor");
+#endif
+
+    /* Pool reuse of the head must never reuse a cursor into the old chain. */
+    head->nx_packet_prepend_ptr = data + 8;
+    head->nx_packet_append_ptr = data + 16;
+    head->nx_packet_length = 16;
+    head->nx_packet_next = &tail[1];
+    h_pkt[0].in_use = TRUE;
+    h.rx_chain = head;
+    CHECK(bsd_recv(0, out, 16, MSG_DONTWAIT, &h_base) == 16 &&
+              memcmp(out, data + 8, 16) == 0,
+          "a reused packet address starts at the new chain's head");
+    CHECK(h.releases == 2, "the reused chain is released once");
+#ifdef AMINETXDUO_RX_FRAGMENT_CURSOR
+    CHECK(sock->as_RxFragment == NULL, "its cursor is forgotten");
+#endif
+}
+
 int main(void)
 {
     printf("transfer.c host checks\n\n");
 
     t_call_budget();
+    t_recv_chain_cursor();
     t_abi();
     t_refusals();
 #ifdef AMINETXDUO_IPV6

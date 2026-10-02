@@ -943,9 +943,9 @@ if(NOT CMAKE_CROSSCOMPILING)
     add_test(NAME udp_queue_layout COMMAND test_udp_queue)
 
     # transfer.c's TCP receive path normally owns a one-buffer NX_PACKET and
-    # can copy directly from it.  Chained and inconsistent packets must still
-    # take NetX Duo's generic walker, and its exact offset boundary is part of
-    # the observable recv behavior.  The helper is inline, so this target
+    # can copy directly from it. Cached chain reads must agree with NetX Duo's
+    # generic walker, including its exact offset boundary and short-chain
+    # behavior. The helpers are inline, so this target
     # executes the shipping code and links the vendored fallback beneath it.
     add_executable(test_packet_extract
         host/test_packet_extract_host.c
@@ -1082,14 +1082,17 @@ if(NOT CMAKE_CROSSCOMPILING AND CMAKE_SIZEOF_VOID_P EQUAL 4)
     # translation unit, so the _Static_asserts on the scatter/gather ABI run
     # as part of the build rather than being asserted about.
     add_executable(test_transfer host/test_transfer_host.c
-                                 "${CMAKE_SOURCE_DIR}/src/bsdsocket/transfer.c")
+        "${CMAKE_SOURCE_DIR}/src/bsdsocket/transfer.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_packet_data_extract_offset.c")
 
     target_include_directories(test_transfer PRIVATE ${BSD_HOST32_INCLUDES})
 
     target_compile_options(test_transfer PRIVATE
         -include "${CMAKE_CURRENT_SOURCE_DIR}/host/shim/host_prelude.h")
 
-    target_compile_definitions(test_transfer PRIVATE ${BSD_HOST32_DEFINES})
+    # Exercise the opt-in cursor in CI even while shipping keeps it disabled.
+    target_compile_definitions(test_transfer PRIVATE
+        ${BSD_HOST32_DEFINES} AMINETXDUO_RX_FRAGMENT_CURSOR)
 
     add_test(NAME transfer_scatter_gather COMMAND test_transfer)
 
