@@ -111,3 +111,35 @@ endif()
 
 include(CTest)
 add_test(NAME tls_x509_checks COMMAND test_tls_x509)
+
+# N-113: the CertificateRequest parser against messages that end flush with a
+# PROT_NONE page, so a read past the message faults instead of passing.  Its
+# own file and target: the parser is the only thing under test, and the cases
+# fork, which test_tls_x509 has no reason to.
+add_executable(test_cert_request_bounds
+    test_cert_request_bounds.c
+    "${CMAKE_SOURCE_DIR}/tests/fuzz/fuzz_nxstub.c"
+    "${CMAKE_SOURCE_DIR}/tests/fuzz/fuzz_txstub.c")
+
+target_link_libraries(test_cert_request_bounds PRIVATE
+    test_x509_nx_secure test_x509_nx_crypto)
+
+target_compile_options(test_cert_request_bounds PRIVATE -Wall -Wextra -UAMINETXDUO_IPV6)
+
+add_test(NAME tls_cert_request_bounds COMMAND test_cert_request_bounds)
+
+# N-116: the Certificate message parser, the same guard-page contract.  Chain
+# verification is replaced in the test file itself, so the cases stop where
+# the parse hands over, and the sample certificates from tests/tls are real
+# DER for the paths that parse before they read on.
+add_executable(test_remote_cert_bounds
+    test_remote_cert_bounds.c
+    "${CMAKE_SOURCE_DIR}/tests/fuzz/fuzz_nxstub.c"
+    "${CMAKE_SOURCE_DIR}/tests/fuzz/fuzz_txstub.c")
+
+target_link_libraries(test_remote_cert_bounds PRIVATE
+    test_x509_nx_secure test_x509_nx_crypto)
+
+target_compile_options(test_remote_cert_bounds PRIVATE -Wall -Wextra -UAMINETXDUO_IPV6)
+
+add_test(NAME tls_remote_cert_bounds COMMAND test_remote_cert_bounds)
