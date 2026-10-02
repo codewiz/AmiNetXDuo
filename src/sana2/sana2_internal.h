@@ -254,6 +254,11 @@
 #ifndef AMI_SANA2_GRO_MAX
 #define AMI_SANA2_GRO_MAX           16
 #endif
+#ifdef AMINETXDUO_GRO_PER_FLOW
+#define AMI_SANA2_GRO_FLOWS         4
+#else
+#define AMI_SANA2_GRO_FLOWS         1
+#endif
 #if defined(AMINETXDUO_RX_CHECKSUM_OFFLOAD) && !defined(AMINETXDUO_RX_VERIFY)
 #error "AMINETXDUO_RX_CHECKSUM_OFFLOAD needs AMINETXDUO_RX_VERIFY"
 #endif
@@ -602,6 +607,22 @@ typedef struct AmiRxSum
     UBYTE   flags;      /* the device's ANXD_S2_RXF_* byte, 0 = none      */
 } AmiRxSum;
 
+#ifdef AMINETXDUO_GRO
+typedef struct AmiSana2GroRun
+{
+    NX_PACKET          *head;
+    NX_PACKET          *tail;
+    AmiRxSum            sum;
+    UWORD               count;
+    ULONG               addr[8];    /* source then destination */
+    ULONG               ports;
+    ULONG               next;       /* next in-order sequence */
+    ULONG               ack;
+    UWORD               win;
+    UBYTE               words;      /* IPv4 2, IPv6 8 */
+} AmiSana2GroRun;
+#endif
+
 /*
  * THE READER: one task per interface, one reply port, three pipelines.
  *
@@ -725,23 +746,20 @@ typedef struct AmiSana2Rx
 
 #ifdef AMINETXDUO_GRO
     /*
-     * THE HELD HEAD.  The receive layer parses verified TCP frames itself;
+     * The receive layer parses verified TCP frames itself;
      * an ordinary SANA-II driver therefore gets the same GRO as an in-tree
      * driver.  Each contiguous frame is chained behind this one with its own
-     * headers skipped, and the run goes up as ONE segment on a mismatch, at
-     * AMI_SANA2_GRO_MAX, or when this drain ends.  Nothing waits past one pass
-     * of the reader.
+     * headers skipped. Runs end on a same-flow mismatch, eviction, a control
+     * frame, or the end of the drain. AMI_SANA2_GRO_MAX bounds the TOTAL held
+     * frames across all flows. Nothing waits past one pass of the reader.
      */
-    NX_PACKET          *gro_head;
-    NX_PACKET          *gro_tail;
-    AmiRxSum            gro_sum;
-    UWORD               gro_count;      /* frames in the held run           */
-    ULONG               gro_addr[8];    /* source then destination           */
-    ULONG               gro_ports;      /* source port << 16 | destination  */
-    ULONG               gro_next;       /* next in-order TCP sequence        */
-    ULONG               gro_ack;
-    UWORD               gro_win;
-    UBYTE               gro_words;      /* address words: IPv4 2, IPv6 8    */
+    AmiSana2GroRun       gro[AMI_SANA2_GRO_FLOWS];
+#ifdef AMINETXDUO_GRO_PER_FLOW
+    UWORD               gro_total;
+    UBYTE               gro_used;
+    UBYTE               gro_last;
+    UBYTE               gro_order[AMI_SANA2_GRO_FLOWS]; /* oldest head first */
+#endif
 #endif /* AMINETXDUO_GRO */
 
 #ifdef AMINETXDUO_RXPROBE

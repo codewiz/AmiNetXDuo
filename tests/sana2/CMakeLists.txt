@@ -146,55 +146,64 @@ add_test(NAME sana2_tx COMMAND test_sana2_tx)
 # width on m68k and are not on an LP64 host; the reader task is not reached
 # from here, so the truncation the host warns about cannot happen in this
 # binary.  Same reason tests/x509 confines its ECDSA section to a 32-bit build.
-add_executable(test_sana2_rx
-    host/test_sana2_rx_host.c
-    "${CMAKE_SOURCE_DIR}/src/sana2/sana2_rx.c")
+foreach(rx_test test_sana2_rx test_sana2_rx_per_flow)
+    add_executable(${rx_test}
+        host/test_sana2_rx_host.c
+        "${CMAKE_SOURCE_DIR}/src/sana2/sana2_rx.c")
 
-target_compile_options(test_sana2_rx PRIVATE
-    -include "${CMAKE_CURRENT_SOURCE_DIR}/host/shim/host_regargs.h")
-target_compile_options(test_sana2_rx PRIVATE
-    -UAMINETXDUO_IPV6 -UAMINETXDUO_BPF
-    -Wno-int-to-pointer-cast -Wno-pointer-to-int-cast)
+    target_compile_options(${rx_test} PRIVATE
+        -include "${CMAKE_CURRENT_SOURCE_DIR}/host/shim/host_regargs.h")
+    target_compile_options(${rx_test} PRIVATE
+        -UAMINETXDUO_IPV6 -UAMINETXDUO_BPF
+        -Wno-int-to-pointer-cast -Wno-pointer-to-int-cast)
 
-target_include_directories(test_sana2_rx PRIVATE
-    "${CMAKE_SOURCE_DIR}/tests/perf/host/shim"
-    "${CMAKE_CURRENT_SOURCE_DIR}/host/shim"
-    "${CMAKE_SOURCE_DIR}/src/config/test/shim"
-    "${CMAKE_SOURCE_DIR}/src/sana2"
-    "${CMAKE_SOURCE_DIR}/src/net68k"
-    "${CMAKE_SOURCE_DIR}/include"
-    "${CMAKE_SOURCE_DIR}/port/threadx-amiga/inc"     # tx_amiga.h
-    "${AMINETXDUO_NETXDUO}/ports/linux/gnu/inc"
-    "${CMAKE_SOURCE_DIR}/port/netxduo-amiga/inc"
-    "${AMINETXDUO_NETXDUO}/common/inc"
-    "${AMINETXDUO_THREADX}/common/inc")
+    target_include_directories(${rx_test} PRIVATE
+        "${CMAKE_SOURCE_DIR}/tests/perf/host/shim"
+        "${CMAKE_CURRENT_SOURCE_DIR}/host/shim"
+        "${CMAKE_SOURCE_DIR}/src/config/test/shim"
+        "${CMAKE_SOURCE_DIR}/src/sana2"
+        "${CMAKE_SOURCE_DIR}/src/net68k"
+        "${CMAKE_SOURCE_DIR}/include"
+        "${CMAKE_SOURCE_DIR}/port/threadx-amiga/inc"     # tx_amiga.h
+        "${AMINETXDUO_NETXDUO}/ports/linux/gnu/inc"
+        "${CMAKE_SOURCE_DIR}/port/netxduo-amiga/inc"
+        "${AMINETXDUO_NETXDUO}/common/inc"
+        "${AMINETXDUO_THREADX}/common/inc")
 
-target_compile_definitions(test_sana2_rx PRIVATE
-    NX_INCLUDE_USER_DEFINE_FILE
-    AMINETXDUO_SANA2_RX_HOST_TEST
-    AMINETXDUO_HOST_VENDORED_TX_PORT="${AMINETXDUO_THREADX}/ports/linux/gnu/inc/tx_port.h")
+    target_compile_definitions(${rx_test} PRIVATE
+        NX_INCLUDE_USER_DEFINE_FILE
+        AMINETXDUO_SANA2_RX_HOST_TEST
+        AMINETXDUO_HOST_VENDORED_TX_PORT="${AMINETXDUO_THREADX}/ports/linux/gnu/inc/tx_port.h")
 
-# The default build has it on (see the option in the top-level CMakeLists), and
-# it changes the layout of AmiRxSlot, so the test has to agree with the library
-# about which one it is compiling.  The checksum-offload section of the test is
-# behind the same #ifdef.
-if(AMINETXDUO_RX_VERIFY)
-    target_compile_definitions(test_sana2_rx PRIVATE AMINETXDUO_RX_VERIFY)
-    if(AMINETXDUO_RX_CHECKSUM_OFFLOAD)
-        target_compile_definitions(test_sana2_rx PRIVATE AMINETXDUO_RX_CHECKSUM_OFFLOAD)
+    # The default build has it on (see the option in the top-level CMakeLists), and
+    # it changes the layout of AmiRxSlot, so the test has to agree with the library
+    # about which one it is compiling.  The checksum-offload section of the test is
+    # behind the same #ifdef.
+    if(AMINETXDUO_RX_VERIFY)
+        target_compile_definitions(${rx_test} PRIVATE AMINETXDUO_RX_VERIFY)
+        if(AMINETXDUO_RX_CHECKSUM_OFFLOAD)
+            target_compile_definitions(${rx_test} PRIVATE AMINETXDUO_RX_CHECKSUM_OFFLOAD)
+        endif()
+        if(AMINETXDUO_GRO)
+            target_compile_definitions(${rx_test} PRIVATE AMINETXDUO_GRO)
+        endif()
     endif()
-    if(AMINETXDUO_GRO)
-        target_compile_definitions(test_sana2_rx PRIVATE AMINETXDUO_GRO)
+    if(AMINETXDUO_RX_BATCH)
+        target_compile_definitions(${rx_test} PRIVATE AMINETXDUO_RX_BATCH)
     endif()
-endif()
-if(AMINETXDUO_RX_BATCH)
-    target_compile_definitions(test_sana2_rx PRIVATE AMINETXDUO_RX_BATCH)
-endif()
+    if(rx_test STREQUAL "test_sana2_rx_per_flow")
+        target_compile_definitions(${rx_test} PRIVATE AMINETXDUO_GRO_PER_FLOW)
+    else()
+        target_compile_options(${rx_test} PRIVATE -UAMINETXDUO_GRO_PER_FLOW)
+    endif()
+endforeach()
+
 if(AMINETXDUO_TX_RUN)
     target_compile_definitions(test_sana2_tx PRIVATE AMINETXDUO_TX_RUN)
 endif()
 
 add_test(NAME sana2_rx COMMAND test_sana2_rx)
+add_test(NAME sana2_rx_per_flow COMMAND test_sana2_rx_per_flow)
 
 # The NX_IP driver entry, sana2_driver.c.
 #

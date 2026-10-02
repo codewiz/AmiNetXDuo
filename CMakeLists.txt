@@ -1485,6 +1485,14 @@ if(AMINETXDUO_GRO)
     add_compile_definitions(AMINETXDUO_GRO)
 endif()
 
+# Keep independent GRO runs for interleaved connections within one drain.
+# OFF retains one accumulator for throughput comparisons.
+option(AMINETXDUO_GRO_PER_FLOW
+       "Hold up to four TCP flows per GRO receive ring" OFF)
+if(AMINETXDUO_GRO_PER_FLOW AND AMINETXDUO_GRO)
+    add_compile_definitions(AMINETXDUO_GRO_PER_FLOW)
+endif()
+
 # ANXD_CMD_RX_BATCH: the reader posts one request per burst of received
 # frames instead of one CMD_READ per frame, on a driver that delivers bursts
 # (anxgenet.device; the classic cores refuse it).  Measured 2026-09-20, A1200

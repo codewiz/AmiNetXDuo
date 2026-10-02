@@ -1182,17 +1182,34 @@ BOOL ami_sana2_rx_resolve_length(AmiRxSlot *slot, ULONG *length)
  * mutex this reader would deliver under, and a frame lost at shutdown is a
  * frame lost at shutdown.
  */
-VOID ami_sana2_gro_flush(AmiSana2Rx *rx)
+static VOID ami_sana2_gro_flush_run(AmiSana2Rx *rx, UBYTE index)
 {
-    NX_PACKET *head = rx->gro_head;
+    AmiSana2GroRun *run = &rx->gro[index];
+    NX_PACKET *head = run->head;
 
     if (head == NULL)
         return;
 
-    rx->gro_head = NULL;
-    rx->gro_tail = NULL;
+#ifdef AMINETXDUO_GRO_PER_FLOW
+    {
+        UBYTE i;
 
-    if (rx->gro_count > 1)
+        rx->gro_total -= run->count;
+        for (i = 0; i < rx->gro_used; i++)
+            if (rx->gro_order[i] == index)
+                break;
+        while (i + 1 < rx->gro_used)
+        {
+            rx->gro_order[i] = rx->gro_order[i + 1];
+            i++;
+        }
+        rx->gro_used--;
+    }
+#endif
+    run->head = NULL;
+    run->tail = NULL;
+
+    if (run->count > 1)
     {
         UCHAR *ip    = head->nx_packet_prepend_ptr + AMI_ETH_HEADER_SIZE;
         ULONG  total = head->nx_packet_length - AMI_ETH_HEADER_SIZE;
@@ -1222,11 +1239,22 @@ VOID ami_sana2_gro_flush(AmiSana2Rx *rx)
     {
         ULONG t0 = ami_budget_clock();
 
-        ami_sana2_rx_deliver(rx->iface, head, &rx->gro_sum);
+        ami_sana2_rx_deliver(rx->iface, head, &run->sum);
         ami_budget_drain(ami_budget_clock() - t0);
     }
 #else
-    ami_sana2_rx_deliver(rx->iface, head, &rx->gro_sum);
+    ami_sana2_rx_deliver(rx->iface, head, &run->sum);
+#endif
+}
+
+VOID ami_sana2_gro_flush(AmiSana2Rx *rx)
+{
+#ifdef AMINETXDUO_GRO_PER_FLOW
+    /* Oldest run first; each run's TCP sequence order is unchanged. */
+    while (rx->gro_used != 0)
+        ami_sana2_gro_flush_run(rx, rx->gro_order[0]);
+#else
+    ami_sana2_gro_flush_run(rx, 0);
 #endif
 }
 
@@ -1234,10 +1262,9 @@ VOID ami_sana2_gro_flush(AmiSana2Rx *rx)
  * HOLD IT, CHAIN IT, OR LET IT GO.  TRUE when this function took the packet.
  *
  * The receive layer, not the driver, decides whether this frame continues the
- * held stream.  Every mismatch flushes the head before the new frame is dealt
- * with, and the two error arms that never reach here flush too.  Holding the
- * first eligible frame costs no latency because the drain flushes it before
- * it gives the machine back.
+ * held stream. A same-flow mismatch flushes its run before starting another.
+ * Control or unsupported frames and errors flush all runs before delivery.
+ * Every held frame is flushed before the drain gives the machine back.
  *
  * Fifty-four bytes are stepped over on a chained IPv4 frame, seventy-four on
  * IPv6: Ethernet, an IP header with no options or extensions and a TCP
@@ -1382,11 +1409,53 @@ static BOOL ami_sana2_gro_verify(NX_PACKET *packet, AmiRxSum *sum,
     return TRUE;
 }
 
+/* Flow identity excludes sequence, ACK and window: changes in those fields
+ * must end the SAME connection's run, never create a second held copy of it. */
+static BOOL ami_sana2_gro_same_flow(const AmiSana2GroRun *run,
+                                   const AmiSana2GroKey *key)
+{
+    UBYTE i;
+
+    if (run->head == NULL || run->words != key->words ||
+        run->ports != key->ports)
+        return FALSE;
+    for (i = 0; i < key->words; i++)
+        if (run->addr[i] != key->addr[i])
+            return FALSE;
+    return TRUE;
+}
+
+#ifdef AMINETXDUO_GRO_PER_FLOW
+static UBYTE ami_sana2_gro_find(AmiSana2Rx *rx, const AmiSana2GroKey *key)
+{
+    UBYTE i, index;
+
+    /* The common single-stream case never scans the table. */
+    if (ami_sana2_gro_same_flow(&rx->gro[rx->gro_last], key))
+        return rx->gro_last;
+    for (i = 0; i < rx->gro_used; i++)
+    {
+        index = rx->gro_order[i];
+        if (index != rx->gro_last &&
+            ami_sana2_gro_same_flow(&rx->gro[index], key))
+            return index;
+    }
+    for (i = 0; i < AMI_SANA2_GRO_FLOWS; i++)
+        if (rx->gro[i].head == NULL)
+            return i;
+
+    index = rx->gro_order[0];
+    ami_sana2_gro_flush_run(rx, index);
+    return index;
+}
+#endif
+
 BOOL ami_sana2_gro_take(AmiSana2Rx *rx, NX_PACKET *packet, AmiRxSum *sum)
 {
     AmiSana2GroKey key;
-    UBYTE          i;
-    BOOL           continues = FALSE;
+    AmiSana2GroRun *run;
+    UBYTE          i, index = 0;
+    BOOL           same_flow;
 
     if (!ami_sana2_gro_key(packet, &key) ||
         !ami_sana2_gro_verify(packet, sum, key.version))
@@ -1395,53 +1464,60 @@ BOOL ami_sana2_gro_take(AmiSana2Rx *rx, NX_PACKET *packet, AmiRxSum *sum)
         return FALSE;
     }
 
-    if (rx->gro_head != NULL && rx->gro_words == key.words &&
-        rx->gro_ports == key.ports && rx->gro_next == key.seq &&
-        rx->gro_ack == key.ack && rx->gro_win == key.win)
+#ifdef AMINETXDUO_GRO_PER_FLOW
+    index = ami_sana2_gro_find(rx, &key);
+    rx->gro_last = index;
+    /* find() returns either this flow's run or an empty slot. */
+    same_flow = rx->gro[index].head != NULL;
+#else
+    same_flow = ami_sana2_gro_same_flow(&rx->gro[0], &key);
+#endif
+    run = &rx->gro[index];
+    if (same_flow && run->next == key.seq &&
+        run->ack == key.ack && run->win == key.win)
     {
-        continues = TRUE;
-        for (i = 0; i < key.words; i++)
-            if (rx->gro_addr[i] != key.addr[i])
-            {
-                continues = FALSE;
-                break;
-            }
-    }
-
-    if (continues)
-    {
-        NX_PACKET *head = rx->gro_head;
+        NX_PACKET *head = run->head;
 
         packet->nx_packet_prepend_ptr += key.skip;
         packet->nx_packet_length       = key.data;
         packet->nx_packet_next         = NX_NULL;
 
-        rx->gro_tail->nx_packet_next = packet;
-        rx->gro_tail                 = packet;
-        head->nx_packet_last         = packet;
-        head->nx_packet_length      += key.data;
-        rx->gro_next                 = key.seq + key.data;
+        run->tail->nx_packet_next = packet;
+        run->tail                = packet;
+        head->nx_packet_last     = packet;
+        head->nx_packet_length  += key.data;
+        run->next                = key.seq + key.data;
+        run->count++;
+    }
+    else
+    {
+        ami_sana2_gro_flush_run(rx, index);
 
-        if (++rx->gro_count >= AMI_SANA2_GRO_MAX)
-            ami_sana2_gro_flush(rx);
-        return TRUE;
+        packet->nx_packet_next = NX_NULL;
+        packet->nx_packet_last = NX_NULL;
+        run->head  = packet;
+        run->tail  = packet;
+        run->sum   = *sum;
+        run->count = 1;
+        run->words = key.words;
+        run->ports = key.ports;
+        run->next  = key.seq + key.data;
+        run->ack   = key.ack;
+        run->win   = key.win;
+        for (i = 0; i < key.words; i++)
+            run->addr[i] = key.addr[i];
+#ifdef AMINETXDUO_GRO_PER_FLOW
+        rx->gro_order[rx->gro_used++] = index;
+#endif
     }
 
-    ami_sana2_gro_flush(rx);
-
-    packet->nx_packet_next = NX_NULL;
-    packet->nx_packet_last = NX_NULL;
-    rx->gro_head  = packet;
-    rx->gro_tail  = packet;
-    rx->gro_sum   = *sum;
-    rx->gro_count = 1;
-    rx->gro_words = key.words;
-    rx->gro_ports = key.ports;
-    rx->gro_next  = key.seq + key.data;
-    rx->gro_ack   = key.ack;
-    rx->gro_win   = key.win;
-    for (i = 0; i < key.words; i++)
-        rx->gro_addr[i] = key.addr[i];
+#ifdef AMINETXDUO_GRO_PER_FLOW
+    /* A shared cap preserves the old packet-pool holding bound. */
+    if (++rx->gro_total >= AMI_SANA2_GRO_MAX)
+#else
+    if (run->count >= AMI_SANA2_GRO_MAX)
+#endif
+        ami_sana2_gro_flush(rx);
     return TRUE;
 }
 #endif /* AMINETXDUO_GRO */
@@ -2833,9 +2909,20 @@ LONG ami_sana2_rx_start(AmiSana2If *iface)
         else
             rx->depth = depths.ipv6;
 #ifdef AMINETXDUO_GRO
-        rx->gro_head    = NULL;
-        rx->gro_tail    = NULL;
-        rx->gro_count   = 0;
+        {
+            UBYTE g;
+            for (g = 0; g < AMI_SANA2_GRO_FLOWS; g++)
+            {
+                rx->gro[g].head  = NULL;
+                rx->gro[g].tail  = NULL;
+                rx->gro[g].count = 0;
+            }
+        }
+#ifdef AMINETXDUO_GRO_PER_FLOW
+        rx->gro_total = 0;
+        rx->gro_used  = 0;
+        rx->gro_last  = 0;
+#endif
 #endif
 
         if (rx->depth > AMI_SANA2_RX_MAX_DEPTH)

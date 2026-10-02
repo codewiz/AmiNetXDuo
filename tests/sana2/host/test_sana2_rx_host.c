@@ -218,12 +218,20 @@ UINT _txe_semaphore_put(TX_SEMAPHORE *s) { (VOID)s; return TX_SUCCESS; }
 typedef enum { TO_NOWHERE, TO_IP, TO_ARP, TO_RARP, TO_RELEASED } Destination;
 
 static Destination h_went;
+#ifdef AMINETXDUO_GRO_PER_FLOW
+static NX_PACKET *h_ip_packets[32];
+static unsigned h_ip_packets_count;
+#endif
 static ULONG       h_seen_length;
 static UCHAR       h_seen_first;
 static NX_INTERFACE *h_seen_interface;
 
 static void h_record(NX_PACKET *packet, Destination where)
 {
+#ifdef AMINETXDUO_GRO_PER_FLOW
+    if (where == TO_IP && h_ip_packets_count < 32)
+        h_ip_packets[h_ip_packets_count++] = packet;
+#endif
     h_went           = where;
     h_seen_length    = packet->nx_packet_length;
     h_seen_first     = packet->nx_packet_prepend_ptr[0];
@@ -438,6 +446,9 @@ static void fixture_init(void)
     iface.addr_bytes    = AMI_ETH_ADDR_SIZE;
     iface.mtu           = 1500;
 
+#ifdef AMINETXDUO_GRO_PER_FLOW
+    h_ip_packets_count = 0;
+#endif
     h_went           = TO_NOWHERE;
     h_seen_length    = 0;
     h_seen_first     = 0;
@@ -1045,7 +1056,7 @@ static void test_held_frame_goes_up_on_flush(void)
 
     h_check(ami_sana2_gro_take(&rxs, &pkt, &sum) == TRUE, "the reader takes it");
     h_check(h_went == TO_NOWHERE, "and nothing has gone up yet");
-    h_check(rxs.gro_head == &pkt && rxs.gro_count == 1, "it is the held head");
+    h_check(rxs.gro[0].head == &pkt && rxs.gro[0].count == 1, "it is the held head");
 
     ami_sana2_gro_flush(&rxs);
 
@@ -1056,14 +1067,14 @@ static void test_held_frame_goes_up_on_flush(void)
     h_check(buffer[AMI_SANA2_RX_PAD + 16] == 0 &&
             buffer[AMI_SANA2_RX_PAD + 17] == 80,
             "and its IP length is untouched");
-    h_check(rxs.gro_head == NX_NULL, "and nothing is held after");
+    h_check(rxs.gro[0].head == NX_NULL, "and nothing is held after");
 
     /* A verified UDP datagram is not held: nothing will continue it. */
     gro_init();
     tcp_frame_init(&pkt, buffer, 17, 40);
     h_check(ami_sana2_gro_take(&rxs, &pkt, &sum) == FALSE,
             "a verified UDP datagram is left to the caller");
-    h_check(rxs.gro_head == NX_NULL, "and not held");
+    h_check(rxs.gro[0].head == NX_NULL, "and not held");
 
     /* A normal SANA-II driver gets the same result from CopyToBuff's sum. */
     gro_init();
@@ -1075,7 +1086,7 @@ static void test_held_frame_goes_up_on_flush(void)
                     NX_INTERFACE_CAPABILITY_TCP_RX_CHECKSUM;
     h_check(ami_sana2_gro_take(&rxs, &pkt, &sum) == TRUE,
             "an ordinary driver's TCP frame is held");
-    h_check(h_verify_sums == 1 && rxs.gro_head == &pkt,
+    h_check(h_verify_sums == 1 && rxs.gro[0].head == &pkt,
             "after the stack verifies its carried sum");
     ami_sana2_gro_flush(&rxs);
     gro_done();
@@ -1096,7 +1107,7 @@ static void test_continuing_frame_is_chained(void)
     h_check(ami_sana2_gro_take(&rxs, &pkt, &head) == TRUE, "the head is held");
     h_check(ami_sana2_gro_take(&rxs, &pkt2, &next) == TRUE, "the next is taken");
     h_check(h_went == TO_NOWHERE, "nothing has gone up");
-    h_check(rxs.gro_count == 2 && rxs.gro_tail == &pkt2, "the run is two long");
+    h_check(rxs.gro[0].count == 2 && rxs.gro[0].tail == &pkt2, "the run is two long");
     h_check(pkt.nx_packet_next == &pkt2 && pkt.nx_packet_last == &pkt2,
             "chained behind the head");
     h_check(pkt2.nx_packet_prepend_ptr ==
@@ -1140,7 +1151,7 @@ static void test_stack_gro_uses_headers(void)
             "the mismatching frame starts its own held run");
     h_check(h_went == TO_IP && h_seen_length == 80,
             "after the old head was delivered alone");
-    h_check(rxs.gro_head == &pkt2 && rxs.gro_count == 1,
+    h_check(rxs.gro[0].head == &pkt2 && rxs.gro[0].count == 1,
             "and the sequence hole did not join it");
     ami_sana2_gro_flush(&rxs);
     gro_done();
@@ -1153,7 +1164,7 @@ static void test_stack_gro_uses_headers(void)
     buffer2[AMI_SANA2_RX_PAD + AMI_ETH_HEADER_SIZE + 20 + 13] = 0x18;
     (VOID)ami_sana2_gro_take(&rxs, &pkt, &head);
     (VOID)ami_sana2_gro_take(&rxs, &pkt2, &head);
-    h_check(rxs.gro_count == 2, "ACK and ACK+PSH remain one run");
+    h_check(rxs.gro[0].count == 2, "ACK and ACK+PSH remain one run");
     ami_sana2_gro_flush(&rxs);
     gro_done();
 
@@ -1165,7 +1176,7 @@ static void test_stack_gro_uses_headers(void)
     tcp_frame_seq(buffer2, 0x00000010UL);
     (VOID)ami_sana2_gro_take(&rxs, &pkt, &head);
     (VOID)ami_sana2_gro_take(&rxs, &pkt2, &head);
-    h_check(rxs.gro_count == 2, "a run continues across sequence wrap");
+    h_check(rxs.gro[0].count == 2, "a run continues across sequence wrap");
     ami_sana2_gro_flush(&rxs);
     gro_done();
 }
@@ -1182,7 +1193,7 @@ static void test_stack_gro_ipv6(void)
     tcp6_frame_seq(buffer2, 1040);
     (VOID)ami_sana2_gro_take(&rxs, &pkt, &sum);
     (VOID)ami_sana2_gro_take(&rxs, &pkt2, &sum);
-    h_check(rxs.gro_count == 2, "two contiguous IPv6 segments form a run");
+    h_check(rxs.gro[0].count == 2, "two contiguous IPv6 segments form a run");
     ami_sana2_gro_flush(&rxs);
     h_check(h_went == TO_IP && h_seen_length == 130,
             "the IPv6 run is delivered with both payloads");
@@ -1209,14 +1220,14 @@ static void test_run_ends_on_a_frame_that_does_not_continue(void)
             "an unverified frame is not taken");
     h_check(h_went == TO_IP && h_seen_length == 80,
             "but the held head went up ahead of it, alone");
-    h_check(rxs.gro_head == NX_NULL, "and nothing is held");
+    h_check(rxs.gro[0].head == NX_NULL, "and nothing is held");
 
     /* An eligible frame with nothing held starts a new run. */
     h_went = TO_NOWHERE;
     tcp_frame_init(&pkt2, buffer2, 6, 30);
     h_check(ami_sana2_gro_take(&rxs, &pkt2, &cont) == TRUE,
             "an eligible frame with no head is held as one");
-    h_check(rxs.gro_head == &pkt2 && rxs.gro_count == 1 &&
+    h_check(rxs.gro[0].head == &pkt2 && rxs.gro[0].count == 1 &&
             pkt2.nx_packet_prepend_ptr == buffer2 + AMI_SANA2_RX_PAD,
             "whole, headers on");
     ami_sana2_gro_flush(&rxs);
@@ -1261,11 +1272,190 @@ static void test_run_is_capped(void)
     h_check(h_went == TO_IP, "the frame that fills the run delivers it");
     h_check(h_seen_length == 50UL + 10UL * (AMI_SANA2_GRO_MAX - 1),
             "as the whole run");
-    h_check(rxs.gro_head == NX_NULL, "and nothing is held after");
+    h_check(rxs.gro[0].head == NX_NULL, "and nothing is held after");
     h_check(pkt.nx_packet_last == &many[AMI_SANA2_GRO_MAX - 1],
             "with the last frame as the chain's last");
     gro_done();
 }
+
+#ifdef AMINETXDUO_GRO_PER_FLOW
+static NX_PACKET flow_packets[32];
+static UCHAR flow_buffers[32][256];
+
+static void flow_frame(unsigned n, unsigned flow, ULONG sequence, BOOL ipv6)
+{
+    UCHAR *tcp;
+    if (ipv6)
+    {
+        tcp6_frame_init(&flow_packets[n], flow_buffers[n], 40);
+        tcp6_frame_seq(flow_buffers[n], sequence);
+    }
+    else
+    {
+        tcp_frame_init(&flow_packets[n], flow_buffers[n], 6, 40);
+        tcp_frame_seq(flow_buffers[n], sequence);
+    }
+    tcp = flow_buffers[n] + AMI_SANA2_RX_PAD + AMI_ETH_HEADER_SIZE +
+          (ipv6 ? 40 : 20);
+    tcp[1] += (UCHAR)flow;
+}
+
+static void flow_take(unsigned n)
+{
+    AmiRxSum sum = h_flagged(ANXD_S2_RXF_VERIFIED);
+    h_check(ami_sana2_gro_take(&rxs, &flow_packets[n], &sum),
+            "an eligible flow frame is taken");
+}
+
+static void test_interleaved_flows(void)
+{
+    unsigned flows, n, f, v;
+
+    printf("sana2: interleaved IPv4 and IPv6 streams retain independent runs\n");
+    for (v = 0; v < 2; v++)
+        for (flows = 2; flows <= 4; flows *= 2)
+        {
+            gro_init();
+            for (n = 0; n < 16; n++)
+            {
+                flow_frame(n, n % flows, 1000 + (n / flows) * 40, (BOOL)v);
+                flow_take(n);
+                if (n < 15)
+                    h_check(h_ip_packets_count == 0 && rxs.gro_total == n + 1,
+                            "interleaving holds runs within one shared budget");
+            }
+            h_check(h_ip_packets_count == flows,
+                    "the shared cap emits one aggregate per flow");
+            h_check(rxs.gro_total == 0 && rxs.gro_used == 0,
+                    "the shared cap empties every slot");
+            for (f = 0; f < flows; f++)
+            {
+                NX_PACKET *part = h_ip_packets[f];
+                h_check(part == &flow_packets[f], "heads keep first-arrival order");
+                h_check(part->nx_packet_length == (v ? 60UL : 40UL) +
+                                                  (16 / flows) * 40,
+                        "aggregate lengths include only this flow's payloads");
+                for (n = f; n < 16; n += flows)
+                {
+                    h_check(part == &flow_packets[n],
+                            "each aggregate preserves its own sequence order");
+                    if (part != NULL)
+                        part = part->nx_packet_next;
+                }
+                h_check(part == NULL, "no other flow is spliced onto the tail");
+            }
+            ami_sana2_gro_flush(&rxs);
+            h_check(h_ip_packets_count == flows, "a second flush is empty");
+            gro_done();
+        }
+}
+
+static void test_flow_eviction_and_mismatch(void)
+{
+    unsigned n, change;
+
+    printf("sana2: oldest-flow eviction and same-flow continuation barriers\n");
+    gro_init();
+    for (n = 0; n < 4; n++)
+    {
+        flow_frame(n, n, 1000, FALSE);
+        flow_take(n);
+    }
+    flow_frame(4, 0, 1040, FALSE);
+    flow_take(4);                         /* last used is still the oldest head */
+    flow_frame(5, 4, 1000, FALSE);
+    flow_take(5);
+    h_check(h_ip_packets_count == 1 && h_ip_packets[0] == &flow_packets[0] &&
+            flow_packets[0].nx_packet_next == &flow_packets[4],
+            "a fifth flow evicts the oldest run, including its continuation");
+    h_check(rxs.gro_used == 4 && rxs.gro_total == 4,
+            "eviction returns every frame of the old run's budget");
+    ami_sana2_gro_flush(&rxs);
+    h_check(h_ip_packets_count == 5 && h_ip_packets[1] == &flow_packets[1] &&
+            h_ip_packets[4] == &flow_packets[5], "remaining heads flush in age order");
+    gro_done();
+
+    for (change = 0; change < 3; change++)
+    {
+        UCHAR *tcp;
+        gro_init();
+        flow_frame(0, 0, 1000, FALSE); flow_take(0);
+        flow_frame(1, 1, 1000, FALSE); flow_take(1);
+        flow_frame(2, 0, change == 0 ? 1041 : 1040, FALSE);
+        tcp = flow_buffers[2] + AMI_SANA2_RX_PAD + AMI_ETH_HEADER_SIZE + 20;
+        if (change == 1) tcp[11]++;       /* changed ACK */
+        if (change == 2) tcp[15]++;       /* changed window */
+        flow_take(2);
+        h_check(h_ip_packets_count == 1 && h_ip_packets[0] == &flow_packets[0],
+                "sequence, ACK or window change delivers the old same-flow run");
+        h_check(rxs.gro_used == 2 && rxs.gro_total == 2 &&
+                flow_packets[0].nx_packet_next == NULL,
+                "a mismatch neither duplicates the flow nor flushes its neighbour");
+        ami_sana2_gro_flush(&rxs);
+        h_check(h_ip_packets_count == 3 && h_ip_packets[1] == &flow_packets[1] &&
+                h_ip_packets[2] == &flow_packets[2], "restarted run is the youngest");
+        gro_done();
+    }
+
+    gro_init();
+    flow_frame(0, 0, 1000, FALSE); flow_take(0);
+    flow_frame(1, 0, 1040, FALSE);
+    flow_buffers[1][AMI_SANA2_RX_PAD + AMI_ETH_HEADER_SIZE + 15]++;
+    flow_take(1);
+    h_check(rxs.gro_used == 2, "same ports on a different address are distinct flows");
+    ami_sana2_gro_flush(&rxs);
+    gro_done();
+}
+
+static void test_flow_control_and_stop(void)
+{
+    unsigned n, kind;
+
+    printf("sana2: control frames, failed verification and stop flush all flows\n");
+    for (kind = 0; kind < 6; kind++)
+    {
+        AmiRxSum sum = h_flagged(ANXD_S2_RXF_VERIFIED);
+        UCHAR *tcp;
+        gro_init();
+        for (n = 0; n < 4; n++)
+        {
+            flow_frame(n, n, 1000, FALSE);
+            flow_take(n);
+        }
+        flow_frame(4, 0, 1040, FALSE);
+        tcp = flow_buffers[4] + AMI_SANA2_RX_PAD + AMI_ETH_HEADER_SIZE + 20;
+        if (kind == 0) tcp[13] = 0x11;        /* FIN */
+        if (kind == 1) tcp[13] = 0x14;        /* RST */
+        if (kind == 2) tcp_frame_init(&flow_packets[4], flow_buffers[4], 6, 0);
+        if (kind == 3) tcp_frame_init(&flow_packets[4], flow_buffers[4], 17, 40);
+        if (kind == 4) tcp[12] = 0x60;        /* TCP options */
+        if (kind == 5) { sum.flags = 0; h_verify_drop = NX_TRUE; }
+        h_check(!ami_sana2_gro_take(&rxs, &flow_packets[4], &sum),
+                "control or unverified input stays on the ordinary path");
+        h_check(h_ip_packets_count == 4 && rxs.gro_total == 0 && rxs.gro_used == 0,
+                "all earlier data goes up before that input");
+        gro_done();
+    }
+
+    gro_init();
+    for (n = 0; n < 8; n++)
+    {
+        flow_frame(n, n % 4, 1000 + (n / 4) * 40, FALSE);
+        flow_take(n);
+    }
+    rds.stop = TRUE;
+    ami_sana2_gro_flush(&rxs);
+    ami_sana2_gro_flush(&rxs);
+    h_check(h_releases == 4 && h_ip_packets_count == 0 &&
+            rxs.gro_total == 0 && rxs.gro_used == 0,
+            "stop releases each held chain exactly once without delivering");
+    rds.stop = FALSE;
+    flow_frame(0, 0, 1000, FALSE); flow_take(0);
+    ami_sana2_gro_flush(&rxs);
+    h_check(h_ip_packets_count == 1, "an emptied table can be used again");
+    gro_done();
+}
+#endif
 
 #endif /* AMINETXDUO_GRO */
 #endif /* AMINETXDUO_RX_CHECKSUM_OFFLOAD || AMINETXDUO_GRO */
@@ -2274,6 +2464,11 @@ int main(void)
     test_stack_gro_ipv6();
     test_run_ends_on_a_frame_that_does_not_continue();
     test_run_is_capped();
+#ifdef AMINETXDUO_GRO_PER_FLOW
+    test_interleaved_flows();
+    test_flow_eviction_and_mismatch();
+    test_flow_control_and_stop();
+#endif
 #endif
 
     printf("%lu checks, %lu failures, %s\n", h_checks, h_failures,
