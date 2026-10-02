@@ -203,6 +203,9 @@ Add new entries under `Unreleased`; published release sections are history.
   Interface-name suggestions omit unconfigured slots.
 - Long diagnostic words are wrapped without dropping their tail.
 - Configuration loading and command scratch buffers use less Shell stack space.
+- Fresh `/shell` connections show the existing Shell prompt without requiring Return;
+  reconnecting the same page avoids duplicating it. Scripted `hwshell` sessions
+  restore the standard prompt instead of leaving a temporary `HWSH-` token.
 - `httpd` enforces case-insensitive WebDAV path locks, rejects invalid calendar
   dates and refuses property lists longer than eight entries.
 - Synthetic WebDAV roots do not inherit a previous request's file timestamp;

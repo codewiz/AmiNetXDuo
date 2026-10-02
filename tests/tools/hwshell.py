@@ -237,6 +237,20 @@ def main():
             sys.stdout.write("\n")
         print("shell_rc=%d" % shell_rc)
 
+    if rc != 5:
+        # Leave the reused Shell with a prompt a human would recognise, not
+        # this run's "HWSH-<uuid>" token, which is what the next session would
+        # otherwise see before it sets its own.  The Shell is provably idle
+        # here (rc != 5 means the prompt came back), so this is read at once.
+        # rc == 5 is no_prompt: the Shell's state after the break is unknown,
+        # so nothing more is typed into it, this restore included.  The frame
+        # is written before the close, so the Shell reads it before the socket
+        # EOF lands; wrapped because this is a teardown path and a dead socket
+        # must not turn a finished run into a traceback.
+        try:
+            send('Prompt "%N.%S> "\n')
+        except OSError:
+            pass
     try:
         ws.close()
     except OSError:
