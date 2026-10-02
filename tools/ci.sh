@@ -406,7 +406,9 @@ host_test_targets() { # builddir
 #      hosts).
 #      496-497 with thread_create_status: the ThreadX core returns the port's
 #      TX_THREAD_STACK_BUILD_STATUS, so a create with no Exec Task fails (N-001)
-HOST_TESTS_EXPECTED=497
+#      498-499 with arp_periodic_expiry and arp_periodic_deleted (N-007, all
+#      hosts).
+HOST_TESTS_EXPECTED=499
 case "$(uname -m)" in
     x86_64|amd64) ;;
     # test_inet, test_route, test_expunge, test_expunge_cork, test_select,
@@ -423,7 +425,7 @@ case "$(uname -m)" in
     # tests/bsdsocket/CMakeLists.txt:
     # elsewhere the host's LONG is eight bytes and no structure in them has
     # the target's shape.
-    # darwin-arm64 registers 467 of 495 on the current tree.
+    # darwin-arm64 registers 471 of 499 on the current tree.
     *) HOST_TESTS_EXPECTED=$((HOST_TESTS_EXPECTED - 28)) ;;
 esac
 
