@@ -38,7 +38,7 @@ TC_ASSET_VERSION="16.2.3"
 # UNPUBLISHED CANDIDATE 16.2.4 (newlib -Os, runtime archives without DWARF).
 # Not pinned until its assets are on tinic/gcc; then set the version above and
 #   linux-x86_64  3ef0bd868984a73097cd506cd5aacfb7d3e6ecb6b650e91ef0743dfe92676414
-#   darwin-arm64  (not built yet)
+#   darwin-arm64  b334323b1d6af64e8e61407fde8ec20a53f3bf36f8839347788d8df59887f744
 # and add tools/fix-toolchain-dwarf.py --check beside the allocator check.
 TC_PREFIX_IN_TAR="opt/m68k-amigaos"
 

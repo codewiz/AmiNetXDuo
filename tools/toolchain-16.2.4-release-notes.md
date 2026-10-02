@@ -9,6 +9,6 @@ This is a cross-toolchain update, not an AmiNetXDuo release. Compiler, binutils,
 | Asset | Size | SHA-256 |
 |---|---:|---|
 | `m68k-amigaos-gcc-16.2.4-ndk3.9-linux-x86_64.tar.xz` | 37,029,460 | `3ef0bd868984a73097cd506cd5aacfb7d3e6ecb6b650e91ef0743dfe92676414` |
-| `m68k-amigaos-gcc-16.2.4-ndk3.9-darwin-arm64.tar.xz` | not built | |
+| `m68k-amigaos-gcc-16.2.4-ndk3.9-darwin-arm64.tar.xz` | 31,870,540 | `b334323b1d6af64e8e61407fde8ec20a53f3bf36f8839347788d8df59887f744` |
 
 The package prefix is `opt/m68k-amigaos/`. No macOS x86-64 or Linux aarch64 asset is provided.
