@@ -3,7 +3,7 @@
 # Non-fast-forward: beta6 pinned 17507325 on the gcc16 line; beta7 pins the
 # maint/beta4 head.  Both descend from 97ea7faa (the beta4 gitlink).  The two
 # gcc16 commits are dropped and superseded on maint/beta4, as noted below.
-third_party/wifipi 175073257e8ca4b719dbcd3175c2b57836bc863f..c0782c248c96aa600aa1ac94043c6ee4acc9cfc0
+third_party/wifipi 175073257e8ca4b719dbcd3175c2b57836bc863f..65946807da750eb189310b51b88f41a9bc1a56f9
 -175073257e8ca4b719dbcd3175c2b57836bc863f reviewer=deepseek-v4 superseded by 93985bf: Do_NSCMD_DEVICEQUERY takes SysBase from io_Device (unit.c:1186)
 -96269bd372911c78800ded9e8443b8f7562e8ffe reviewer=deepseek-v4 superseded: its five open/close/BeginIO hunks are 53c6415 (#100); its NSCMD_DEVICEQUERY write through io_Data, which broke WirelessManager 1.3/1.5, is replaced by 93985bf
 +e799fbc76f51a81c7f276da8a27c36c1abd2f16a reviewer=codex-amiga #93 bounded control waits; no interface change
@@ -20,8 +20,18 @@ third_party/wifipi 175073257e8ca4b719dbcd3175c2b57836bc863f..c0782c248c96aa600aa
 +2dcc2969c49ed5ae5a9962660442e7b126513b5a reviewer=codex-amiga merge of 7601c8f and 147fe67; no source change
 +93985bf25294b29584c2276cfaae77f9a24274d3 reviewer=codex-amiga NSCMD_DEVICEQUERY answers WirelessManager 1.3 and 1.5 without a blind write
 +c0782c248c96aa600aa1ac94043c6ee4acc9cfc0 reviewer=codex-amiga #95 a full open fails with IOERR_OPENFAIL, nothing changed, when the unit cannot start
++e88de3baaafe89fb95f1e53c1e2b2e280f84bede reviewer=codex-amiga stack-ABI task entries match arguments pushed before AddTask; task names and startup protocol unchanged; exact diff and entry construction rechecked for release
++3c56ee90c8f593cd07f630193e1a3f73441b56b1 reviewer=codex-amiga receive callback pointer types use the library's stack ABI across separately built binaries; negotiation record layout unchanged; exact diff rechecked for release
++65946807da750eb189310b51b88f41a9bc1a56f9 reviewer=codex-amiga use canonical AmiNetXDuo extension header and accept compatible v2..v3 prefix; unknown versions still rejected, no batch implementation advertised; exact diff/header rechecked, WM1.3/1.5 traffic and direct fills verified on hardware
 
-# Fast-forward by one commit: NetX #4, merged as 02a6f37e (tree identical to
-# the reviewed PR head 663e926e).  Pinned by AmiNetXDuo #109 (06613ea5).
-third_party/netxduo c4d40bdf964ed12be4d3b6907dbf9314aa20818e..02a6f37e3d52ab957aea4ccda2bb5fbcf875203d
+# Fast-forward by six commits. NetX #4 was merged as 02a6f37e (tree identical
+# to reviewed PR head 663e926e); later additive APIs and ABI fixes follow.
+# Source-level compatibility review is recorded here, not a claim that every
+# feature has physical coverage; exact check limitations are in the audit ledger.
+third_party/netxduo c4d40bdf964ed12be4d3b6907dbf9314aa20818e..d76529886d75f14910605623189228a6e763b09b
 +02a6f37e3d52ab957aea4ccda2bb5fbcf875203d reviewer=zz9k-fpga #109 at 8d76cf1e: per-interface ACK ceiling; 0 or no interface keeps NX_TCP_ACK_THRESHOLD_MAX; no API removed
++e6d11203976dcfe256c25325237cef9a25387d61 reviewer=codex-amiga F-030 additive per-interface lease setter replaces existing option51 in DISCOVER/initial REQUEST; zero retains infinite default, record reset/reinitialize semantics reviewed; focused wire regression33/0
++f930d119b2960bf7c5641acbb6fa6317901c14b1 reviewer=codex-amiga F-305 configured ALPN mismatch maps to fatal no_application_protocol120; unconfigured server behavior unchanged; exact parser/alert diff rechecked and focused host selector81/81
++86c9552f6562278df279ccb0b8bc81c22edf813f reviewer=codex-amiga F-109 additive interface-aware RA callback uses receiving interface; legacy setter/callback unchanged; internal NX_IP layout rebuilt consistently, exact diff rechecked and prior two-link host processor115/115
++30b9cecb72fd01731c5f286d5a4c2c938390bd1c reviewer=codex-amiga four crypto68k limb declarations now match stack-reading assembly; C c68k_mod stays internal register ABI; exact declarations and assembly boundary rechecked, focused RSA/ECDSA/PSS HTTPS passed
++d76529886d75f14910605623189228a6e763b09b reviewer=codex-amiga libc memcpy/memset pointer types match stack ABI; non-Amiga compiler fallback unchanged; exact diff and active wrapper override rechecked, vendor pointers remain latent in current product

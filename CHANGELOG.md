@@ -5,6 +5,8 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ## Unreleased
 
+## 1.0.0-beta7
+
 ### Installation and compatibility
 
 - Smaller libraries and commands use register arguments internally; public
@@ -20,6 +22,10 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ### Network configuration and interfaces
 
+- `TCPGROWRTT=<ms>` sets the handshake round-trip threshold for growing an
+  interface's TCP receive window, from 1 to 65,535 ms; the default is 10 ms.
+- `TCPACKMAX` sets an interface's TCP ACK-batching ceiling. WiFiPi defaults to
+  11,680 bytes; other devices retain the 50,176-byte port default.
 - DHCPv6 AUTO ignores router-advertisement flags from other interfaces and
   retries after a transient client start or request failure.
 - Address-allocation requests send the requested DHCP lease time.
@@ -116,6 +122,11 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ### Drivers and statistics
 
+- `anxwifipi.device` supports WirelessManager 1.3 and 1.5, bounds unanswered
+  control requests to 2.5 s, returns queued reads on offline or flush, and
+  fails an open when the Wi-Fi chip cannot start.
+- Removing or disabling an interface whose device never answers `S2_OFFLINE`
+  returns after 3 s.
 - `anxwifipi.device` uses the library's single-copy receive path.
 - ZZ9000 receive checksum copies fold carry from the final bytes correctly.
 - DP8390 promiscuous receive drops CRC, alignment and FIFO-overrun frames.
@@ -223,26 +234,6 @@ Add new entries under `Unreleased`; published release sections are history.
   terminal statistics retain all ten digits of 32-bit counters.
 - Optional crash diagnostics handle out-of-order hook removal, defer DOS/log
   work out of alert context and restore the previous trap before reporting.
-
-## 1.0.0-beta7
-
-- `TCPGROWRTT=<ms>` in an interface file sets the handshake round trip
-  (1 to 65,535 ms) at or above which a TCP receive window on that interface
-  grows to its maximum. Unset, every device keeps 10 ms. The key adds 100
-  bytes, bringing the resident `bsdsocket.library` image to 365,408 bytes;
-  its budget is 366,000 bytes.
-- TCP ACK batching can be set per interface with `TCPACKMAX`. WiFiPi defaults
-  to an 11,680-byte ceiling when the setting is absent; other devices retain
-  the 50,176-byte port default. This changes ACK cadence, not the unresolved
-  cause of missing outbound frames (#89). The per-interface policy brings the
-  resident `bsdsocket.library` image to 365,308 bytes; its budget is
-  366,000 bytes.
-- `anxwifipi.device`: WirelessManager 1.3 and 1.5 connect.
-- `anxwifipi.device`: inbound Wi-Fi 58.5 -> 62.9 Mbit/s on the CM4.
-- `anxwifipi.device`: an unanswered control request returns after 2.5 s.
-- `anxwifipi.device`: offline and flush return queued reads.
-- `anxwifipi.device`: an open fails when the Wi-Fi chip cannot start.
-- Removing or disabling an interface whose device never answers `S2_OFFLINE` returns after 3 s.
 
 ## 1.0.0-beta6
 
