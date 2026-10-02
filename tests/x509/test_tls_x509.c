@@ -13,6 +13,7 @@
 #include "nx_crypto_sha2.h"
 #include "nx_crypto_sha5.h"
 #include "nx_crypto_ecdsa.h"
+#include "nx_crypto_aes.h"
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-variable"
@@ -24,9 +25,9 @@
 #include "x509_ext_vectors.h"
 #include "x509_pss_vectors.h"
 
-/* The vendored code takes this around anything that can suspend. Nothing
-   suspends here, so the object only has to exist. */
-TX_MUTEX _nx_secure_tls_protection;
+/* _nx_secure_tls_protection is defined by nx_secure_tls_initialize.c, which
+   the key-schedule case pulls in through _nx_secure_tls_session_create; a
+   second definition here is a duplicate symbol on GNU ld (N106). */
 
 extern NX_SECURE_X509_CRYPTO _nx_crypto_x509_cipher_lookup_table[];
 extern const UINT            _nx_crypto_x509_cipher_lookup_table_size;
@@ -36,6 +37,7 @@ extern NX_CRYPTO_METHOD      crypto_method_rsa;
 extern NX_CRYPTO_METHOD      crypto_method_sha256;
 extern NX_CRYPTO_METHOD      crypto_method_sha384;
 extern NX_CRYPTO_METHOD      crypto_method_sha512;
+extern const NX_SECURE_TLS_CRYPTO nx_crypto_tls_ciphers_ecc;
 
 static int failures = 0;
 
@@ -1000,6 +1002,211 @@ static void test_tls_key_usage(void)
           "a client certificate refuses encryption-only key");
 }
 
+/* FIPS-197 appendix C.1, AES-128.  Its key schedule feeds S-box outputs of
+   0x80 and above into the top byte of a 32-bit word (SubWord, and the final
+   round's byte packing), which the vendored code once shifted as a promoted
+   signed int: undefined behaviour that -fsanitize=undefined stops on. */
+static const UCHAR fips197_c1_key[16] = {
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+    0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f};
+static const UCHAR fips197_c1_plain[16] = {
+    0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+    0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+static const UCHAR fips197_c1_cipher[16] = {
+    0x69, 0xc4, 0xe0, 0xd8, 0x6a, 0x7b, 0x04, 0x30,
+    0xd8, 0xcd, 0xb7, 0x80, 0x70, 0xb4, 0xc5, 0x5a};
+
+static NX_CRYPTO_AES aes_ctx;
+
+static void test_aes128_block(void)
+{
+    UCHAR key[16];
+    UCHAR in[16];
+    UCHAR out[16];
+    UCHAR back[16];
+
+    printf("aes-128 (FIPS-197 C.1)\n");
+
+    memcpy(key, fips197_c1_key, sizeof(key));
+    memcpy(in, fips197_c1_plain, sizeof(in));
+    memset(&aes_ctx, 0, sizeof(aes_ctx));
+
+    check(_nx_crypto_aes_key_set(&aes_ctx, key, NX_CRYPTO_AES_KEY_SIZE_128_BITS) == NX_CRYPTO_SUCCESS,
+          "key expansion");
+    check(_nx_crypto_aes_encrypt(&aes_ctx, in, out, sizeof(out)) == NX_CRYPTO_SUCCESS
+          && memcmp(out, fips197_c1_cipher, sizeof(out)) == 0,
+          "encrypt one block");
+    check(_nx_crypto_aes_decrypt(&aes_ctx, out, back, sizeof(back)) == NX_CRYPTO_SUCCESS
+          && memcmp(back, fips197_c1_plain, sizeof(back)) == 0,
+          "decrypt one block");
+}
+
+/* RFC 8448 section 3, "Simple 1-RTT Handshake", TLS_AES_128_GCM_SHA256: the
+   ECDHE shared secret, the ClientHello..ServerHello transcript hash, and what
+   RFC 8446 7.1/7.3 derive from them.  The Finished keys are HKDF-Expand-Label
+   output of Hash.length = 32 bytes into 32-byte members of
+   NX_SECURE_TLS_KEY_SECRETS; the expand-label helper used to expand to the
+   remaining key-block capacity (104 bytes) instead, running 68 bytes past the
+   end of the secrets into nx_secure_tls_transcript_hashes (N106). */
+static const UCHAR rfc8448_ecdhe[32] = {
+    0x8b, 0xd4, 0x05, 0x4f, 0xb5, 0x5b, 0x9d, 0x63, 0xfd, 0xfb, 0xac, 0xf9,
+    0xf0, 0x4b, 0x9f, 0x0d, 0x35, 0xe6, 0xd6, 0x3f, 0x53, 0x75, 0x63, 0xef,
+    0xd4, 0x62, 0x72, 0x90, 0x0f, 0x89, 0x49, 0x2d};
+static const UCHAR rfc8448_hello_hash[32] = {
+    0x86, 0x0c, 0x06, 0xed, 0xc0, 0x78, 0x58, 0xee, 0x8e, 0x78, 0xf0, 0xe7,
+    0x42, 0x8c, 0x58, 0xed, 0xd6, 0xb4, 0x3f, 0x2c, 0xa3, 0xe6, 0xe9, 0x5f,
+    0x02, 0xed, 0x06, 0x3c, 0xf0, 0xe1, 0xca, 0xd8};
+static const UCHAR rfc8448_c_hs_traffic[32] = {
+    0xb3, 0xed, 0xdb, 0x12, 0x6e, 0x06, 0x7f, 0x35, 0xa7, 0x80, 0xb3, 0xab,
+    0xf4, 0x5e, 0x2d, 0x8f, 0x3b, 0x1a, 0x95, 0x07, 0x38, 0xf5, 0x2e, 0x96,
+    0x00, 0x74, 0x6a, 0x0e, 0x27, 0xa5, 0x5a, 0x21};
+static const UCHAR rfc8448_s_hs_traffic[32] = {
+    0xb6, 0x7b, 0x7d, 0x69, 0x0c, 0xc1, 0x6c, 0x4e, 0x75, 0xe5, 0x42, 0x13,
+    0xcb, 0x2d, 0x37, 0xb4, 0xe9, 0xc9, 0x12, 0xbc, 0xde, 0xd9, 0x10, 0x5d,
+    0x42, 0xbe, 0xfd, 0x59, 0xd3, 0x91, 0xad, 0x38};
+static const UCHAR rfc8448_c_key[16] = {
+    0xdb, 0xfa, 0xa6, 0x93, 0xd1, 0x76, 0x2c, 0x5b, 0x66, 0x6a, 0xf5, 0xd9,
+    0x50, 0x25, 0x8d, 0x01};
+static const UCHAR rfc8448_c_iv[12] = {
+    0x5b, 0xd3, 0xc7, 0x1b, 0x83, 0x6e, 0x0b, 0x76, 0xbb, 0x73, 0x26, 0x5f};
+static const UCHAR rfc8448_s_key[16] = {
+    0x3f, 0xce, 0x51, 0x60, 0x09, 0xc2, 0x17, 0x27, 0xd0, 0xf2, 0xe4, 0xe8,
+    0x6e, 0xe4, 0x03, 0xbc};
+static const UCHAR rfc8448_s_iv[12] = {
+    0x5d, 0x31, 0x3e, 0xb2, 0x67, 0x12, 0x76, 0xee, 0x13, 0x00, 0x0b, 0x30};
+static const UCHAR rfc8448_c_finished_key[32] = {
+    0xb8, 0x0a, 0xd0, 0x10, 0x15, 0xfb, 0x2f, 0x0b, 0xd6, 0x5f, 0xf7, 0xd4,
+    0xda, 0x5d, 0x6b, 0xf8, 0x3f, 0x84, 0x82, 0x1d, 0x1f, 0x87, 0xfd, 0xc7,
+    0xd3, 0xc7, 0x5b, 0x5a, 0x7b, 0x42, 0xd9, 0xc4};
+static const UCHAR rfc8448_s_finished_key[32] = {
+    0x00, 0x8d, 0x3b, 0x66, 0xf8, 0x16, 0xea, 0x55, 0x9f, 0x96, 0xb5, 0x37,
+    0xe8, 0x85, 0xc3, 0x1f, 0xc0, 0x68, 0xbf, 0x49, 0x2c, 0x65, 0x2f, 0x01,
+    0xf2, 0x88, 0xa1, 0xd8, 0xcd, 0xc1, 0x9f, 0xc8};
+
+#define TLS13_GUARD 0xA5
+
+/* _nx_secure_tls_session_create_ext installs _nx_secure_verify_mac, which
+   reads records out of an NX_PACKET.  No record is processed here. */
+UINT _nx_packet_data_extract_offset(NX_PACKET *packet_ptr, ULONG offset, VOID *buffer_start,
+                                    ULONG buffer_length, ULONG *bytes_copied)
+{
+    (void)packet_ptr;
+    (void)offset;
+    (void)buffer_start;
+    (void)buffer_length;
+    *bytes_copied = 0;
+    return(NX_NOT_SUCCESSFUL);
+}
+
+static NX_SECURE_TLS_SESSION tls13_session;
+static UCHAR                 tls13_metadata[32768];
+
+static int all_guard(const UCHAR *p, unsigned n)
+{
+    unsigned i;
+
+    for (i = 0; i < n; i++)
+    {
+        if (p[i] != TLS13_GUARD)
+        {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static void test_tls13_key_schedule(void)
+{
+    NX_SECURE_TLS_KEY_MATERIAL *km = &tls13_session.nx_secure_tls_key_material;
+    NX_SECURE_TLS_KEY_SECRETS  *ks = &km->nx_secure_tls_key_secrets;
+    NX_SECURE_TLS_CRYPTO       *table;
+    ULONG                       metadata_size = 0;
+    UINT                        status;
+    USHORT                      i;
+    int                         found = 0;
+
+    printf("tls 1.3 key schedule (RFC 8448 3)\n");
+
+    status = _nx_secure_tls_metadata_size_calculate(&nx_crypto_tls_ciphers_ecc, &metadata_size);
+    check(status == NX_SUCCESS && metadata_size <= sizeof(tls13_metadata),
+          "metadata fits");
+    if (status != NX_SUCCESS || metadata_size > sizeof(tls13_metadata))
+    {
+        return;
+    }
+
+    status = _nx_secure_tls_session_create(&tls13_session, &nx_crypto_tls_ciphers_ecc,
+                                           tls13_metadata, sizeof(tls13_metadata));
+    check(status == NX_SUCCESS, "session create");
+    if (status != NX_SUCCESS)
+    {
+        return;
+    }
+
+    table = tls13_session.nx_secure_tls_crypto_table;
+    for (i = 0; i < table->nx_secure_tls_ciphersuite_lookup_table_size; i++)
+    {
+        if (table->nx_secure_tls_ciphersuite_lookup_table[i].nx_secure_tls_ciphersuite == TLS_AES_128_GCM_SHA256)
+        {
+            tls13_session.nx_secure_tls_session_ciphersuite = &table->nx_secure_tls_ciphersuite_lookup_table[i];
+            found = 1;
+            break;
+        }
+    }
+    check(found, "TLS_AES_128_GCM_SHA256 in table");
+    if (!found)
+    {
+        return;
+    }
+
+    tls13_session.nx_secure_tls_1_3 = 1;
+    memcpy(km->nx_secure_tls_pre_master_secret, rfc8448_ecdhe, sizeof(rfc8448_ecdhe));
+    km->nx_secure_tls_pre_master_secret_size = sizeof(rfc8448_ecdhe);
+
+    /* Guards: everything after the client Finished key up to the end of the
+       transcript hashes, except the ServerHello hash, which is an input. */
+    memset(km->nx_secure_tls_transcript_hashes, TLS13_GUARD, sizeof(km->nx_secure_tls_transcript_hashes));
+    memcpy(km->nx_secure_tls_transcript_hashes[NX_SECURE_TLS_TRANSCRIPT_IDX_SERVERHELLO],
+           rfc8448_hello_hash, sizeof(rfc8448_hello_hash));
+    memset(ks->tls_server_finished_key, TLS13_GUARD, sizeof(ks->tls_server_finished_key));
+    memset(ks->tls_client_finished_key, TLS13_GUARD, sizeof(ks->tls_client_finished_key));
+
+    status = _nx_secure_tls_1_3_generate_handshake_keys(&tls13_session);
+    check(status == NX_SUCCESS, "generate handshake keys");
+
+    check(memcmp(ks->tls_client_handshake_traffic_secret, rfc8448_c_hs_traffic, 32) == 0,
+          "client_handshake_traffic_secret");
+    check(memcmp(ks->tls_server_handshake_traffic_secret, rfc8448_s_hs_traffic, 32) == 0,
+          "server_handshake_traffic_secret");
+    check(km->nx_secure_tls_client_write_key != NX_NULL
+          && memcmp(km->nx_secure_tls_client_write_key, rfc8448_c_key, 16) == 0,
+          "client handshake write key");
+    check(km->nx_secure_tls_client_iv != NX_NULL
+          && memcmp(km->nx_secure_tls_client_iv, rfc8448_c_iv, 12) == 0,
+          "client handshake write iv");
+    check(km->nx_secure_tls_server_write_key != NX_NULL
+          && memcmp(km->nx_secure_tls_server_write_key, rfc8448_s_key, 16) == 0,
+          "server handshake write key");
+    check(km->nx_secure_tls_server_iv != NX_NULL
+          && memcmp(km->nx_secure_tls_server_iv, rfc8448_s_iv, 12) == 0,
+          "server handshake write iv");
+    check(ks->tls_server_finished_key_len == 32
+          && memcmp(ks->tls_server_finished_key, rfc8448_s_finished_key, 32) == 0,
+          "server finished_key");
+    check(ks->tls_client_finished_key_len == 32
+          && memcmp(ks->tls_client_finished_key, rfc8448_c_finished_key, 32) == 0,
+          "client finished_key");
+
+    check(all_guard(km->nx_secure_tls_transcript_hashes[NX_SECURE_TLS_TRANSCRIPT_IDX_CLIENTHELLO], 32),
+          "guard: ClientHello transcript hash intact");
+    check(memcmp(km->nx_secure_tls_transcript_hashes[NX_SECURE_TLS_TRANSCRIPT_IDX_SERVERHELLO],
+                 rfc8448_hello_hash, 32) == 0,
+          "guard: ServerHello transcript hash intact");
+    check(all_guard(km->nx_secure_tls_transcript_hashes[NX_SECURE_TLS_TRANSCRIPT_IDX_CERTIFICATE],
+                    (NX_SECURE_TLS_1_3_MAX_TRANSCRIPT_HASHES - NX_SECURE_TLS_TRANSCRIPT_IDX_CERTIFICATE) * 32u),
+          "guard: later transcript hashes intact");
+}
+
 int main(void)
 {
     _nx_crypto_initialize();
@@ -1013,6 +1220,8 @@ int main(void)
     test_pss();
     test_pss_schemes();
     test_tls_key_usage();
+    test_aes128_block();
+    test_tls13_key_schedule();
 
     if (failures != 0)
     {
