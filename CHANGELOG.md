@@ -5,6 +5,12 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ## Unreleased
 
+- NetStatus opener counts remain safe while another task resizes or closes
+  its socket table.
+- Refusing an incoming connection or exhausting descriptors no longer lets
+  listener refilling race the connection's return to the listening port.
+- A pending `accept()` keeps its listener alive if another task closes the
+  descriptor, avoiding use of a reclaimed socket when the wait finishes.
 - DHCP clients retain conflicts reported while declining another address and
   reject truncated options without reading past the reply.
 - Raw socket endpoint changes preserve newly arriving packets while discarding
