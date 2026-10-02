@@ -32,6 +32,7 @@ static void h_check(int ok, const char *what)
 #define H_NETMASK       IP_ADDRESS(255, 255, 255, 0)
 #define H_DIRECTED      IP_ADDRESS(10, 0, 0, 255)
 #define H_OTHER_HOST    IP_ADDRESS(10, 0, 0, 42)
+#define H_MULTICAST     IP_ADDRESS(224, 0, 0, 251)
 
 #define H_SERVER_PORT   17710               /* FITZ_PMS_PORT */
 #define H_PAYLOAD       "LIST\n"
@@ -337,6 +338,15 @@ int main(void)
     printf("  10.0.0.17        ->  %u delivered locally, %u on the wire\n",
            delivered, h_wire_sends);
     h_check(delivered == 1, "a unicast to ourselves still loops back");
+
+    /* Model an already joined multicast group with local delivery enabled;
+       membership negotiation itself is outside this send-path fixture. */
+    h_ip.nx_ipv4_multicast_entry[0].nx_ipv4_multicast_join_list = H_MULTICAST;
+    h_ip.nx_ipv4_multicast_entry[0].nx_ipv4_multicast_join_interface_list =
+        &h_ip.nx_ip_interface[0];
+    h_ip.nx_ipv4_multicast_entry[0].nx_ipv4_multicast_loopback_enable = NX_TRUE;
+    delivered = h_send_and_drain(H_MULTICAST, "224.0.0.251", 1);
+    h_check(delivered == 1, "a joined multicast reaches our own socket");
 
     h_wire_sends = 0;
     h_wire_broadcasts = 0;
