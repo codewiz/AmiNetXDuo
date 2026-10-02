@@ -410,7 +410,8 @@ host_test_targets() { # builddir
 #      hosts).
 #      500 with icmpv6_validate_tail (N-010): the ICMPv6 ND option-tail
 #      validator contract test.
-HOST_TESTS_EXPECTED=500
+#      501 with tcp_reuse_ring (N-028): reuse must preserve the bound bucket.
+HOST_TESTS_EXPECTED=501
 case "$(uname -m)" in
     x86_64|amd64) ;;
     # test_inet, test_route, test_expunge, test_expunge_cork, test_select,
@@ -427,7 +428,7 @@ case "$(uname -m)" in
     # tests/bsdsocket/CMakeLists.txt:
     # elsewhere the host's LONG is eight bytes and no structure in them has
     # the target's shape.
-    # darwin-arm64 registers 471 of 499 on the current tree.
+    # darwin-arm64 registers 473 of 501 on the current tree.
     *) HOST_TESTS_EXPECTED=$((HOST_TESTS_EXPECTED - 28)) ;;
 esac
 
