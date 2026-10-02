@@ -11,14 +11,13 @@ Add new entries under `Unreleased`; published release sections are history.
 
 - Smaller libraries and commands use register arguments internally; public
   library vectors and external calling conventions remain compatible.
+- Bundled commands use the GCC 16.2.3 runtime with corrected heap initialization.
 - Older `anxnet.device`, `anxgenet.device` and `anxwifipi.device` drivers work
   with the new `bsdsocket.library`, without stalled traffic or stray writes.
 - Drawer installs use `DEVICE=AmiNetXDuo:Devs/Networks/<driver>`. Moving the
   assign moves the supplied drivers with the library.
 - Drawer reinstalls update kept absolute paths to the supplied drivers.
   Third-party drivers, other settings, comments and protection bits are kept.
-- `WaitSelect` now returns `EINVAL` when called by a task other than the
-  library-base opener, including polling and untimed waits.
 
 ### Network configuration and interfaces
 
@@ -83,6 +82,8 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ### Sockets, packet capture and shutdown
 
+- `WaitSelect` returns `EINVAL` when called by a task other than the
+  library-base opener, including polling and untimed waits.
 - Nested stack calls require the task that owns the library base's bracket.
 - Library expunge unlinks the library before teardown can wait, preventing a
   racing open from acquiring a base about to be freed.
@@ -123,11 +124,15 @@ Add new entries under `Unreleased`; published release sections are history.
 ### Drivers and statistics
 
 - `anxwifipi.device` supports WirelessManager 1.3 and 1.5, bounds unanswered
-  control requests to 2.5 s, returns queued reads on offline or flush, and
+  control-reply waits to 2.5 s, returns queued reads on offline or flush, and
   fails an open when the Wi-Fi chip cannot start.
-- Removing or disabling an interface whose device never answers `S2_OFFLINE`
-  returns after 3 s.
+- `S2_OFFLINE` reply waits are limited to 2 s, plus 1 s for abort completion.
+  An outstanding request stays owned until returned; the device cannot be
+  brought online again while it still holds that request.
+- WiFiPi targets 128 pending IPv4 receive requests unless `IPREQUESTS` is set;
+  the available packet pool can reduce the queue depth.
 - `anxwifipi.device` uses the library's single-copy receive path.
+- Deferred TCP transmit checksums exclude Ethernet padding.
 - ZZ9000 receive checksum copies fold carry from the final bytes correctly.
 - DP8390 promiscuous receive drops CRC, alignment and FIFO-overrun frames.
 - AX88796B flow-control configuration survives the post-attach reset.
@@ -203,6 +208,7 @@ Add new entries under `Unreleased`; published release sections are history.
 - `iperf` handles the minimum signed datagram ID, reports nonzero-byte
   sub-millisecond transfers with a 1-ms rate floor and requires room for
   a UDP receive report.
+- `paysum` with a receive `LEN` reports a short transfer as a failure.
 - Scripted `telnet` drains socket output between input chunks and preserves a
   carriage return before an escaped IAC byte.
 - `sntp` encodes NTP transmit fractions correctly and watches reply sockets
