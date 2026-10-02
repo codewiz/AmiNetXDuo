@@ -7,19 +7,25 @@ against the known-good newlib build, in both libc.a and libg.a. A future
 source, compiler, or flag change must deliberately update this map and its
 runtime Enforcer proof; unknown bytes fail closed.
 
-Series whose MemMap::alloc calls __sys_alloc out of line (16.2.4) are also
-proven structurally: both fresh allocations, the big node (malloc.cpp:578)
-and the small page (malloc.cpp:593), must store zero to Node::prev before the
-next call or return. --object FILE checks one malloc.o that way.
+Every series is ALSO proven structurally, from the disassembly of
+MemMap::alloc: both fresh allocations, the big node (malloc.cpp:578) and the
+small page (malloc.cpp:593), must store zero to Node::prev. --object FILE
+checks one malloc.o that way and prints which basis each path used.
 
-THE BASIS. AllocMem returns the raw block; __sys_alloc stores the size in its
-first longword and returns raw+4, the Node. Node is {next, prev, leaf, size},
-so prev is 4(node) = 8(raw); 4(raw) is next. The proof first requires
-__sys_alloc's body to be exactly that (AllocMem, `movea.l d0,aX`,
-`move.l dY,(aX)+`, `move.l aX,d0`), so the register a caller keeps from d0 is
-the node and the store it needs is 4(node). A shape that inlines AllocMem
-into alloc (16.2.3, -O2) holds the raw block instead and is not proven here;
-that series stays hash-only.
+THE TWO BASES. Node is {next, prev, leaf, size}. AllocMem returns the raw
+block; __sys_alloc stores the size in the raw block's first longword and
+returns raw+4, the Node. So prev is 8(raw) = 4(node), and 4(raw) is NEXT.
+  inline   -O2 (16.2.1-16.2.3) inlines AllocMem into alloc in the non-baserel
+           multilibs and never calls __sys_alloc there. Site: `jsr -198(a6)` then `movea.l d0,aX`; aX is
+           raw, the size store to 0(raw) is required, and prev is 8(aX).
+  call     -Os (16.2.4), and -O2 baserel (libb, libb32), call __sys_alloc out
+           of line. Its fall-through path must return AllocMem's result + 4
+           (sys_alloc_returns_node traces d0); the caller's `movea.l d0,aX`
+           is then the node and prev is 4(aX).
+The store must follow the site before any call or return, with aX not
+rewritten and no branch jumping over it except the AllocMem-failed exit.
+Zero means `clr.l`, or a stack slot proven to hold find()'s null (see
+_spilled_null). Exactly two sites; anything else is unproven and fails.
 """
 
 import hashlib
@@ -29,8 +35,8 @@ import subprocess
 import sys
 import tempfile
 
-# Series proven structurally as well as by hash.
-STRUCTURAL_SERIES = ("16.2.4",)
+# Series proven structurally as well as by hash: all of them.
+STRUCTURAL_SERIES = ("16.2.3", "16.2.4")
 
 
 # Paths are relative to <prefix>/m68k-amigaos/lib. The paired libc/libg
@@ -70,108 +76,219 @@ EXPECTED_MALLOC_SHA256 = {
 }
 
 
-def _alloc_body(objdump, obj):
+_FUNC = re.compile(r"^[0-9a-f]+ [0-9a-f]+ (\S+):$")
+_INS = re.compile(r"^\s*([0-9a-f]+):\t[0-9a-f ]+\t(.*)$")
+
+
+def _function(objdump, obj, name):
+    """[(address, instruction)] of one function in obj."""
     out = subprocess.run([objdump, "-d", str(obj)], check=True,
                          capture_output=True, text=True).stdout
     body, inside = [], False
     for line in out.splitlines():
-        if re.match(r"^[0-9a-f]+ [0-9a-f]+ __ZN6MemMap5allocEj:$", line):
-            inside = True
+        f = _FUNC.match(line)
+        if f:
+            inside = f.group(1) == name
             continue
-        if inside and re.match(r"^[0-9a-f]+ [0-9a-f]+ \S+:$", line):
-            break
-        if inside and "\t" in line:
-            body.append(line.split("\t")[-1].strip())
+        m = _INS.match(line)
+        if inside and m:
+            body.append((int(m.group(1), 16), m.group(2).strip()))
     return body
-
-
-def sys_alloc_returns_node(objdump, obj):
-    """True if __sys_alloc returns AllocMem's block + 4 (size word skipped)."""
-    out = subprocess.run([objdump, "-d", str(obj)], check=True,
-                         capture_output=True, text=True).stdout
-    body, inside = [], False
-    for line in out.splitlines():
-        if re.match(r"^[0-9a-f]+ [0-9a-f]+ __Z11__sys_allocj:$", line):
-            inside = True
-            continue
-        if inside and re.match(r"^[0-9a-f]+ [0-9a-f]+ \S+:$", line):
-            break
-        if inside and "\t" in line:
-            body.append(line.split("\t")[-1].strip())
-    if "jsr -198(a6)" not in body:
-        return False
-    tail = body[body.index("jsr -198(a6)") + 1:]
-    for k in range(len(tail) - 2):
-        m = re.fullmatch(r"movea\.l d0,(a\d)", tail[k])
-        if (m and re.fullmatch(r"move\.l d\d,\(%s\)\+" % m.group(1), tail[k + 1])
-                and tail[k + 2] == f"move.l {m.group(1)},d0"):
-            return True
-    return False
 
 
 def _is_call(ins):
     return ins.startswith(("jsr", "bsr", "jbsr"))
 
 
-def prev_stores(objdump, obj):
-    """One verdict per __sys_alloc call in MemMap::alloc: proven or why not.
-
-    The call returns the node (see THE BASIS), so prev is 4(node)."""
-    body = _alloc_body(objdump, obj)
-    verdicts = []
-    for i, ins in enumerate(body):
-        direct = _is_call(ins) and "__sys_allocj" in ins
-        via = (_is_call(ins) and re.fullmatch(r"jsr \((a\d)\)", ins)
-               and any("__sys_allocj" in b and b.endswith("," + ins[5:7])
-                       for b in body[max(0, i - 3):i]))
-        if not (direct or via):
-            continue
-        m = re.fullmatch(r"movea\.l d0,(a\d)", body[i + 1] if i + 1 < len(body) else "")
-        if not m:
-            verdicts.append("result not kept in an address register")
-            continue
-        reg = m.group(1)
-        found = None
-        for ins2 in body[i + 2:]:
-            if _is_call(ins2) or ins2 == "rts":
-                break
-            if ins2.endswith("," + reg) and not ins2.startswith(("cmp", "tst")):
-                break                                   # result register overwritten
-            if ins2 == f"clr.l 4({reg})":
-                found = "clr"
-                break
-            st = re.fullmatch(r"move\.l (\d+)\(sp\),4\(" + reg + r"\)", ins2)
-            if st and _spilled_null(body[:i], st.group(1)):
-                found = "spilled null"
-                break
-        verdicts.append(found or "no zero store to 4(%s)" % reg)
-    return verdicts
+def _calls(body, i, name):
+    """body[i] calls name, directly or through `lea name(pc),aN; jsr (aN)`."""
+    ins = body[i][1]
+    if not _is_call(ins):
+        return False
+    if name in ins:
+        return True
+    m = re.fullmatch(r"jsr \((a\d)\)", ins)
+    return bool(m) and any(name in b and b.endswith("," + m.group(1))
+                           for _, b in body[max(0, i - 3):i])
 
 
-def _spilled_null(before, slot):
-    """True if slot holds a register proven zero by `movea.l d0,aY; tst.l d0; b{ne}`."""
-    for k in range(len(before) - 1, -1, -1):
-        m = re.fullmatch(r"move\.l (a\d),%s\(sp\)" % slot, before[k])
+def _branch_target(ins):
+    m = re.match(r"(b(?!sr)[a-z]+|db[a-z]+ d\d,|jmp)\.?[a-z]?\s+([0-9a-f]+)\s", ins + " ")
+    if not m or ins.startswith(("btst", "bchg", "bclr", "bset")):
+        return None
+    return int(m.group(2), 16)
+
+
+def _writes(ins, reg):
+    """Instruction changes reg (destination, or post-inc/pre-dec addressing)."""
+    if ins.startswith(("cmp", "tst")):
+        return False
+    return ins.endswith("," + reg) or f"({reg})+" in ins or f"-({reg})" in ins
+
+
+def _moves_sp(ins):
+    return (_writes(ins, "sp") or "(sp)+" in ins or "-(sp)" in ins) and not _is_call(ins)
+
+
+def sys_alloc_returns_node(objdump, obj):
+    """True if __sys_alloc's success path returns AllocMem's block + 4.
+
+    Tracks d0 and the address registers as offsets from the AllocMem result
+    along the fall-through path (the beq after it is the null return).
+    Seen: `movea.l d0,a0; move.l X,(a0)+; move.l a0,d0` and
+    `movea.l d0,a0; addq.l #4,d0; move.l X,(a0)`.
+    """
+    body = [i for _, i in _function(objdump, obj, "__Z11__sys_allocj")]
+    if body.count("jsr -198(a6)") != 1:
+        return False
+    regs = {"d0": 0}
+    for ins in body[body.index("jsr -198(a6)") + 1:]:
+        if ins == "rts":
+            return regs.get("d0") == 4
+        m = re.fullmatch(r"move(?:a)?\.l (d0|a\d),(d0|a\d)", ins)
         if m:
-            reg = m.group(1)
-            for j in range(k - 1, 1, -1):
-                if before[j].endswith("," + reg) or _is_call(before[j]):
-                    return (before[j] == f"movea.l d0,{reg}"
-                            and before[j + 1] == "tst.l d0"
-                            and before[j + 2].startswith("bne"))
-            return False
-        if before[k].endswith(",%s(sp)" % slot):
+            regs[m.group(2)] = regs.get(m.group(1))
+            continue
+        m = re.fullmatch(r"addq\.l #(\d),(d0|a\d)", ins)
+        if m:
+            if regs.get(m.group(2)) is not None:
+                regs[m.group(2)] += int(m.group(1))
+            continue
+        for r in list(regs):
+            if f"({r})+" in ins and regs[r] is not None:
+                regs[r] += 4
+            elif f"-({r})" in ins and regs[r] is not None:
+                regs[r] -= 4
+            elif ins.endswith("," + r) and not ins.startswith(("cmp", "tst")):
+                regs[r] = None
+        if _is_call(ins):
             return False
     return False
 
 
+def _spilled_null(body, load, slot):
+    """Slot N(sp) read at body[load] provably holds find()'s NULL.
+
+    Walking back from the load, the slot's last writer must be `move.l aY,N(sp)`
+    with sp unmoved in between. aY's last writer before that must be
+    `movea.l d0,aY` straight after the call to MemMap::find, then `tst.l d0`
+    and a branch that puts the null case into a window ending at the load:
+      bne T  (T past the load)  the window starts after the bne;
+      beq T  (T before the spill) the window starts at T, and the
+             instruction before T must not fall through (rts/bra/jmp).
+    No branch from outside the window may land inside it.
+    """
+    k = load - 1
+    while k >= 0:
+        ins = body[k][1]
+        if _moves_sp(ins):
+            return False
+        if ins.endswith(f",{slot}(sp)"):
+            break
+        k -= 1
+    else:
+        return False
+    m = re.fullmatch(r"move\.l (a\d),%s\(sp\)" % slot, body[k][1])
+    if not m:
+        return False
+    reg = m.group(1)
+    addr = {a: n for n, (a, _) in enumerate(body)}
+    load_at = body[load][0]
+    for j in range(1, len(body) - 2):
+        if not (body[j][1] == f"movea.l d0,{reg}" and _calls(body, j - 1, "__ZN6MemMap4findEi")
+                and body[j + 1][1] == "tst.l d0"):
+            continue
+        br, target = body[j + 2][1], _branch_target(body[j + 2][1])
+        if target is None:
+            continue
+        if br.startswith("bne") and target > load_at and j + 3 <= k:
+            start = j + 3
+        elif br.startswith("beq") and target in addr and j + 2 < addr[target] <= k:
+            start = addr[target]
+            prev = body[start - 1][1]
+            if not (prev == "rts" or prev.startswith(("bra", "jmp"))):
+                continue
+        else:
+            continue
+        # aY unchanged, and no call, from the window start to the spill.
+        if any(_writes(x, reg) or _is_call(x) for _, x in body[start:k]):
+            continue
+        lo, hi = body[start][0], load_at
+        entered = False
+        for n, (at, ins) in enumerate(body):
+            t = _branch_target(ins)
+            if t is None or n == j + 2 or not (lo <= t <= hi):
+                continue
+            if not (lo <= at < hi):
+                entered = True
+        if not entered:
+            return True
+    return False
+
+
+def prev_stores(objdump, obj):
+    """One (basis, verdict) per fresh allocation site in MemMap::alloc."""
+    body = _function(objdump, obj, "__ZN6MemMap5allocEj")
+    node_call = None
+    sites = []
+    for i, (_, ins) in enumerate(body):
+        if ins == "jsr -198(a6)":
+            sites.append((i, "inline"))
+        elif _calls(body, i, "__Z11__sys_allocj"):
+            if node_call is None:
+                node_call = sys_alloc_returns_node(objdump, obj)
+            sites.append((i, "call" if node_call else "unproven"))
+    out = []
+    for i, basis in sites:
+        if basis == "unproven":
+            out.append((basis, "__sys_alloc does not return AllocMem+4"))
+            continue
+        m = re.fullmatch(r"movea\.l d0,(a\d)", body[i + 1][1] if i + 1 < len(body) else "")
+        if not m:
+            out.append((basis, "result not kept in an address register"))
+            continue
+        reg = m.group(1)
+        off = 8 if basis == "inline" else 4
+        size_stored = basis == "call"
+        copies = set()
+        verdict = None
+        for k in range(i + 2, len(body)):
+            at, ins = body[k]
+            if _is_call(ins) or ins == "rts":
+                break
+            c = re.fullmatch(r"movea\.l d0,(a\d)", ins)
+            if c and c.group(1) != reg:
+                copies.add(c.group(1))
+            if re.fullmatch(r"move\.l [^,]+,\((%s)\)\+?" % "|".join([reg] + sorted(copies)), ins):
+                size_stored = True
+            zero = ins == f"clr.l {off}({reg})"
+            st = re.fullmatch(r"move\.l (\d+)\(sp\),%d\(%s\)" % (off, reg), ins)
+            if zero or (st and _spilled_null(body, k, st.group(1))):
+                # Only the AllocMem-failed exit (tst.l d0; beq, right after
+                # the site) may jump past the store.
+                skipped = [
+                    a for n, (a, x) in enumerate(body[i + 1:k], i + 1)
+                    if (_branch_target(x) or 0) > at
+                    and not (x.startswith("beq") and n <= i + 4 and body[n - 1][1] == "tst.l d0")
+                ]
+                if skipped:
+                    verdict = f"store at {at:x} can be branched over"
+                elif not size_stored:
+                    verdict = "no size store to 0(raw); basis unproven"
+                else:
+                    verdict = "clr" if zero else "spilled_null"
+                break
+            if _writes(ins, reg):
+                break
+        out.append((basis, verdict or f"no zero store to {off}({reg})"))
+    return out
+
+
 def structural(objdump, obj):
-    if not sys_alloc_returns_node(objdump, obj):
-        return "__sys_alloc does not return AllocMem+4; prev offset unproven"
     verdicts = prev_stores(objdump, obj)
     if len(verdicts) != 2:
-        return f"{len(verdicts)} __sys_alloc call(s) in MemMap::alloc, want 2"
-    bad = [v for v in verdicts if v not in ("clr", "spilled null")]
+        return f"{len(verdicts)} allocation site(s) in MemMap::alloc, want 2"
+    bad = [v for _, v in verdicts if v not in ("clr", "spilled_null")]
     return "; ".join(bad) if bad else None
 
 
@@ -181,9 +298,7 @@ def main() -> int:
         objdump = pathlib.Path(args[2]).resolve() / "bin/m68k-amigaos-objdump"
         why = structural(str(objdump), args[1])
         verdicts = prev_stores(str(objdump), args[1])
-        basis = "node" if sys_alloc_returns_node(str(objdump), args[1]) else "unproven"
-        print(f"sys_alloc_returns={basis}"
-              f" malloc_prev_stores={','.join(v.replace(' ', '_') for v in verdicts) or 'none'}"
+        print(f"malloc_prev_stores={','.join(b + ':' + v.replace(' ', '_') for b, v in verdicts) or 'none'}"
               f" result={'fail' if why else 'pass'} object={args[1]}")
         return 1 if why else 0
     series = None
