@@ -201,6 +201,8 @@ static UINT h_send_and_drain(ULONG destination, const char *label,
     UINT       status;
     UINT       delivered = 0;
     UINT       before_wire = h_wire_sends + h_wire_broadcasts;
+    ULONG      before_packets = h_ip.nx_ip_total_packets_sent;
+    ULONG      before_bytes = h_ip.nx_ip_total_bytes_sent;
 
     status = nx_packet_allocate(&h_pool, &packet_ptr, NX_UDP_PACKET, NX_NO_WAIT);
 
@@ -234,6 +236,14 @@ static UINT h_send_and_drain(ULONG destination, const char *label,
             (before_wire + expect_wire),
             expect_wire ? "the datagram also went out on the wire"
                         : "the datagram did not go out on the wire");
+
+    /* A receive-side loopback copy is not a second IP transmission.  The
+       UDP header is IP payload, while the IPv4 header is excluded. */
+    h_check(h_ip.nx_ip_total_packets_sent == before_packets + 1UL,
+            "one datagram counts as one IP packet sent");
+    h_check(h_ip.nx_ip_total_bytes_sent == before_bytes +
+                (ULONG)sizeof(NX_UDP_HEADER) + sizeof(H_PAYLOAD) - 1UL,
+            "the IP payload bytes are counted once");
 
     while (nx_udp_socket_receive(&h_server, &received, NX_NO_WAIT) == NX_SUCCESS)
     {
