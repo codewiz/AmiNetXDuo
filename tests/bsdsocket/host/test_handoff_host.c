@@ -112,6 +112,7 @@ LONG bsd_fd_free(struct AmiSocketBase *base, LONG fd)
 }
 
 VOID bsd_socket_retain(AmiSocket *sock) { sock->as_RefCount++; }
+VOID bsd_socket_defer(AmiSocket *sock) { sock->as_DeferRefs++; }
 /* socket.c's release, whose owner decision is the shared bsd_owner_drop(). */
 VOID bsd_socket_release(struct AmiSocketBase *base, AmiSocket *sock)
 {
@@ -159,15 +160,23 @@ static VOID reset_fixture(AmiSocket *sock)
 static VOID test_release_listener(VOID)
 {
     AmiSocket sock;
+    AmiSocket incoming[2];
     LONG id;
     LONG fd;
 
     reset_fixture(&sock);
+    memset(incoming, 0, sizeof(incoming));
+    sock.as_Incoming = &incoming[0];
+    incoming[0].as_IncomingNext = &incoming[1];
+    incoming[0].as_Parent = incoming[1].as_Parent = &sock;
+    incoming[0].as_Owner = incoming[1].as_Owner = &source_base;
     id = bsd_ReleaseSocket(0, UNIQUE_ID, &source_base);
     CHECK(id > 65535, "ReleaseSocket accepts a listening descriptor");
     CHECK(source_base.sb_Table[0] == NULL,
           "and detaches it from the releasing descriptor table");
     CHECK(sock.as_Owner == NULL, "the parked listener has no stale owner");
+    CHECK(incoming[0].as_Owner == NULL && incoming[1].as_Owner == NULL,
+          "all pending accepts lose the releasing owner while parked");
 
     fd = bsd_ObtainSocket(id, AF_INET, SOCK_STREAM, 0, &target_base);
     CHECK(fd == 0, "the listener can be obtained by another base");
@@ -175,6 +184,9 @@ static VOID test_release_listener(VOID)
           "the obtained descriptor names the same listener");
     CHECK(sock.as_Owner == &target_base,
           "future accept events signal the obtaining base");
+    CHECK(incoming[0].as_Owner == &target_base &&
+          incoming[1].as_Owner == &target_base,
+          "all pending accepts follow the obtaining owner");
     CHECK((sock.as_Flags & ASF_LISTENING) != 0,
           "the listen state survives the handoff");
 }
@@ -335,21 +347,42 @@ static VOID test_owner_reelect(VOID)
 static VOID test_release_copy_listener(VOID)
 {
     AmiSocket sock;
+    AmiSocket incoming;
+    AmiSocket accepted;
     LONG id;
     LONG fd;
 
     reset_fixture(&sock);
+    link_children();
+    memset(&incoming, 0, sizeof(incoming));
+    memset(&accepted, 0, sizeof(accepted));
+    incoming.as_Owner = &source_base;
+    incoming.as_Parent = &sock;
+    /* accept() detaches the parent before its fd callback, and unlinks
+       afterwards.  A transfer during that callback must leave it alone. */
+    accepted.as_Owner = &source_base;
+    incoming.as_IncomingNext = &accepted;
+    sock.as_Incoming = &incoming;
     id = bsd_ReleaseCopyOfSocket(0, UNIQUE_ID, &source_base);
     CHECK(id > 65535, "ReleaseCopyOfSocket accepts a listening descriptor");
     CHECK(source_base.sb_Table[0] == &sock,
           "and leaves the original descriptor installed");
     CHECK(sock.as_RefCount == 2, "the parked copy owns a second reference");
+    CHECK(incoming.as_Owner == &source_base,
+          "parking a copy preserves the current pending-accept owner");
 
     fd = bsd_ObtainSocket(id, AF_INET, SOCK_STREAM, IPPROTO_TCP, &target_base);
     CHECK(fd == 0 && target_base.sb_Table[0] == &sock,
           "the copied listener can be obtained");
     CHECK((sock.as_Flags & ASF_LISTENING) != 0,
           "and remains a listener after the copy handoff");
+    CHECK(incoming.as_Owner == &target_base,
+          "obtaining a copied listener also transfers its pending accepts");
+    CHECK(accepted.as_Owner == &source_base,
+          "a detached accept still awaiting unlink keeps its own owner");
+    close_fd(&target_base, fd, &sock);
+    CHECK(sock.as_Owner == &source_base && incoming.as_Owner == &source_base,
+          "closing the obtained copy restores both owners to the survivor");
 }
 
 /* The last opener's close: bsd_handoff_take() moves the registry off the

@@ -1344,6 +1344,7 @@ static void t_waitselect_terminal(void)
 static void t_events(void)
 {
     AmiSocket *s;
+    AmiSocket listener;
 
     printf("bsd_event_post() and bsd_events_attach()\n");
 
@@ -1352,6 +1353,28 @@ static void t_events(void)
     bsd_event_post(s, FD_READ);
     CHECK((h.signals & H_EVENT_SIG) != 0, "every event wakes WaitSelect");
     CHECK((s->as_Events & FD_READ) != 0, "and is latched on the socket");
+
+    h_reset();
+    s = h_tcp(0, NX_TCP_ESTABLISHED);
+    memset(&listener, 0, sizeof(listener));
+    listener.as_Owner = &h_base;
+    s->as_Flags |= ASF_INCOMING;
+    s->as_Parent = &listener;
+    s->as_Owner = NULL;
+    bsd_event_post(s, FD_READ);
+    CHECK((h.signals & H_EVENT_SIG) != 0,
+          "a pending accept uses its listener's current event owner");
+    listener.as_Owner = NULL;
+    s->as_Owner = &h_base;
+    h.signals = 0;
+    bsd_event_post(s, FD_CLOSE);
+    CHECK(h.signals == 0,
+          "a parked listener cannot fall back to the child's earlier owner");
+    s->as_Parent = NULL;
+    s->as_Flags &= ~ASF_INCOMING;
+    bsd_event_post(s, FD_READ);
+    CHECK((h.signals & H_EVENT_SIG) != 0,
+          "a detached accepted socket uses its own owner again");
 
     /* SetSocketSignals: FD_READ and FD_WRITE are the IO mask's, FD_OOB the
        urgent mask's, and SO_EVENTMASK selects the event mask's. */

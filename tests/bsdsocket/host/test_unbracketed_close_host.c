@@ -208,9 +208,43 @@ static void t_fd_claim(void)
     h_base.sb_FDCallback = NULL;
 }
 
+static LONG h_free_guard(LONG fd, LONG action)
+{
+    if (action != FDCB_FREE)
+        return 0;
+
+    CHECK(h_table[fd] == BSD_FD_BUSY && bsd_lookup(&h_base, fd) == NULL,
+          "a free callback cannot look up its closing descriptor");
+    CHECK(bsd_fd_alloc(&h_base, &h_sock[1]) == 0 &&
+          h_table[fd] == BSD_FD_BUSY,
+          "callback allocation leaves the closing descriptor reserved");
+    return h_fdcb_answer;
+}
+
+static void t_fd_free_guard(void)
+{
+    h_reset();
+    h_table[1] = &h_sock[0];
+    h_base.sb_FDCallback = h_free_guard;
+    h_fdcb_answer = 7;
+    CHECK(bsd_fd_free(&h_base, 1) == -1 && h_base.sb_Errno == 7 &&
+          h_table[1] == &h_sock[0],
+          "a callback veto restores the original descriptor");
+    h_table[0] = NULL;
+    h_fdcb_answer = 0;
+    CHECK(bsd_fd_free(&h_base, 1) == 0 && h_table[1] == NULL,
+          "an accepted free clears its claimed descriptor");
+    h_table[0] = NULL;
+    h_table[1] = BSD_FD_RESERVED;
+    CHECK(bsd_fd_free(&h_base, 1) == 0 && h_table[1] == NULL,
+          "a reserved external descriptor uses the same callback guard");
+    h_base.sb_FDCallback = NULL;
+}
+
 int main(void)
 {
     t_fd_claim();
+    t_fd_free_guard();
 
     /* CloseSocket() with the bracket refused: the socket leaks, and its
        callbacks no longer reach this base. */

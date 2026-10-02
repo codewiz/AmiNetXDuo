@@ -914,6 +914,21 @@ static inline struct AmiSocketBase *bsd_owner_elect(struct AmiSocketBase *base,
     return fallback;
 }
 
+/* Pending accept sockets share their listener's event owner until accept()
+   detaches them.  Transfer the whole group before the old base can retire. */
+static inline VOID bsd_owner_set(AmiSocket *sock, struct AmiSocketBase *base)
+{
+    AmiSocket *incoming;
+
+    Forbid();
+    sock->as_Owner = base;
+    for (incoming = sock->as_Incoming; incoming != NULL;
+         incoming = incoming->as_IncomingNext)
+        if (incoming->as_Parent == sock)
+            incoming->as_Owner = base;
+    Permit();
+}
+
 /*
  * A descriptor of this base has just been freed and the socket lives on
  * elsewhere (another reference, or a handoff entry).  The base stops being the
@@ -945,7 +960,7 @@ static inline VOID bsd_owner_drop(struct AmiSocketBase *base, AmiSocket *sock)
 
     Forbid();
     heir = bsd_owner_elect(base, sock);
-    sock->as_Owner = heir;
+    bsd_owner_set(sock, heir);
     if (heir != NULL && heir->sb_Task != NULL)
         Signal(heir->sb_Task, heir->sb_EventSigMask);
     Permit();

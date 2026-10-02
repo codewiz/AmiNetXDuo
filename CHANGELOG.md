@@ -5,6 +5,13 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ## Unreleased
 
+- Transferring or sharing a listening socket also transfers pending
+  connections' event ownership, keeping callbacks clear of a closed opener.
+- Final library close preserves socket-release debts when ThreadX entry fails,
+  so later cleanup can reclaim sockets parked for handoff.
+- Descriptor-free callbacks cannot close or reuse the descriptor being freed;
+  refusing the free still restores its original socket.
+
 ## 1.0.0-beta7
 
 ### Installation and compatibility

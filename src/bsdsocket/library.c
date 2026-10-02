@@ -620,7 +620,8 @@ static VOID bsd_child_close_gate(struct AmiSocketBase *child)
     bsd_handoff_flush(child, &handoffs, bracketed);
     if (!bracketed)
     {
-        /* Nothing can drain them now.  The teardown deletes their NX sockets
+        /* A later bracket may drain the recorded release debts.  Otherwise
+           the teardown deletes their NX sockets
            with the IP instance, and bsd_orphans_reclaim() then frees or
            forgets them, so no sweep reaches a freed NX_IP (#53, F-059). */
         AMI_WARN("bsdsocket: last close with the kernel down. "

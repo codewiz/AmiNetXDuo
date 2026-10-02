@@ -124,7 +124,7 @@ if(NOT CMAKE_CROSSCOMPILING AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
         -ffunction-sections -fdata-sections -Wno-pointer-to-int-cast)
     target_compile_definitions(test_deferred_release PRIVATE
         AMINETXDUO_MULTICAST AMINETXDUO_IPV6 AMINETXDUO_CMSG
-        NX_INCLUDE_USER_DEFINE_FILE)
+        NX_INCLUDE_USER_DEFINE_FILE UNIQUE_ID=-1)
     target_link_options(test_deferred_release PRIVATE -Wl,--gc-sections)
     add_test(NAME deferred_release COMMAND test_deferred_release)
 

@@ -143,9 +143,8 @@ struct LogHookMessage
 /*
  * The fd-callback actions.  NDK 3.2 netinclude/libraries/bsdsocket.h:126-128
  * ("don't use these in new code"); socket.c sends them through sb_FDCallback.
- * FDCB_ALLOC may refuse and a refusal fails the allocation; FDCB_FREE is sent
- * after the slot is cleared and its return is not read; FDCB_CHECK is
- * deliberately never sent (socket.c says why).
+ * FDCB_FREE runs with the slot busy; a veto restores its previous entry.
+ * FDCB_CHECK and FDCB_ALLOC validate a new allocation before publication.
  */
 #define FDCB_FREE                           0
 #define FDCB_ALLOC                          1

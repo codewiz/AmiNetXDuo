@@ -588,14 +588,32 @@ LONG bsd_fd_free(struct AmiSocketBase *base, LONG fd)
 {
     if (base->sb_Table != NULL && fd >= 0 && fd < base->sb_TableSize)
     {
+        AmiSocket *entry;
         LONG error;
 
-        if (base->sb_Table[fd] == NULL)
+        Forbid();
+        entry = base->sb_Table[fd];
+        if (entry == NULL)
+        {
+            Permit();
             return 0;
+        }
+        if (entry == BSD_FD_BUSY)
+        {
+            Permit();
+            return bsd_fail(base, AMI_EBUSY);
+        }
+        /* As with Dup2's claim, callback reentry must neither find the
+           closing socket nor reuse its descriptor before the veto result. */
+        base->sb_Table[fd] = BSD_FD_BUSY;
+        Permit();
 
         error = bsd_fd_callback(base, fd, FDCB_FREE);
         if (error != 0)
+        {
+            base->sb_Table[fd] = entry;
             return bsd_fail(base, error);
+        }
 
         base->sb_Table[fd] = NULL;
     }
@@ -1847,9 +1865,12 @@ static BOOL bsd_listen_park_one(struct AmiSocketBase *base, AmiSocket *sock)
             sock->as_Flags |= ASF_ACCEPTPEND;
     }
 
+    Forbid();
+    spare->as_Owner        = sock->as_Owner;
     spare->as_IncomingNext = sock->as_Incoming;
     sock->as_Incoming      = spare;
     sock->as_IncomingCount++;
+    Permit();
 
     return TRUE;
 }
@@ -1993,9 +2014,12 @@ LONG bsd_listen(register LONG sock_fd __asm("d0"),
         AMI_WARN("bsdsocket: arming accept on port %ld failed (%ld)",
                  (long)sock->as_LocalPort, (long)status);
 
+    Forbid();
+    incoming->as_Owner        = sock->as_Owner;
     incoming->as_IncomingNext = NULL;
     sock->as_Incoming         = incoming;
     sock->as_IncomingCount    = 1;
+    Permit();
     sock->as_ListenPort       = sock->as_LocalPort;
     sock->as_Backlog          = (UINT)backlog;
     sock->as_Flags           |= ASF_LISTENING;
@@ -2540,10 +2564,12 @@ LONG bsd_accept(register LONG sock_fd          __asm("d0"),
         }
     }
 
+    Forbid();
     incoming->as_Flags &= ~(ASF_INCOMING | ASF_ACCEPTPEND);
     incoming->as_Flags |= ASF_CONNECTED | ASF_BOUND;
     incoming->as_Parent = NULL;
     incoming->as_Owner  = SocketBase;
+    Permit();
 
     incoming->as_LocalAddr    = sock->as_LocalAddr;
     incoming->as_LocalScopeId = sock->as_LocalScopeId;
@@ -2617,9 +2643,12 @@ LONG bsd_accept(register LONG sock_fd          __asm("d0"),
         nx_tcp_socket_disconnect(&incoming->as_Nx.tcp, NX_NO_WAIT);
         nx_tcp_server_socket_unaccept(&incoming->as_Nx.tcp);
 
+        Forbid();
         incoming->as_Flags &= ~ASF_CONNECTED;
         incoming->as_Flags |= ASF_INCOMING;
         incoming->as_Parent = sock;
+        incoming->as_Owner = sock->as_Owner;
+        Permit();
 
         bsd_listen_return(SocketBase, sock, incoming);
 

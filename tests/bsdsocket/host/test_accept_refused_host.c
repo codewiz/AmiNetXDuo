@@ -212,6 +212,8 @@ LONG bsd_fail(struct AmiSocketBase *base, LONG code)
 LONG bsd_nx_enter(struct AmiSocketBase *base) { (VOID)base; return 0; }
 
 VOID bsd_nx_leave(struct AmiSocketBase *base) { (VOID)base; }
+VOID Forbid(VOID) { }
+VOID Permit(VOID) { }
 
 LONG bsd_errno_from_nx(UINT status) { (VOID)status; return AMI_EIO; }
 
@@ -250,6 +252,11 @@ H_TRAP(VOID ami_mem_socket_delta(LONG d))
 H_TRAP(ULONG ami_random_ulong(VOID))
 H_TRAP(ULONG ami_bsd_tcp_budget(ULONG pool, ULONG payload))
 H_TRAP(ULONG ami_bsd_tcp_window_for(ULONG pool, ULONG payload, ULONG users))
+H_TRAP(ULONG ami_bsd_tcp_window_max_for(ULONG pool, ULONG payload, ULONG users))
+H_TRAP(UINT _nxe_tcp_server_socket_unlisten(NX_IP *ip, UINT port))
+H_TRAP(UINT _nxe_tcp_server_socket_listen(NX_IP *ip, UINT port,
+       NX_TCP_SOCKET *s, UINT queue, VOID (*cb)(NX_TCP_SOCKET *, UINT)))
+H_TRAP(VOID bsd_listen_callback(NX_TCP_SOCKET *s, UINT port))
 H_TRAP(VOID bsd_bcopy(CONST_APTR src, APTR dst, ULONG size))
 H_TRAP(VOID bsd_bzero(APTR p, ULONG size))
 H_TRAP(VOID bsd_cmsg_reset(AmiSocket *s))
@@ -262,6 +269,7 @@ H_TRAP(VOID bsd_tcp_urgent_notify(NX_TCP_SOCKET *s))
    back a v4-mapped peer. */
 H_TRAP(UINT anx6_scope(const ULONG *addr))
 H_TRAP(VOID bsd_addr_to_v4mapped(NXD_ADDRESS *addr, ULONG v4))
+H_TRAP(VOID bsd_words_to_in6(const ULONG words[4], UBYTE bytes[16]))
 #pragma GCC diagnostic pop
 
 /* ---- the test ------------------------------------------------------------ */
@@ -274,6 +282,29 @@ static LONG h_accept(void)
 
 int main(void)
 {
+    /* A shared listener can belong to another opener while this base accepts.
+       If allocating the accepted fd fails, the returned slot belongs to the
+       listener again, not to the unsuccessful accepting base. */
+    {
+        static const int s[] = { STEP_MATCH };
+        struct AmiSocketBase owner;
+
+        h_reset(0, 0, s, 1);
+        memset(&owner, 0, sizeof(owner));
+        owner.sb_StackRefs = 1;
+        owner.sb_StackIp = &h_ip;
+        h_listener.as_Owner = &owner;
+        h_table[1] = BSD_FD_RESERVED;
+        CHECK(h_accept() == -1 && h_base.sb_Errno == AMI_EMFILE,
+              "a full accepting table returns the descriptor error");
+        CHECK(h_incoming.as_Parent == &h_listener &&
+              h_incoming.as_Owner == &owner &&
+              (h_incoming.as_Flags & ASF_INCOMING) != 0,
+              "failed accept restores its listener's current owner");
+        CHECK(h_listener.as_Incoming == &h_incoming && h_relistens == 1,
+              "the failed accept remains parked and rearmed");
+    }
+
     /* Blocking: a refused peer is reset, and accept waits on for the next. */
     {
         static const int s[] = { STEP_REFUSED, STEP_MATCH };

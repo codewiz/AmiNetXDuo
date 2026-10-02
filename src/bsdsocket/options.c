@@ -1218,7 +1218,7 @@ static VOID bsd_dup_keep_owner(struct AmiSocketBase *base, AmiSocket *sock,
         return;
 
     Forbid();
-    sock->as_Owner = base;
+    bsd_owner_set(sock, base);
     Permit();
 }
 

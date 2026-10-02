@@ -48,7 +48,10 @@ VOID bsd_event_post(AmiSocket *sock, ULONG events)
 
     sock->as_Events |= events;
 
-    base = sock->as_Owner;
+    /* A pending accept can notify before it is linked into as_Incoming.
+       Its listener is the authority even during that publication window. */
+    base = ((sock->as_Flags & ASF_INCOMING) != 0 && sock->as_Parent != NULL)
+               ? sock->as_Parent->as_Owner : sock->as_Owner;
     if (base == NULL || base->sb_Task == NULL)
         return;
 

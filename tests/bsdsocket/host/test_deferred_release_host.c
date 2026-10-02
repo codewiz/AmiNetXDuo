@@ -79,6 +79,22 @@ VOID AddTail(struct List *list, struct Node *node)
     list->lh_TailPred = node;
 }
 
+VOID Remove(struct Node *node)
+{
+    node->ln_Pred->ln_Succ = node->ln_Succ;
+    node->ln_Succ->ln_Pred = node->ln_Pred;
+}
+
+struct Node *RemHead(struct List *list)
+{
+    struct Node *node = list->lh_Head;
+
+    if (node->ln_Succ == NULL)
+        return NULL;
+    Remove(node);
+    return node;
+}
+
 VOID Forbid(VOID) { }
 VOID Permit(VOID) { }
 
@@ -86,6 +102,7 @@ VOID bsd_bzero(APTR p, ULONG size) { memset(p, 0, size); }
 VOID bsd_bcopy(CONST_APTR src, APTR dst, ULONG size) { memcpy(dst, src, size); }
 
 #include "socket.c"
+#include "handoff.c"
 
 /* Only ASF_DELETED sockets are destroyed here, so NetX is never reached. */
 VOID _nx_tcp_packet_send_fin(NX_TCP_SOCKET *s, ULONG seq) { (VOID)s; (VOID)seq; abort(); }
@@ -176,6 +193,47 @@ static void h_reset(void)
 
 int main(void)
 {
+    /* Registry entries each owe one release, including multiple entries for
+       one socket.  Exercise the production flush, defer and reclaim paths
+       with already-deleted fixture sockets, so no NetX calls are needed. */
+    {
+        BsdHandoff entries[2];
+        struct MinList moved;
+        int stopped;
+
+        for (stopped = 0; stopped < 2; stopped++)
+        {
+            h_reset();
+            bsd_handoff_init(&h_master);
+            memset(entries, 0, sizeof(entries));
+            h_sock[0].as_RefCount = 2;
+            entries[0].bh_Socket = entries[1].bh_Socket = &h_sock[0];
+            AddTail((struct List *)&h_master.sb_Handoffs,
+                    (struct Node *)&entries[0].bh_Node);
+            AddTail((struct List *)&h_master.sb_Handoffs,
+                    (struct Node *)&entries[1].bh_Node);
+            bsd_handoff_take(&h_master, &moved);
+            bsd_handoff_flush(&h_base, &moved, FALSE);
+            CHECK(!bsd_handoff_pending(&h_master) && h_frees == 2,
+                  "an unbracketed handoff flush frees both registry entries");
+            CHECK(bsd_defer_head == &h_sock[0] &&
+                  h_sock[0].as_DeferRefs == 2 && h_sock[0].as_RefCount == 2,
+                  "both handoff references remain recorded as release debts");
+            if (stopped)
+                bsd_orphans_reclaim();
+            else
+                bsd_defer_sweep(&h_other);
+            CHECK(bsd_defer_head == NULL && h_frees == 3 &&
+                  h_freed_once(&h_sock[0]),
+                  "a live drain or quiet shutdown disposes the wrapper once");
+            if (stopped)
+                bsd_orphans_reclaim();
+            else
+                bsd_defer_sweep(&h_other);
+            CHECK(h_frees == 3, "a repeated drain cannot repay handoff debts");
+        }
+    }
+
     /* The last reference, closed with no bracket, then another base's
        bracketed close of an unrelated socket. */
     h_reset();

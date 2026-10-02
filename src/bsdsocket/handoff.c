@@ -239,8 +239,12 @@ VOID bsd_handoff_flush(struct AmiSocketBase *base, struct MinList *list,
         }
         else
         {
-            AMI_WARN("bsdsocket: released socket id %ld abandoned. "
-                     "The kernel is already down", (long)entry->bh_Id);
+            /* Entry failure can be temporary while the kernel is live.
+               Keep each registry reference owed to the next drain, or to
+               orphan reclamation after a successful stack teardown. */
+            Forbid();
+            bsd_socket_defer(entry->bh_Socket);
+            Permit();
         }
 
         ami_free(entry);
@@ -338,7 +342,7 @@ LONG bsd_ObtainSocket(register LONG id       __asm("d0"),
      * The socket is ours now: events go to this task. A socket obtained from
      * a ReleaseCopyOfSocket() therefore no longer signals the base that still
      */
-    sock->as_Owner = SocketBase;
+    bsd_owner_set(sock, SocketBase);
 
     return fd;
 }
