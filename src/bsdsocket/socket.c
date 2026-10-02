@@ -321,19 +321,37 @@ static VOID bsd_tcp_seed_isn(NX_TCP_SOCKET *tcp)
     tcp->nx_tcp_socket_tx_sequence = seed;
 }
 
+/* The first table, published under Forbid() like every later one; a task
+   that published first keeps its table and this one is given back. */
+static LONG bsd_table_first(struct AmiSocketBase *base, LONG size)
+{
+    AmiSocket **table;
+
+    table = (AmiSocket **)ami_alloc((ULONG)size * sizeof(AmiSocket *));
+    if (table == NULL)
+        return -1;
+
+    Forbid();
+    if (base->sb_Table == NULL)
+    {
+        base->sb_Table     = table;
+        base->sb_TableSize = size;
+        table = NULL;
+    }
+    Permit();
+
+    if (table != NULL)
+        ami_free(table);
+
+    return 0;
+}
+
 static LONG bsd_table_ensure(struct AmiSocketBase *base)
 {
     if (base->sb_Table != NULL)
         return 0;
 
-    base->sb_Table = (AmiSocket **)ami_alloc(
-        (ULONG)BSD_DEFAULT_DTABLESIZE * sizeof(AmiSocket *));
-    if (base->sb_Table == NULL)
-        return -1;
-
-    base->sb_TableSize = BSD_DEFAULT_DTABLESIZE;
-
-    return 0;
+    return bsd_table_first(base, BSD_DEFAULT_DTABLESIZE);
 }
 
 /*
@@ -379,38 +397,38 @@ LONG bsd_table_resize(struct AmiSocketBase *base, LONG size)
     if (size < 1 || size > BSD_MAX_DTABLESIZE)
         return -1;
 
-    if (base->sb_Table == NULL)
-    {
-        base->sb_Table = (AmiSocket **)ami_alloc(
-            (ULONG)size * sizeof(AmiSocket *));
-        if (base->sb_Table == NULL)
-            return -1;
-
-        base->sb_TableSize = size;
-
-        return 0;
-    }
+    /* A task that published a first table meanwhile is resized below. */
+    if (base->sb_Table == NULL && bsd_table_first(base, size) != 0)
+        return -1;
 
     if (size == base->sb_TableSize)
         return 0;
 
-    for (i = base->sb_TableSize - 1; i >= size; i--)
-    {
-        if (base->sb_Table[i] != NULL)
-            return -1;
-    }
-
+    /* No unlocked look at the slots past `size` first: another task can
+       shrink the table under it.  The check below is the one that counts. */
     table = (AmiSocket **)ami_alloc((ULONG)size * sizeof(AmiSocket *));
     if (table == NULL)
         return -1;
+
+    /* Checked, copied and published whole under Forbid() and the old one
+       freed after: another opener's bsd_owner_elect() reads this table
+       (F-043), and a slot an allocation holds BSD_FD_BUSY is stored back
+       under Forbid() too, so it lands in whichever table is current (N-087). */
+    Forbid();
+    for (i = base->sb_TableSize - 1; i >= size; i--)
+    {
+        if (base->sb_Table[i] != NULL)
+        {
+            Permit();
+            ami_free(table);
+            return -1;
+        }
+    }
 
     copy = (size < base->sb_TableSize) ? size : base->sb_TableSize;
     for (i = 0; i < copy; i++)
         table[i] = base->sb_Table[i];
 
-    /* Published whole under Forbid() and the old one freed after: another
-       opener's bsd_owner_elect() reads this table (F-043). */
-    Forbid();
     old = base->sb_Table;
     base->sb_Table     = table;
     base->sb_TableSize = size;
@@ -420,23 +438,31 @@ LONG bsd_table_resize(struct AmiSocketBase *base, LONG size)
     return 0;
 }
 
+/* One slot, bound and read under one Forbid(): another task on the base can
+   shrink the table with SBTC_DTABLESIZE between a bound test and the read
+   (N-087).  NULL for a descriptor the table does not have. */
+static AmiSocket *bsd_fd_peek(struct AmiSocketBase *base, LONG fd)
+{
+    AmiSocket *entry = NULL;
+
+    Forbid();
+    if (base->sb_Table != NULL && fd >= 0 && fd < base->sb_TableSize)
+        entry = base->sb_Table[fd];
+    Permit();
+
+    return entry;
+}
+
 AmiSocket *bsd_lookup(struct AmiSocketBase *base, LONG fd)
 {
-    AmiSocket *sock;
-
-    if (base->sb_Table == NULL || fd < 0 || fd >= base->sb_TableSize)
-        return NULL;
-
-    sock = base->sb_Table[fd];
+    AmiSocket *sock = bsd_fd_peek(base, fd);
 
     return (sock == BSD_FD_RESERVED || sock == BSD_FD_BUSY) ? NULL : sock;
 }
 
 BOOL bsd_fd_reserved(struct AmiSocketBase *base, LONG fd)
 {
-    return (BOOL)(base->sb_Table != NULL && fd >= 0 &&
-                  fd < base->sb_TableSize &&
-                  base->sb_Table[fd] == BSD_FD_RESERVED);
+    return (BOOL)(bsd_fd_peek(base, fd) == BSD_FD_RESERVED);
 }
 
 /*
@@ -450,6 +476,36 @@ static LONG bsd_fd_callback(struct AmiSocketBase *base, LONG fd, LONG action)
     return base->sb_FDCallback(fd, action);
 }
 
+/* The store that ends one: under Forbid(), so it reaches the current table
+   even if a callback grew it meanwhile. */
+static VOID bsd_fd_store(struct AmiSocketBase *base, LONG fd, AmiSocket *entry)
+{
+    Forbid();
+    base->sb_Table[fd] = entry;
+    Permit();
+}
+
+/*
+ * Take an empty slot for the callbacks: BSD_FD_BUSY under Forbid(), as
+ * bsd_fd_claim() and bsd_fd_free() do, so a callback that re-enters cannot
+ * allocate it and SBTC_DTABLESIZE cannot shrink the table past it (N-087).
+ * Forbid() covers the test-and-set only, never a callback.
+ */
+static BOOL bsd_fd_take_empty(struct AmiSocketBase *base, LONG fd)
+{
+    BOOL taken = FALSE;
+
+    Forbid();
+    if (fd < base->sb_TableSize && base->sb_Table[fd] == NULL)
+    {
+        base->sb_Table[fd] = BSD_FD_BUSY;
+        taken = TRUE;
+    }
+    Permit();
+
+    return taken;
+}
+
 LONG bsd_fd_alloc(struct AmiSocketBase *base, AmiSocket *sock)
 {
     LONG fd;
@@ -460,21 +516,24 @@ LONG bsd_fd_alloc(struct AmiSocketBase *base, AmiSocket *sock)
 
     for (fd = 0; fd < base->sb_TableSize; fd++)
     {
-        if (base->sb_Table[fd] == NULL)
+        if (!bsd_fd_take_empty(base, fd))
+            continue;
+
+        if (bsd_fd_callback(base, fd, FDCB_CHECK) != 0)
         {
-            if (bsd_fd_callback(base, fd, FDCB_CHECK) != 0)
-            {
-                base->sb_Table[fd] = BSD_FD_RESERVED;
-                continue;
-            }
-
-            error = bsd_fd_callback(base, fd, FDCB_ALLOC);
-            if (error != 0)
-                return bsd_fail(base, error);
-
-            base->sb_Table[fd] = sock;
-            return fd;
+            bsd_fd_store(base, fd, BSD_FD_RESERVED);
+            continue;
         }
+
+        error = bsd_fd_callback(base, fd, FDCB_ALLOC);
+        if (error != 0)
+        {
+            bsd_fd_store(base, fd, NULL);
+            return bsd_fail(base, error);
+        }
+
+        bsd_fd_store(base, fd, sock);
+        return fd;
     }
 
     return bsd_fail(base, AMI_EMFILE);
@@ -490,18 +549,19 @@ LONG bsd_fd_reserve(struct AmiSocketBase *base, LONG fd)
     if (fd < 0)
         return bsd_fd_alloc(base, BSD_FD_RESERVED);
 
-    if (fd >= base->sb_TableSize || base->sb_Table[fd] != NULL)
+    if (!bsd_fd_take_empty(base, fd))
         return bsd_fail(base, AMI_EMFILE);
 
     error = bsd_fd_callback(base, fd, FDCB_CHECK);
+    if (error == 0)
+        error = bsd_fd_callback(base, fd, FDCB_ALLOC);
     if (error != 0)
+    {
+        bsd_fd_store(base, fd, NULL);
         return bsd_fail(base, error);
+    }
 
-    error = bsd_fd_callback(base, fd, FDCB_ALLOC);
-    if (error != 0)
-        return bsd_fail(base, error);
-
-    base->sb_Table[fd] = BSD_FD_RESERVED;
+    bsd_fd_store(base, fd, BSD_FD_RESERVED);
     return fd;
 }
 
@@ -522,10 +582,12 @@ LONG bsd_fd_claim(struct AmiSocketBase *base, LONG fd, AmiSocket **prev)
     if (bsd_table_ensure(base) != 0)
         return bsd_fail(base, AMI_EMFILE);
 
-    if (fd < 0 || fd >= base->sb_TableSize)
-        return bsd_fail(base, AMI_EBADF);
-
     Forbid();
+    if (fd < 0 || fd >= base->sb_TableSize)
+    {
+        Permit();
+        return bsd_fail(base, AMI_EBADF);
+    }
     entry = base->sb_Table[fd];
     if (entry == BSD_FD_BUSY)
     {
@@ -542,7 +604,7 @@ LONG bsd_fd_claim(struct AmiSocketBase *base, LONG fd, AmiSocket **prev)
         error = bsd_fd_callback(base, fd, FDCB_FREE);
         if (error != 0)
         {
-            base->sb_Table[fd] = entry;
+            bsd_fd_store(base, fd, entry);
             return bsd_fail(base, error);
         }
     }
@@ -562,7 +624,7 @@ LONG bsd_fd_settle(struct AmiSocketBase *base, LONG fd, AmiSocket *entry)
     if (error != 0)
         return bsd_fail(base, error);
 
-    base->sb_Table[fd] = entry;
+    bsd_fd_store(base, fd, entry);
     return 0;
 }
 
@@ -576,22 +638,31 @@ LONG bsd_fd_unclaim(struct AmiSocketBase *base, LONG fd, AmiSocket *prev)
 {
     if (prev != NULL && bsd_fd_callback(base, fd, FDCB_ALLOC) != 0)
     {
-        base->sb_Table[fd] = NULL;
+        bsd_fd_store(base, fd, NULL);
         return -1;
     }
 
-    base->sb_Table[fd] = prev;
+    bsd_fd_store(base, fd, prev);
     return 0;
 }
 
-LONG bsd_fd_free(struct AmiSocketBase *base, LONG fd)
+/* bsd_fd_free(), and what it took out of the slot: NULL when there was
+   nothing to free.  CloseSocket() releases that, not what it looked up. */
+static LONG bsd_fd_take(struct AmiSocketBase *base, LONG fd, AmiSocket **taken)
 {
-    if (base->sb_Table != NULL && fd >= 0 && fd < base->sb_TableSize)
+    *taken = NULL;
+
     {
         AmiSocket *entry;
         LONG error;
 
+        /* The bound inside the Forbid(), with the read (bsd_fd_peek()). */
         Forbid();
+        if (base->sb_Table == NULL || fd < 0 || fd >= base->sb_TableSize)
+        {
+            Permit();
+            return 0;
+        }
         entry = base->sb_Table[fd];
         if (entry == NULL)
         {
@@ -611,14 +682,22 @@ LONG bsd_fd_free(struct AmiSocketBase *base, LONG fd)
         error = bsd_fd_callback(base, fd, FDCB_FREE);
         if (error != 0)
         {
-            base->sb_Table[fd] = entry;
+            bsd_fd_store(base, fd, entry);
             return bsd_fail(base, error);
         }
 
-        base->sb_Table[fd] = NULL;
+        bsd_fd_store(base, fd, NULL);
+        *taken = entry;
     }
 
     return 0;
+}
+
+LONG bsd_fd_free(struct AmiSocketBase *base, LONG fd)
+{
+    AmiSocket *taken;
+
+    return bsd_fd_take(base, fd, &taken);
 }
 
 static AmiSocket *bsd_socket_alloc(struct AmiSocketBase *base,
@@ -1187,13 +1266,13 @@ VOID bsd_close_all(struct AmiSocketBase *base)
 
     for (fd = 0; fd < base->sb_TableSize; fd++)
     {
-        AmiSocket *sock = base->sb_Table[fd];
+        AmiSocket *sock = bsd_fd_peek(base, fd);
 
         if (sock == NULL)
             continue;
 
         if (bsd_fd_free(base, fd) != 0)
-            base->sb_Table[fd] = NULL;
+            bsd_fd_store(base, fd, NULL);
 
         if (sock == BSD_FD_RESERVED || sock == BSD_FD_BUSY)
             continue;
@@ -3033,7 +3112,7 @@ LONG bsd_shutdown(register LONG sock_fd __asm("d0"),
 LONG bsd_CloseSocket(register LONG sock_fd __asm("d0"),
                      register struct AmiSocketBase *SocketBase __asm("a6"))
 {
-    AmiSocket *sock = bsd_lookup(SocketBase, sock_fd);
+    AmiSocket *sock;
 
     if (bsd_fd_reserved(SocketBase, sock_fd))
     {
@@ -3042,11 +3121,19 @@ LONG bsd_CloseSocket(register LONG sock_fd __asm("d0"),
         return 0;
     }
 
+    if (bsd_lookup(SocketBase, sock_fd) == NULL)
+        return bsd_fail(SocketBase, AMI_EBADF);
+
+    /* What the free took, not what the lookup saw: another task on this base
+       may have closed the descriptor in between (N-087). */
+    if (bsd_fd_take(SocketBase, sock_fd, &sock) != 0)
+        return -1;
+
     if (sock == NULL)
         return bsd_fail(SocketBase, AMI_EBADF);
 
-    if (bsd_fd_free(SocketBase, sock_fd) != 0)
-        return -1;
+    if (sock == BSD_FD_RESERVED)
+        return 0;
 
     if (bsd_nx_enter(SocketBase) == 0)
     {
