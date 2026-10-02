@@ -408,7 +408,9 @@ host_test_targets() { # builddir
 #      TX_THREAD_STACK_BUILD_STATUS, so a create with no Exec Task fails (N-001)
 #      498-499 with arp_periodic_expiry and arp_periodic_deleted (N-007, all
 #      hosts).
-HOST_TESTS_EXPECTED=499
+#      500 with icmpv6_validate_tail (N-010): the ICMPv6 ND option-tail
+#      validator contract test.
+HOST_TESTS_EXPECTED=500
 case "$(uname -m)" in
     x86_64|amd64) ;;
     # test_inet, test_route, test_expunge, test_expunge_cork, test_select,
