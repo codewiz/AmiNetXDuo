@@ -9,8 +9,17 @@ runtime Enforcer proof; unknown bytes fail closed.
 
 Series whose MemMap::alloc calls __sys_alloc out of line (16.2.4) are also
 proven structurally: both fresh allocations, the big node (malloc.cpp:578)
-and the small page (malloc.cpp:593), must store zero to Node::prev at 4(aN)
-before the next call or return. --object FILE checks one malloc.o that way.
+and the small page (malloc.cpp:593), must store zero to Node::prev before the
+next call or return. --object FILE checks one malloc.o that way.
+
+THE BASIS. AllocMem returns the raw block; __sys_alloc stores the size in its
+first longword and returns raw+4, the Node. Node is {next, prev, leaf, size},
+so prev is 4(node) = 8(raw); 4(raw) is next. The proof first requires
+__sys_alloc's body to be exactly that (AllocMem, `movea.l d0,aX`,
+`move.l dY,(aX)+`, `move.l aX,d0`), so the register a caller keeps from d0 is
+the node and the store it needs is 4(node). A shape that inlines AllocMem
+into alloc (16.2.3, -O2) holds the raw block instead and is not proven here;
+that series stays hash-only.
 """
 
 import hashlib
@@ -76,12 +85,38 @@ def _alloc_body(objdump, obj):
     return body
 
 
+def sys_alloc_returns_node(objdump, obj):
+    """True if __sys_alloc returns AllocMem's block + 4 (size word skipped)."""
+    out = subprocess.run([objdump, "-d", str(obj)], check=True,
+                         capture_output=True, text=True).stdout
+    body, inside = [], False
+    for line in out.splitlines():
+        if re.match(r"^[0-9a-f]+ [0-9a-f]+ __Z11__sys_allocj:$", line):
+            inside = True
+            continue
+        if inside and re.match(r"^[0-9a-f]+ [0-9a-f]+ \S+:$", line):
+            break
+        if inside and "\t" in line:
+            body.append(line.split("\t")[-1].strip())
+    if "jsr -198(a6)" not in body:
+        return False
+    tail = body[body.index("jsr -198(a6)") + 1:]
+    for k in range(len(tail) - 2):
+        m = re.fullmatch(r"movea\.l d0,(a\d)", tail[k])
+        if (m and re.fullmatch(r"move\.l d\d,\(%s\)\+" % m.group(1), tail[k + 1])
+                and tail[k + 2] == f"move.l {m.group(1)},d0"):
+            return True
+    return False
+
+
 def _is_call(ins):
     return ins.startswith(("jsr", "bsr", "jbsr"))
 
 
 def prev_stores(objdump, obj):
-    """One verdict per __sys_alloc call in MemMap::alloc: proven or why not."""
+    """One verdict per __sys_alloc call in MemMap::alloc: proven or why not.
+
+    The call returns the node (see THE BASIS), so prev is 4(node)."""
     body = _alloc_body(objdump, obj)
     verdicts = []
     for i, ins in enumerate(body):
@@ -131,6 +166,8 @@ def _spilled_null(before, slot):
 
 
 def structural(objdump, obj):
+    if not sys_alloc_returns_node(objdump, obj):
+        return "__sys_alloc does not return AllocMem+4; prev offset unproven"
     verdicts = prev_stores(objdump, obj)
     if len(verdicts) != 2:
         return f"{len(verdicts)} __sys_alloc call(s) in MemMap::alloc, want 2"
@@ -144,7 +181,9 @@ def main() -> int:
         objdump = pathlib.Path(args[2]).resolve() / "bin/m68k-amigaos-objdump"
         why = structural(str(objdump), args[1])
         verdicts = prev_stores(str(objdump), args[1])
-        print(f"malloc_prev_stores={','.join(v.replace(' ', '_') for v in verdicts) or 'none'}"
+        basis = "node" if sys_alloc_returns_node(str(objdump), args[1]) else "unproven"
+        print(f"sys_alloc_returns={basis}"
+              f" malloc_prev_stores={','.join(v.replace(' ', '_') for v in verdicts) or 'none'}"
               f" result={'fail' if why else 'pass'} object={args[1]}")
         return 1 if why else 0
     series = None
