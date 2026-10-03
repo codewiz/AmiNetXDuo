@@ -1140,6 +1140,10 @@ AmiSana2If *ami_sana2_open(const AmiIfConfig *cfg, LONG *err)
 
     /* IPREQUESTS, ARPREQUESTS, WRITEREQUESTS.  Here, before anything can
        send: the probe writes further down claim from tx[] up to tx_slots. */
+    iface->tcp_window = cfg->tcp_window;
+    iface->tcp_ack_max = cfg->tcp_ack_max;
+    iface->rx_run_max = cfg->rx_run_max;
+    iface->rx_repost = cfg->rx_repost;
     iface->rx_want_ip  = (UWORD)cfg->ip_requests;
     iface->rx_want_arp = (UWORD)cfg->arp_requests;
     iface->tx_slots    = (UWORD)AMI_SANA2_TX_SLOTS;
@@ -1623,6 +1627,11 @@ ULONG ami_sana2_get_bps(const AmiSana2If *iface)
 ULONG ami_sana2_get_hw_rx_bytes(const AmiSana2If *iface)
 {
     return (iface != NULL) ? iface->hw_rx_bytes : 0;
+}
+
+ULONG ami_sana2_get_tcp_window(const AmiSana2If *iface)
+{
+    return (iface != NULL) ? iface->tcp_window : 0;
 }
 
 ULONG ami_sana2_get_tcp_grow_rtt(const AmiSana2If *iface)

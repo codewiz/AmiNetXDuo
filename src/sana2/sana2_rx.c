@@ -8,6 +8,7 @@
  */
 
 #include "sana2_internal.h"
+#include "aminetxduo/netstack.h"
 #include "aminetxduo/nxstatus.h"
 #include "aminetxduo/anxs2ext.h"
 #include "aminetxduo/budget.h"
@@ -1675,9 +1676,12 @@ static VOID ami_sana2_rx_complete(AmiSana2Rx *rx, AmiRxSlot *slot)
         return;
     }
 
-    /* Re-post before delivering: the slot is the device's again before the
-       stack sees the frame. */
-    (VOID)ami_sana2_rx_post_slot(rx, slot);
+    /* The default re-posts before delivery. A requested interval accumulates
+       idle reads, but never waits beyond a full ring or this drain. */
+    if (rx->iface->rx_repost <= 1)
+        (VOID)ami_sana2_rx_post_slot(rx, slot);
+    else if (rx->unposted >= rx->iface->rx_repost || rx->unposted >= rx->depth)
+        (VOID)ami_sana2_rx_post(rx);
     ami_sana2_rx_hand_up(rx, &up);
 }
 
@@ -1800,7 +1804,7 @@ AMI_SANA2_BATCH_LINKAGE UWORD ami_sana2_rx_drain_batch(AmiSana2Reader *rd,
 }
 #endif /* AMINETXDUO_RX_BATCH */
 
-static UWORD ami_sana2_rx_drain(AmiSana2Reader *rd, UWORD budget)
+AMI_SANA2_BATCH_LINKAGE UWORD ami_sana2_rx_drain(AmiSana2Reader *rd, UWORD budget)
 {
     AmiSana2If     *iface = rd->iface;
     NX_IP          *ip = iface->ip;
@@ -2002,6 +2006,12 @@ static UWORD ami_sana2_rx_drain(AmiSana2Reader *rd, UWORD budget)
 #else
     (VOID)r;
 #endif
+
+    /* Never sleep with reads intentionally withheld. Flushing GRO first
+       can return packets needed to replenish a pool-starved ring. */
+    if (iface->rx_repost > 1 && !rd->stop)
+        for (r = 0; r < (UWORD)AMI_SANA2_RX_READERS; r++)
+            (VOID)ami_sana2_rx_post(&iface->rx[r]);
 
     _nx_ip_input_thread = outer;
     tx_mutex_put(&ip->nx_ip_protection);
@@ -2516,7 +2526,9 @@ static VOID ami_sana2_rx_thread(ULONG argument)
 #endif
         }
 
-        (VOID)ami_sana2_rx_drain(rd, (UWORD)AMI_SANA2_RX_RUN_MAX);
+        (VOID)ami_sana2_rx_drain(rd, iface->rx_run_max != 0
+                                ? iface->rx_run_max
+                                : (UWORD)AMI_SANA2_RX_RUN_MAX);
 
         /*
          * THE POLL, AFTER THE DRAIN AND BEFORE THE SLEEP.  Every slot this
@@ -2776,6 +2788,102 @@ VOID ami_sana2_rx_plan(ULONG bps, ULONG pool_total, BOOL dual_stack,
             give = (UWORD)spare;
         out->ipv6 = (UWORD)(out->ipv6 + give);
     }
+}
+
+/* Receive tuning is changed only while all readers are stopped. A whole
+ * candidate is validated before the first write, so failure is atomic. */
+LONG ami_sana2_rx_tune_set(AmiSana2If *iface, const NetRxTuneValues *v,
+                          ULONG mask)
+{
+    if (iface == NULL || v == NULL || mask == 0 || (mask & ~NETRXTUNE_ALL) != 0)
+        return AMI_NET_ERR_CONFIG;
+    if (((mask & NETRXTUNE_IPREQUESTS) && v->ip_requests > AMI_CFG_READREQUESTS_MAX) ||
+        ((mask & NETRXTUNE_ARPREQUESTS) && v->arp_requests > AMI_CFG_READREQUESTS_MAX) ||
+        ((mask & NETRXTUNE_TCPWINDOW) && v->tcp_window > AMI_CFG_TCP_WINDOW_MAX) ||
+        ((mask & NETRXTUNE_TCPACKMAX) && v->tcp_ack_max > AMI_CFG_TCP_ACK_MAX) ||
+        ((mask & NETRXTUNE_TCPGROWRTT) && v->tcp_grow_rtt > AMI_CFG_TCP_GROW_RTT_MAX) ||
+        ((mask & NETRXTUNE_RXRUNMAX) && v->rx_run_max > AMI_CFG_RX_RUN_MAX) ||
+        ((mask & NETRXTUNE_RXREPOST) && v->rx_repost > AMI_CFG_RX_REPOST_MAX))
+        return AMI_NET_ERR_CONFIG;
+    if (iface->online || iface->rx_running || iface->rx_orphaned ||
+        iface->reader.started)
+        return AMI_NET_ERR_BUSY;
+
+    if (mask & NETRXTUNE_IPREQUESTS) iface->rx_want_ip = (UWORD)v->ip_requests;
+    if (mask & NETRXTUNE_ARPREQUESTS) iface->rx_want_arp = (UWORD)v->arp_requests;
+    if (mask & NETRXTUNE_TCPWINDOW) iface->tcp_window = v->tcp_window;
+    if (mask & NETRXTUNE_TCPACKMAX)
+    {
+        ULONG ack = v->tcp_ack_max;
+        iface->tcp_ack_max = ack;
+        if (ack == 0) ack = ami_sana2_default_tcp_ack_max(iface->device);
+        if (iface->interface_ptr != NULL)
+            iface->interface_ptr->nx_interface_tcp_ack_threshold_max = ack;
+    }
+    if (mask & NETRXTUNE_TCPGROWRTT) iface->tcp_grow_rtt = (UWORD)v->tcp_grow_rtt;
+    if (mask & NETRXTUNE_RXRUNMAX) iface->rx_run_max = (UWORD)v->rx_run_max;
+    if (mask & NETRXTUNE_RXREPOST) iface->rx_repost = (UWORD)v->rx_repost;
+    return AMI_NET_OK;
+}
+
+VOID ami_sana2_rx_tune_get(const AmiSana2If *iface, NetStatusRxTuning *out)
+{
+    AmiRxDepths plan;
+    const NX_PACKET_POOL *pool = iface->pool;
+    NetRxTuneValues *v = &out->nrt_Requested;
+    UWORD i;
+
+    out->nrt_Index = (UWORD)iface->index;
+    out->nrt_Flags = (iface->rx_running ? NETRXTUNE_RUNNING : 0) |
+                     (iface->online ? NETRXTUNE_ONLINE : 0);
+    v->ip_requests = iface->rx_want_ip;
+    v->arp_requests = iface->rx_want_arp;
+    v->tcp_window = iface->tcp_window;
+    v->tcp_ack_max = iface->tcp_ack_max;
+    v->tcp_grow_rtt = iface->tcp_grow_rtt;
+    v->rx_run_max = iface->rx_run_max;
+    v->rx_repost = iface->rx_repost;
+    out->nrt_Effective = *v;
+    out->nrt_PoolTotal = pool != NULL ? pool->nx_packet_pool_total : 0;
+    out->nrt_PoolFree = pool != NULL ? pool->nx_packet_pool_available : 0;
+    out->nrt_HardwareBytes = iface->hw_rx_bytes;
+    ami_sana2_rx_plan(iface->bps, out->nrt_PoolTotal,
+                      (BOOL)(AMI_SANA2_RX_READERS == 3),
+                      ami_sana2_bound_count(), ami_sana2_rx_ask_ip(iface),
+                      iface->rx_want_arp, &plan);
+    out->nrt_Effective.ip_requests = plan.ipv4;
+    out->nrt_Effective.arp_requests = plan.arp;
+    out->nrt_Depth6 = plan.ipv6;
+    out->nrt_Posted4 = out->nrt_PostedArp = out->nrt_Posted6 = 0;
+    for (i = 0; iface->rx_running && i < AMI_SANA2_RX_READERS; i++)
+    {
+        const AmiSana2Rx *rx = &iface->rx[i];
+        ULONG live = rx->depth - rx->unposted;
+        if (rx->packet_type == AMI_ETHERTYPE_IPV4)
+        { out->nrt_Effective.ip_requests = rx->depth; out->nrt_Posted4 = live; }
+        else if (rx->packet_type == AMI_ETHERTYPE_ARP)
+        { out->nrt_Effective.arp_requests = rx->depth; out->nrt_PostedArp = live; }
+        else
+        { out->nrt_Depth6 = rx->depth; out->nrt_Posted6 = live; }
+#ifdef AMINETXDUO_RX_BATCH
+        if (rx->use_batch) out->nrt_Flags |= NETRXTUNE_BATCH;
+#endif
+    }
+    if (out->nrt_Effective.rx_run_max == 0)
+        out->nrt_Effective.rx_run_max = AMI_SANA2_RX_RUN_MAX;
+    if (out->nrt_Effective.rx_repost == 0)
+        out->nrt_Effective.rx_repost = 1;
+    if (out->nrt_Effective.rx_repost > out->nrt_Effective.ip_requests)
+        out->nrt_Effective.rx_repost = out->nrt_Effective.ip_requests;
+    if (out->nrt_Effective.rx_repost > out->nrt_Effective.rx_run_max)
+        out->nrt_Effective.rx_repost = out->nrt_Effective.rx_run_max;
+    if (out->nrt_Effective.tcp_grow_rtt == 0)
+        out->nrt_Effective.tcp_grow_rtt = BSD_TCP_WINDOW_GROW_RTT_MS;
+    if (iface->interface_ptr != NULL)
+        out->nrt_Effective.tcp_ack_max =
+            iface->interface_ptr->nx_interface_tcp_ack_threshold_max;
+    if (out->nrt_Effective.tcp_ack_max == 0)
+        out->nrt_Effective.tcp_ack_max = NX_TCP_ACK_THRESHOLD_MAX;
 }
 
 /*

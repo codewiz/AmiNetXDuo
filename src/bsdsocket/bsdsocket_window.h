@@ -14,6 +14,7 @@
 #include <exec/types.h>
 
 #include "aminetxduo/pool.h"
+#include "aminetxduo/config.h"
 
 #ifndef BSD_TCP_WINDOW
 #define BSD_TCP_WINDOW        8192
@@ -99,9 +100,6 @@
 #define BSD_TCP_WINDOW_POOL_SHARE_BIG   2
 #endif
 
-#ifndef BSD_TCP_WINDOW_GROW_RTT_MS
-#define BSD_TCP_WINDOW_GROW_RTT_MS  10UL
-#endif
 
 /*
  * THE LAN WINDOW ON A GIGABIT LINK, measured 2026-09-15 on the A1200 +

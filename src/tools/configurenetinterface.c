@@ -20,7 +20,10 @@ static const char version_tag[] __attribute__((used)) =
 #define TEMPLATE    "INTERFACE/A,QUIET/S,ADDRESS/K,NETMASK/K,GATEWAY/K,"     \
                     "ADDRESS6/K,GATEWAY6/K,MDNS/K,CONFIGURE/K,CONFIGURE6/K," \
                     "RELEASE=RELEASEADDRESS/S,TIMEOUT/K/N,MTU/K/N,"          \
-                    "ONLINE/S,OFFLINE/S,UP/S,DOWN/S,PRIORITY/K/N"
+                    "ONLINE/S,OFFLINE/S,UP/S,DOWN/S,PRIORITY/K/N,"          \
+                    "TUNING/S,RESETTUNING/S,IPREQUESTS/K/N,ARPREQUESTS/K/N," \
+                    "TCPWINDOW/K/N,TCPACKMAX/K/N,TCPGROWRTT/K/N,"           \
+                    "RXRUNMAX/K/N,RXREPOST/K/N"
 
 enum
 {
@@ -42,8 +45,75 @@ enum
     ARG_UP,
     ARG_DOWN,
     ARG_PRIORITY,
+    ARG_TUNING,
+    ARG_RESETTUNING,
+    ARG_IPREQUESTS,
+    ARG_ARPREQUESTS,
+    ARG_TCPWINDOW,
+    ARG_TCPACKMAX,
+    ARG_TCPGROWRTT,
+    ARG_RXRUNMAX,
+    ARG_RXREPOST,
     ARG_COUNT
 };
+
+static NetStatusRxTuneControl cni_tune;
+static struct
+{
+    NetStatusHeader hdr;
+    NetStatusRxTuning rows[NX_MAX_PHYSICAL_INTERFACES];
+} cni_tuning;
+
+/* A dedicated mode: no link-state/address mutation hidden inside an update.
+   The sweep caller owns OFFLINE -> update -> ONLINE and recovery. */
+static LONG tuning_command(struct Library *base, UWORD index, LONG *args)
+{
+    LONG err = 0, n, i;
+    if (cni_tune.nrtc_Mask != 0)
+    {
+        cni_tune.nrtc_Control.nsc_Index = index;
+        if (tool_netstatus_control_sized(base, NETCTRL_INTERFACE_RXTUNING,
+                &cni_tune.nrtc_Control, sizeof(cni_tune), &err) != 0)
+        {
+            if (err == 16) /* EBUSY */
+                tool_error("receive tuning requires OFFLINE and no active TCP "
+                           "connections; nothing was changed");
+            else
+                tool_error("receive tuning refused (error %ld); the library "
+                           "must support receive tuning", err);
+            return RETURN_FAIL;
+        }
+    }
+    n = tool_netstatus_query(base, NETSTATUS_RXTUNING, &cni_tuning,
+                             sizeof(cni_tuning), sizeof(NetStatusRxTuning));
+    for (i = 0; i < n && i < NX_MAX_PHYSICAL_INTERFACES; i++)
+    {
+        NetStatusRxTuning *r = &cni_tuning.rows[i];
+        NetRxTuneValues *v = &r->nrt_Requested;
+        if (r->nrt_Index != index) continue;
+        if (args[ARG_QUIET] == 0)
+        {
+            Printf((CONST_STRPTR)"IPREQUESTS=%lu ARPREQUESTS=%lu TCPWINDOW=%lu "
+                   "TCPACKMAX=%lu TCPGROWRTT=%lu RXRUNMAX=%lu RXREPOST=%lu\n",
+                   v->ip_requests, v->arp_requests, v->tcp_window,
+                   v->tcp_ack_max, v->tcp_grow_rtt, v->rx_run_max, v->rx_repost);
+            v = &r->nrt_Effective;
+            Printf((CONST_STRPTR)"%s: IP=%lu ARP=%lu IPv6=%lu; posted=%lu/%lu/%lu\n",
+                   (LONG)((r->nrt_Flags & NETRXTUNE_RUNNING) ? "Active reads" : "Next-start reads"),
+                   v->ip_requests, v->arp_requests, r->nrt_Depth6,
+                   r->nrt_Posted4, r->nrt_PostedArp, r->nrt_Posted6);
+            Printf((CONST_STRPTR)"Effective ACK=%lu grow-RTT=%lu drain=%lu repost-IPv4=%lu; "
+                   "hardware=%lu bytes pool=%lu/%lu free; batch=%lu\n",
+                   v->tcp_ack_max, v->tcp_grow_rtt, v->rx_run_max, v->rx_repost,
+                   r->nrt_HardwareBytes, r->nrt_PoolFree, r->nrt_PoolTotal,
+                   (ULONG)((r->nrt_Flags & NETRXTUNE_BATCH) != 0));
+        }
+        return RETURN_OK;
+    }
+    tool_error("receive tuning could not be read back%s",
+               (LONG)(cni_tune.nrtc_Mask ? "; the requested change was applied" : ""));
+    return RETURN_FAIL;
+}
 
 /* PRIORITY= is a signed byte in the interface file (config.h) and here. */
 #define CNI_PRIORITY_MIN    (-128)
@@ -561,6 +631,9 @@ int main(int argc, char **argv)
     BOOL             want_release = FALSE;
     ULONG            timeout      = CNI_DHCP_TIMEOUT;
     BOOL             have_mtu     = FALSE;
+    BOOL             have_tuning = FALSE;
+    BOOL             tuning_valid = TRUE;
+    UWORD            argi;
     BOOL             have_priority = FALSE;
     LONG             priority     = 0;
     ULONG            mtu          = 0;
@@ -577,6 +650,7 @@ int main(int argc, char **argv)
 
     tool_break_arm();
 
+    for (argi = 0; argi < ARG_COUNT; argi++) args[argi] = 0;
     args[ARG_INTERFACE] = 0;
     args[ARG_QUIET]     = 0;
     args[ARG_ADDRESS]   = 0;
@@ -608,7 +682,9 @@ int main(int argc, char **argv)
                    "[GATEWAY <g>|NONE] [ADDRESS6 <a>] [GATEWAY6 <g>|NONE] "
                    "[MDNS YES|NO] [CONFIGURE DHCP] [CONFIGURE6 <mode>] "
                    "[RELEASE] [TIMEOUT <secs>] [MTU <bytes>] "
-                   "[ONLINE|OFFLINE|UP|DOWN] [PRIORITY <n>]",
+                   "[ONLINE|OFFLINE|UP|DOWN] [PRIORITY <n>] or TUNING, "
+                   "RESETTUNING, IPREQUESTS, ARPREQUESTS, TCPWINDOW, TCPACKMAX, "
+                   "TCPGROWRTT, RXRUNMAX, RXREPOST",
                    "Change what a running interface is addressed with.");
         return RETURN_ERROR;
     }
@@ -873,9 +949,46 @@ int main(int argc, char **argv)
         have_priority = TRUE;
     }
 
+    have_tuning = args[ARG_TUNING] != 0 || args[ARG_RESETTUNING] != 0;
+#define CNI_TUNE_ARG(arg, field, bit, max)                                   \
+    if (args[arg] != 0)                                                     \
+    {                                                                      \
+        LONG value = *(LONG *)args[arg];                                    \
+        have_tuning = TRUE;                                                \
+        if (value < 0 || (ULONG)value > (ULONG)(max)) tuning_valid = FALSE;  \
+        cni_tune.nrtc_Values.field = (ULONG)value;                           \
+        cni_tune.nrtc_Mask |= bit;                                          \
+    }
+    CNI_TUNE_ARG(ARG_IPREQUESTS, ip_requests, NETRXTUNE_IPREQUESTS, AMI_CFG_READREQUESTS_MAX)
+    CNI_TUNE_ARG(ARG_ARPREQUESTS, arp_requests, NETRXTUNE_ARPREQUESTS, AMI_CFG_READREQUESTS_MAX)
+    CNI_TUNE_ARG(ARG_TCPWINDOW, tcp_window, NETRXTUNE_TCPWINDOW, AMI_CFG_TCP_WINDOW_MAX)
+    CNI_TUNE_ARG(ARG_TCPACKMAX, tcp_ack_max, NETRXTUNE_TCPACKMAX, AMI_CFG_TCP_ACK_MAX)
+    CNI_TUNE_ARG(ARG_TCPGROWRTT, tcp_grow_rtt, NETRXTUNE_TCPGROWRTT, AMI_CFG_TCP_GROW_RTT_MAX)
+    CNI_TUNE_ARG(ARG_RXRUNMAX, rx_run_max, NETRXTUNE_RXRUNMAX, AMI_CFG_RX_RUN_MAX)
+    CNI_TUNE_ARG(ARG_RXREPOST, rx_repost, NETRXTUNE_RXREPOST, AMI_CFG_RX_REPOST_MAX)
+#undef CNI_TUNE_ARG
+    if (args[ARG_RESETTUNING] != 0)
+    {
+        if (cni_tune.nrtc_Mask != 0) tuning_valid = FALSE;
+        cni_tune.nrtc_Mask = NETRXTUNE_RESET;
+    }
+    if (have_tuning)
+    {
+        for (argi = ARG_ADDRESS; argi <= ARG_PRIORITY; argi++)
+            if (args[argi] != 0) tuning_valid = FALSE;
+        if (!tuning_valid)
+        {
+            tool_error("use tuning separately from other changes; RESETTUNING "
+                       "cannot accompany values. Counts 0..128, window "
+                       "0..16777216, ACK/RTT 0..65535; zero means automatic");
+            FreeArgs(rda);
+            return RETURN_ERROR;
+        }
+    }
+
     if (!have_address && !have_netmask && !have_gateway && !have_gateway6 &&
         !have_mdns && !want_dhcp && !want_release && !have_mtu && !have_state &&
-        !have_priority)
+        !have_priority && !have_tuning)
     {
         tool_error("nothing to change: give ADDRESS, NETMASK, GATEWAY, "
                    "GATEWAY6, MDNS, MTU, PRIORITY, CONFIGURE, RELEASE, or one "
@@ -918,6 +1031,14 @@ int main(int argc, char **argv)
         tool_netstatus_close(base);
         FreeArgs(rda);
         return RETURN_FAIL;
+    }
+
+    if (have_tuning)
+    {
+        LONG result = tuning_command(base, (UWORD)index, args);
+        tool_netstatus_close(base);
+        FreeArgs(rda);
+        return result;
     }
 
     /*

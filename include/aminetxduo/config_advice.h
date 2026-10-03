@@ -69,4 +69,6 @@
 #define AMI_CFG_SAYS_INTERFACE_DRAWER_OUT_OF_MEMORY      54
 #define AMI_CFG_SAYS_NUMERIC_IPTYPE_IGNORED              55
 
+#define AMI_CFG_ADVICE_RX_TUNING                        56
+
 #endif /* AMINETXDUO_CONFIG_ADVICE_H */

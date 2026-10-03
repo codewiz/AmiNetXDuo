@@ -488,6 +488,69 @@
              this interface only; editing the file takes effect when
              the interface is next attached.
 
+  @{b}TCPWINDOW@{ub}
+             Optional receive-window ceiling in bytes, 1 to 16777216;
+             0 (or omitted) keeps the automatic policy. Applied when
+             a new TCP connection is established, after the existing
+             pool, path, scaling and hardware limits. It can reduce
+             that window, never enlarge it. The initial handshake
+             advertisement is still the automatically chosen window.
+             RXBUFFER continues to describe the hardware capacity.
+
+  @{b}RXRUNMAX@{ub}
+             Receive drain limit in frames, 1 to 128. Zero or omitted
+             keeps the build default (128 in the standard build).
+             A queued completion is never put to sleep because this
+             limit was reached. A device batch is indivisible and may
+             take the drain beyond this limit by the rest of a batch.
+
+  @{b}RXREPOST@{ub}
+             Completed individual reads between replenishment passes,
+             1 to 128. Zero or omitted means 1: the normal immediate
+             repost before delivery. Larger values defer replenishment
+             until the interval, a full ring, or the drain end,
+             whichever comes first. Device batch requests keep their
+             own repost policy. Larger values can leave fewer reads
+             ready for arriving frames; they are experimental tuning.
+
+  @{b}Temporary receive tuning@{ub}
+
+    ConfigureNetInterface eth0 TUNING
+
+  Prints the requested settings and the actual receive depths, posted
+  counts, ACK threshold, drain limit and replenishment interval. While
+  offline, depths are the plan for the next start; online, they are the
+  allocated depths. The pool can reduce an IPREQUESTS request. The window
+  value is a ceiling; each connection's actual window also depends on
+  its path, MSS, scaling and share of the pool. Repost intervals are
+  bounded separately by each ring and by the drain limit.
+
+  Close active TCP connections on this interface before changing it:
+
+    ConfigureNetInterface eth0 OFFLINE
+    ConfigureNetInterface eth0 IPREQUESTS 16 TCPWINDOW 8192 RXRUNMAX 16 RXREPOST 1
+    ConfigureNetInterface eth0 ONLINE
+
+  Tuning is a separate command mode; do not combine it with ONLINE,
+  OFFLINE, addresses or other configuration operations. A tuning update
+  validates all supplied values before changing any of them. It is
+  refused while readers run, while a driver retains a stopped reader,
+  or while TCP connections still use the interface. Other interfaces
+  continue to use their settings, but their readers share the pool.
+
+  The temporary keys are IPREQUESTS, ARPREQUESTS, TCPWINDOW, TCPACKMAX,
+  TCPGROWRTT, RXRUNMAX and RXREPOST. Zero restores the automatic policy
+  for a key. Nothing writes the interface file. To return to the values
+  loaded when the interface was attached:
+
+    ConfigureNetInterface eth0 OFFLINE
+    ConfigureNetInterface eth0 RESETTUNING
+    ConfigureNetInterface eth0 ONLINE
+
+  RESETTUNING does not reread a subsequently edited file. A tuning tool
+  can instead save the requested values from TUNING and restore those
+  exact values. Reattach the interface to reread the file.
+
   Interface files written for Roadshow usually carry other keywords:
   COPYMODE, ALIAS, METRIC, LEASE, DHCPUNICAST, LINKSTATUSCOMMAND,
   MULTICAST, POINTTOPOINT, DESTINATION and BROADCASTADDRESS among

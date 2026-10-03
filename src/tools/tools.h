@@ -416,6 +416,9 @@ BOOL tool_wait_dhcp_bound(struct Library *base, UWORD index, ToolWait *wait,
  * which this sets. Returns 0, or -1 with *errno_out (if given) set to the
  * library's errno, ENOSYS for an operation this build cannot do.
  */
+LONG tool_netstatus_control_sized(struct Library *base, ULONG op,
+                                  NetStatusControl *ctl, ULONG size,
+                                  LONG *errno_out);
 LONG tool_netstatus_control(struct Library *base, ULONG op,
                             NetStatusControl *ctl, LONG *errno_out);
 

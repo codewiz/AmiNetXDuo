@@ -21,6 +21,7 @@
 
 #include <exec/types.h>
 #include "aminetxduo/config.h"
+#include "aminetxduo/netstatus.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -111,6 +112,12 @@ UWORD       ami_sana2_retained_sweep(BOOL release_packets);
 /* Register with an NX_IP as interface `index`. Sets additional_link_info. */
 LONG        ami_sana2_attach(AmiSana2If *iface, NX_IP *ip, UINT index);
 
+/* Called under the stack bracket; set additionally requires IP protection.
+   No allocation, device I/O or waits. Returns AMI_NET_ERR_CONFIG/BUSY. */
+LONG ami_sana2_rx_tune_set(AmiSana2If *iface, const NetRxTuneValues *values,
+                          ULONG mask);
+VOID ami_sana2_rx_tune_get(const AmiSana2If *iface, NetStatusRxTuning *out);
+
 /* Hardware facts, valid after ami_sana2_open(). */
 VOID        ami_sana2_get_mac(const AmiSana2If *iface, UCHAR mac[AMI_ETH_ADDR_SIZE]);
 ULONG       ami_sana2_get_mtu(const AmiSana2If *iface);
@@ -121,6 +128,7 @@ ULONG       ami_sana2_get_hw_rx_bytes(const AmiSana2If *iface);
 /* The interface file's TCPGROWRTT in ms, 0 = not set (bsdsocket_window.h,
    BSD_TCP_WINDOW_GROW_RTT_MS). */
 ULONG       ami_sana2_get_tcp_grow_rtt(const AmiSana2If *iface);
+ULONG       ami_sana2_get_tcp_window(const AmiSana2If *iface);
 BOOL        ami_sana2_is_online(const AmiSana2If *iface);
 
 /*

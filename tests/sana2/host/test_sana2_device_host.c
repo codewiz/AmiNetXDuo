@@ -1568,7 +1568,15 @@ static void case_tcp_grow_rtt(void)
 
     h_config();
     h_cfg.tcp_grow_rtt = 2;
+    h_cfg.tcp_window = 8192;
+    h_cfg.rx_run_max = 16;
+    h_cfg.rx_repost = 4;
     iface = ami_sana2_open(&h_cfg, &err);
+    h_check(iface != NULL && ami_sana2_get_tcp_window(iface) == 8192 &&
+            iface->rx_run_max == 16 && iface->rx_repost == 4,
+            "window, drain and replenishment settings reach the opened interface");
+    h_check(ami_sana2_get_tcp_window(NULL) == 0,
+            "a non-SANA-II socket keeps the automatic window policy");
     h_check(iface != NULL && ami_sana2_get_tcp_grow_rtt(iface) == 2UL,
             "TCPGROWRTT=2 is carried to the interface");
     /* What socket.c:bsd_tcp_window_settle does with it. */

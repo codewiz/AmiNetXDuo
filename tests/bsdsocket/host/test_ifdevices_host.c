@@ -391,9 +391,19 @@ static VOID t_unknown_selector_is_einval(VOID)
     LONG rc;
 
     h_reset();
-    rc = h_query(24, (ULONG)sizeof(h_buffer), (UWORD)AMI_NETSTATUS_VERSION);
+    rc = h_query(0xffffUL, (ULONG)sizeof(h_buffer), (UWORD)AMI_NETSTATUS_VERSION);
     CHECK(rc == -1 && h_error == AMI_EINVAL, "an unknown selector is EINVAL");
 }
+
+/* Receive tuning is tested through the real shim in test_sana2_rx. */
+LONG ami_sana2_rx_tune_set(AmiSana2If *iface, const NetRxTuneValues *v, ULONG mask)
+{ (VOID)iface; (VOID)v; (VOID)mask; return AMI_NET_ERR_CONFIG; }
+VOID ami_sana2_rx_tune_get(const AmiSana2If *iface, NetStatusRxTuning *out)
+{ (VOID)iface; memset(out, 0, sizeof(*out)); }
+UINT _txe_mutex_get(TX_MUTEX *mutex, ULONG wait)
+{ (VOID)mutex; (VOID)wait; return TX_SUCCESS; }
+UINT _txe_mutex_put(TX_MUTEX *mutex)
+{ (VOID)mutex; return TX_SUCCESS; }
 
 int main(void)
 {

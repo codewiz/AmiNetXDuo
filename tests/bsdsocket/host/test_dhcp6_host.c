@@ -544,6 +544,16 @@ static VOID t_health_reports_the_tick_catchups(VOID)
     CHECK(out->nsl_TickTicks == 99UL, "beside the ticks delivered");
 }
 
+/* Receive tuning is tested through the real shim in test_sana2_rx. */
+LONG ami_sana2_rx_tune_set(AmiSana2If *iface, const NetRxTuneValues *v, ULONG mask)
+{ (VOID)iface; (VOID)v; (VOID)mask; return AMI_NET_ERR_CONFIG; }
+VOID ami_sana2_rx_tune_get(const AmiSana2If *iface, NetStatusRxTuning *out)
+{ (VOID)iface; memset(out, 0, sizeof(*out)); }
+UINT _txe_mutex_get(TX_MUTEX *mutex, ULONG wait)
+{ (VOID)mutex; (VOID)wait; return TX_SUCCESS; }
+UINT _txe_mutex_put(TX_MUTEX *mutex)
+{ (VOID)mutex; return TX_SUCCESS; }
+
 int main(void)
 {
     printf("NETSTATUS_DHCP6 and NETSTATUS_HEALTH host tests\n");

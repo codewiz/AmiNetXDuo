@@ -93,6 +93,53 @@ extern "C" {
  */
 #define NETSTATUS_SERVICES_TYPE 20  /* NetStatusService[], one type; see above */
 
+/* Independent record/control types keep the existing version-16 ABI intact. */
+#define NETSTATUS_RXTUNING     24  /* NetStatusRxTuning[] */
+
+#define NETRXTUNE_IPREQUESTS   0x0001UL
+#define NETRXTUNE_ARPREQUESTS  0x0002UL
+#define NETRXTUNE_TCPWINDOW    0x0004UL
+#define NETRXTUNE_TCPACKMAX    0x0008UL
+#define NETRXTUNE_TCPGROWRTT   0x0010UL
+#define NETRXTUNE_RXRUNMAX     0x0020UL
+#define NETRXTUNE_RXREPOST     0x0040UL
+#define NETRXTUNE_ALL          0x007fUL
+#define NETRXTUNE_RESET        0x80000000UL
+#define NETRXTUNE_RUNNING      0x0001U
+#define NETRXTUNE_ONLINE       0x0002U
+#define NETRXTUNE_BATCH        0x0004U
+
+typedef struct NetRxTuneValues
+{
+    ULONG ip_requests;                /* all zero values mean automatic */
+    ULONG arp_requests;
+    ULONG tcp_window;                 /* ceiling, never enlarges a window */
+    ULONG tcp_ack_max;
+    ULONG tcp_grow_rtt;
+    ULONG rx_run_max;
+    ULONG rx_repost;
+} NetRxTuneValues;
+
+typedef struct NetStatusRxTuning
+{
+    UWORD nrt_Index;
+    UWORD nrt_Flags;
+    NetRxTuneValues nrt_Requested;     /* round-trippable through control */
+    NetRxTuneValues nrt_Effective;     /* depth: active, or next-start plan */
+    ULONG nrt_Depth6;
+    ULONG nrt_Posted4;
+    ULONG nrt_PostedArp;
+    ULONG nrt_Posted6;
+    ULONG nrt_HardwareBytes;           /* RXBUFFER/device fact, not a dial */
+    ULONG nrt_PoolTotal;
+    ULONG nrt_PoolFree;
+    /* Effective tcp_window remains a configured ceiling (0 = automatic).
+       Individual socket windows also depend on pool, MSS, RTT and scaling.
+       Effective rx_repost is bounded by the IPv4 depth and drain limit;
+       other rings are bounded by their own depth. Batch requests
+       retain their own repost policy. Posted counts are a point-in-time view. */
+} NetStatusRxTuning;
+
 /* Every buffer starts with this.  Truncation is detectable rather than silent:
    nsh_Count < nsh_Available. */
 typedef struct NetStatusHeader
@@ -1048,6 +1095,20 @@ typedef struct NetStatusControl
        here must refuse rather than send a short one. */
     char    nsc_File[NETSTATUS_FILE_LEN];
 } NetStatusControl;
+
+/* Offline-only, atomic masked update. RESET alone restores the configuration
+   loaded at attachment. Neither operation writes configuration files. Read
+   NETSTATUS_RXTUNING first to save values, then restore with NETRXTUNE_ALL.
+   EBUSY for an online/running/orphaned reader or active TCP connections.
+   Zero restores automatic policy for a field. Unknown mask bits fail. */
+#define NETCTRL_INTERFACE_RXTUNING 28
+
+typedef struct NetStatusRxTuneControl
+{
+    NetStatusControl nrtc_Control;
+    ULONG nrtc_Mask;
+    NetRxTuneValues nrtc_Values;
+} NetStatusRxTuneControl;
 
 #ifdef __cplusplus
 }

@@ -881,6 +881,10 @@ struct AmiSana2If
     ULONG               hw_rx_bytes;
     /* TCPGROWRTT in ms, 0 = BSD_TCP_WINDOW_GROW_RTT_MS (bsdsocket_window.h). */
     UWORD               tcp_grow_rtt;
+    ULONG               tcp_window;
+    ULONG               tcp_ack_max;     /* requested, zero = device default */
+    UWORD               rx_run_max;
+    UWORD               rx_repost;
 
     /* The interface file's IPREQUESTS, ARPREQUESTS (0 = the plan decides)
        and WRITEREQUESTS (1..AMI_SANA2_TX_SLOTS: how many of tx[] are
@@ -1080,6 +1084,7 @@ VOID ami_sana2_gro_flush(AmiSana2Rx *rx);
 UWORD ami_sana2_rx_post_batch(AmiSana2Rx *rx, AmiRxBatch *bt);
 UWORD ami_sana2_rx_drain_batch(AmiSana2Reader *rd, AmiRxBatch *bt);
 #endif
+UWORD ami_sana2_rx_drain(AmiSana2Reader *rd, UWORD budget);
 VOID  ami_sana2_rx_abort_outstanding(AmiSana2Reader *rd);
 #endif
 

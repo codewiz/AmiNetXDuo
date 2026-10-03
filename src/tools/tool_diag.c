@@ -1575,18 +1575,25 @@ LONG tool_configure_interface(struct Library *base, const char *name,
 LONG tool_netstatus_control(struct Library *base, ULONG op,
                             NetStatusControl *ctl, LONG *errno_out)
 {
+    return tool_netstatus_control_sized(base, op, ctl, sizeof(*ctl), errno_out);
+}
+
+LONG tool_netstatus_control_sized(struct Library *base, ULONG op,
+                                  NetStatusControl *ctl, ULONG size,
+                                  LONG *errno_out)
+{
     LONG rc;
 
     if (errno_out != NULL)
         *errno_out = 0;
 
-    if (base == NULL || ctl == NULL)
+    if (base == NULL || ctl == NULL || size < sizeof(*ctl))
         return -1;
 
     ctl->nsc_Magic   = AMI_NETSTATUS_MAGIC;
     ctl->nsc_Version = (UWORD)AMI_NETSTATUS_VERSION;
 
-    rc = tool_call_netstatus_control(base, op, ctl, sizeof(NetStatusControl));
+    rc = tool_call_netstatus_control(base, op, ctl, size);
     if (rc < 0 && errno_out != NULL)
         *errno_out = tool_call_errno(base);
 

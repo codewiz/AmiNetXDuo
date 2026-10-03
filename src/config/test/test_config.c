@@ -1236,6 +1236,32 @@ static void test_request_counts_have_ceilings(void)
     CHECK(seen[1].line == 4);
     CHECK(seen[1].severity == AMI_CFG_PROBLEM_WARN);
 }
+static void test_interface_rx_tuning(void)
+{
+    AmiIfConfig iface;
+    char *buf;
+    buf = dup_text("device = a2065.device\nconfigure = dhcp\n"
+                   "tcpwindow=32768\nrxrunmax=16\nrxrepost=4\n");
+    CHECK(ami_cfg_parse_interface("eth0", buf, &iface) == AMI_CFG_OK);
+    CHECK(iface.tcp_window == 32768 && iface.rx_run_max == 16 && iface.rx_repost == 4);
+    free(buf);
+    seen_count = 0;
+    ami_config_set_reporter(collect, NULL);
+    buf = dup_text("device = a2065.device\nconfigure = dhcp\n"
+                   "tcpwindow=16777217\nrxrunmax=129\nrxrepost=-1\n");
+    CHECK(ami_cfg_parse_interface("eth0", buf, &iface) == AMI_CFG_OK);
+    CHECK(seen_count == 3);
+    CHECK(iface.tcp_window == 0 && iface.rx_run_max == 0 && iface.rx_repost == 0);
+    free(buf);
+    seen_count = 0;
+    buf = dup_text("device = a2065.device\nconfigure = dhcp\n"
+                   "tcpwindow=0\nrxrunmax=0\nrxrepost=0\n");
+    CHECK(ami_cfg_parse_interface("eth0", buf, &iface) == AMI_CFG_OK);
+    CHECK(seen_count == 0);
+    free(buf);
+    ami_config_set_reporter(NULL, NULL);
+}
+
 static void test_interface_tcp_ack_max(void)
 {
     AmiIfConfig iface;
@@ -4349,6 +4375,7 @@ int main(int argc, char **argv)
     test_numeric_iptype_is_reported_inert();
     test_inert_keywords_are_notes();
     test_request_counts_have_ceilings();
+    test_interface_rx_tuning();
     test_interface_tcp_ack_max();
     test_interface_tcp_grow_rtt();
     test_interface_priority();

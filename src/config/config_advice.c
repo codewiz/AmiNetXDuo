@@ -133,6 +133,9 @@ static const char *const ami_cfg_advice_text[] =
     "TCPGROWRTT is milliseconds, 1 to 65535. Leave it out for 10.",
     "there was not enough memory to read the interface drawer",
     "numeric IPTYPE is accepted for compatibility but ignored",
+    "TCPWINDOW is a receive-window ceiling in bytes, 1 to 16777216. "
+    "RXRUNMAX and RXREPOST are frame counts, 1 to 128. Zero selects "
+    "the automatic window, the default drain limit or immediate reposting.",
 };
 
 const char *ami_cfg_advice(UWORD code)

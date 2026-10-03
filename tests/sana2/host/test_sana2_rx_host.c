@@ -5,6 +5,7 @@
  */
 
 #include "sana2_internal.h"
+#include "aminetxduo/netstack.h"
 #include "aminetxduo/anxs2ext.h"
 
 /* BeginIO(), which the transmit path posts with; the shim declares it and
@@ -24,6 +25,12 @@ UWORD ami_sana2_default_ip_reads(const char *device)
 {
     (VOID)device;
     return h_default_ip_reads;
+}
+
+ULONG ami_sana2_default_tcp_ack_max(const char *device)
+{
+    (VOID)device;
+    return 0;
 }
 
 static void h_check(int ok, const char *what)
@@ -57,7 +64,8 @@ VOID Permit(VOID)  { }
 
 VOID SendIO(struct IORequest *req) { (VOID)req; }
 static struct IORequest *h_last_begun;
-VOID BeginIO(struct IORequest *req) { h_last_begun = req; }
+static unsigned h_begun;
+VOID BeginIO(struct IORequest *req) { h_last_begun = req; h_begun++; }
 
 /* What the teardown asked the device to give back, in order. */
 static struct IORequest *h_aborted[16];
@@ -226,12 +234,15 @@ static ULONG       h_seen_length;
 static UCHAR       h_seen_first;
 static NX_INTERFACE *h_seen_interface;
 
+static unsigned h_delivery_posts[8], h_delivery_count;
+
 static void h_record(NX_PACKET *packet, Destination where)
 {
 #ifdef AMINETXDUO_GRO_PER_FLOW
     if (where == TO_IP && h_ip_packets_count < 32)
         h_ip_packets[h_ip_packets_count++] = packet;
 #endif
+    if (h_delivery_count < 8) h_delivery_posts[h_delivery_count++] = h_begun;
     h_went           = where;
     h_seen_length    = packet->nx_packet_length;
     h_seen_first     = packet->nx_packet_prepend_ptr[0];
@@ -321,10 +332,19 @@ UINT _nxe_packet_release(NX_PACKET **packet_ptr_ptr)
     return NX_SUCCESS;
 }
 
+static NX_PACKET *h_allocate_packets;
+static unsigned h_allocate_left;
+
 UINT _nxe_packet_allocate(NX_PACKET_POOL *pool, NX_PACKET **packet,
                           ULONG packet_type, ULONG wait_option)
 {
     (VOID)pool; (VOID)packet_type; (VOID)wait_option;
+    if (h_allocate_left != 0)
+    {
+        h_allocate_left--;
+        *packet = h_allocate_packets++;
+        return NX_SUCCESS;
+    }
     *packet = NULL;
     return NX_NO_PACKET;
 }
@@ -2423,8 +2443,176 @@ static void test_reclaim_zombie_and_dropped_packets(void)
     h_free_watch       = NULL;
 }
 
+static void test_repost_interval(void)
+{
+    static AmiRxSlot slots[4];
+    static NX_PACKET packets[4], replacements[4];
+    static UCHAR bytes[8][256];
+    struct MsgPort port;
+    AmiSana2Rx *rx;
+    unsigned arm, i;
+    static const UWORD intervals[] = { 0, 1, 2, 128 };
+
+    for (arm = 0; arm < 4; arm++)
+    {
+        fixture_init();
+        memset(slots, 0, sizeof(slots));
+        memset(packets, 0, sizeof(packets));
+        memset(replacements, 0, sizeof(replacements));
+        memset(bytes, 0, sizeof(bytes));
+        memset(&port, 0, sizeof(port));
+        blk_empty(&port.mp_MsgList);
+        iface.online = TRUE;
+        iface.raw_mode = TRUE;
+        iface.rx_repost = intervals[arm];
+        iface.reader.iface = &iface;
+        iface.reader.port = &port;
+        rx = &iface.rx[0];
+        rx->iface = &iface;
+        rx->reader = &iface.reader;
+        rx->slot = slots;
+        rx->depth = 4;
+        rx->packet_type = AMI_ETHERTYPE_ARP;
+        for (i = 0; i < 4; i++)
+        {
+            struct Node *node = &slots[i].req.ios2_Req.io_Message.mn_Node;
+            slots[i].owner = rx;
+            slots[i].stats = &iface.stats;
+            slots[i].packet = &packets[i];
+            slots[i].posted = TRUE;
+            slots[i].capacity = 254;
+            slots[i].copied = 60;
+            slots[i].req.ios2_DataLength = 60;
+            packets[i].nx_packet_prepend_ptr = bytes[i] + AMI_SANA2_RX_PAD;
+            packets[i].nx_packet_data_start = bytes[i];
+            packets[i].nx_packet_data_end = bytes[i] + 256;
+            bytes[i][AMI_SANA2_RX_PAD + 12] = 0x08;
+            bytes[i][AMI_SANA2_RX_PAD + 13] = 0x06;
+            replacements[i].nx_packet_data_start = bytes[4 + i];
+            replacements[i].nx_packet_data_end = bytes[4 + i] + 256;
+            node->ln_Succ = (struct Node *)&port.mp_MsgList.lh_Tail;
+            node->ln_Pred = port.mp_MsgList.lh_TailPred;
+            port.mp_MsgList.lh_TailPred->ln_Succ = node;
+            port.mp_MsgList.lh_TailPred = node;
+        }
+        h_allocate_packets = replacements;
+        h_allocate_left = 4;
+        h_getmsg_real = TRUE;
+        h_begun = h_delivery_count = 0;
+        h_check(ami_sana2_rx_drain(&iface.reader, 3) == 3,
+                "a short runtime drain leaves the rest queued");
+        h_check(h_delivery_count == 3 && h_begun == 3 && rx->unposted == 0,
+                "every deferred read is replenished before the drain returns");
+        h_check(!ami_sana2_rx_should_block(&iface.reader, 3),
+                "reaching the drain limit never sleeps on a queued completion");
+        if (intervals[arm] <= 1)
+            h_check(h_delivery_posts[0] == 1 && h_delivery_posts[2] == 3,
+                    "default repost still precedes every delivery");
+        else if (intervals[arm] == 2)
+            h_check(h_delivery_posts[0] == 0 && h_delivery_posts[1] == 2 &&
+                    h_delivery_posts[2] == 2,
+                    "an interval of two replenishes both reads before second delivery");
+        else
+            h_check(h_delivery_posts[0] == 0 && h_delivery_posts[2] == 0,
+                    "a larger interval is bounded by the drain even below ring depth");
+        h_check(ami_sana2_rx_drain(&iface.reader, 3) == 1 && h_begun == 4,
+                "the last completion drains and reposts without new traffic");
+        h_getmsg_real = FALSE;
+        h_allocate_left = 0;
+    }
+}
+
+static void test_rx_tuning(void)
+{
+    NetStatusRxTuning before, after;
+    NetRxTuneValues values;
+    NX_PACKET_POOL pool;
+    unsigned i;
+    static const ULONG invalid[] = { 129, 129, 16777217, 65536, 65536, 129, 129 };
+
+    fixture_init();
+    memset(&pool, 0, sizeof(pool));
+    pool.nx_packet_pool_total = 128;
+    pool.nx_packet_pool_available = 120;
+    iface.pool = &pool;
+    iface.interface_ptr = &interface_obj;
+    iface.bps = 10000000;
+    memset(&before, 0, sizeof(before));
+    ami_sana2_rx_tune_get(&iface, &before);
+    h_check(before.nrt_Effective.rx_repost == 1 &&
+            before.nrt_Effective.rx_run_max == AMI_SANA2_RX_RUN_MAX,
+            "automatic tuning retains immediate repost and the default drain");
+    values = before.nrt_Requested;
+    values.ip_requests = 128;
+    values.arp_requests = 2;
+    values.tcp_window = 8192;
+    values.tcp_ack_max = 2920;
+    values.tcp_grow_rtt = 20;
+    values.rx_run_max = 8;
+    values.rx_repost = 4;
+    h_check(ami_sana2_rx_tune_set(&iface, &values, NETRXTUNE_ALL) == AMI_NET_OK,
+            "an offline interface accepts a full tuning snapshot");
+    memset(&after, 0, sizeof(after));
+    ami_sana2_rx_tune_get(&iface, &after);
+    h_check(memcmp(&after.nrt_Requested, &values, sizeof(values)) == 0,
+            "requested values round-trip without losing automatic markers");
+    h_check(after.nrt_Effective.ip_requests < values.ip_requests &&
+            after.nrt_Effective.tcp_ack_max == 2920,
+            "readback reports pool clamping and applied ACK policy");
+    for (i = 0; i < 7; i++)
+    {
+        NetRxTuneValues bad = values;
+        switch (i)
+        {
+            case 0: bad.ip_requests = invalid[i]; break;
+            case 1: bad.arp_requests = invalid[i]; break;
+            case 2: bad.tcp_window = invalid[i]; break;
+            case 3: bad.tcp_ack_max = invalid[i]; break;
+            case 4: bad.tcp_grow_rtt = invalid[i]; break;
+            case 5: bad.rx_run_max = invalid[i]; break;
+            default: bad.rx_repost = invalid[i]; break;
+        }
+        bad.ip_requests = i == 0 ? bad.ip_requests : 4;
+        h_check(ami_sana2_rx_tune_set(&iface, &bad, NETRXTUNE_ALL) == AMI_NET_ERR_CONFIG,
+                "an out-of-range field rejects the whole update");
+        ami_sana2_rx_tune_get(&iface, &after);
+        h_check(memcmp(&after.nrt_Requested, &values, sizeof(values)) == 0,
+                "failed validation changes no other field");
+    }
+    h_check(ami_sana2_rx_tune_set(&iface, &values, NETRXTUNE_ALL | 128) == AMI_NET_ERR_CONFIG,
+            "unknown mask bits fail closed");
+    iface.online = TRUE;
+    h_check(ami_sana2_rx_tune_set(&iface, &before.nrt_Requested, NETRXTUNE_ALL) == AMI_NET_ERR_BUSY,
+            "online readers cannot be retuned");
+    iface.online = FALSE;
+    iface.rx_orphaned = TRUE;
+    h_check(ami_sana2_rx_tune_set(&iface, &before.nrt_Requested, NETRXTUNE_ALL) == AMI_NET_ERR_BUSY,
+            "retained readers cannot be retuned");
+    iface.rx_orphaned = FALSE;
+    values.rx_repost = 128;
+    h_check(ami_sana2_rx_tune_set(&iface, &values, NETRXTUNE_RXREPOST) == AMI_NET_OK,
+            "a larger requested repost interval is accepted");
+    ami_sana2_rx_tune_get(&iface, &after);
+    h_check(after.nrt_Requested.rx_repost == 128 &&
+            after.nrt_Effective.rx_repost == 8,
+            "effective repost interval reports the shorter drain bound");
+    values.tcp_window = 0;
+    h_check(ami_sana2_rx_tune_set(&iface, &values, NETRXTUNE_TCPWINDOW) == AMI_NET_OK &&
+            iface.rx_run_max == 8 && iface.tcp_window == 0,
+            "a masked automatic reset preserves the other controls");
+    h_check(ami_sana2_rx_tune_set(&iface, &before.nrt_Requested, NETRXTUNE_ALL) == AMI_NET_OK,
+            "the saved snapshot can be restored");
+    ami_sana2_rx_tune_get(&iface, &after);
+    h_check(memcmp(&before.nrt_Requested, &after.nrt_Requested,
+                   sizeof(before.nrt_Requested)) == 0,
+            "restoration includes the automatic settings");
+    iface.pool = NULL;
+}
+
 int main(void)
 {
+    test_repost_interval();
+    test_rx_tuning();
 #ifdef AMINETXDUO_RX_BATCH
     test_batch_post_and_drain();
     test_batch_fallback_with_a_sibling_in_flight();

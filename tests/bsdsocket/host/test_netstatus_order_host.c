@@ -353,11 +353,82 @@ static VOID t_openers_before_bracket(VOID)
           "the counts taken outside reach the record");
 }
 
+static unsigned h_tune_calls;
+static ULONG h_tune_mask;
+static NetRxTuneValues h_tune_values;
+LONG ami_sana2_rx_tune_set(AmiSana2If *iface, const NetRxTuneValues *v, ULONG mask)
+{
+    (VOID)iface;
+    CHECK(h_depth == 1, "tuning mutation runs inside the stack bracket");
+    h_tune_calls++;
+    h_tune_values = *v;
+    h_tune_mask = mask;
+    return AMI_NET_OK;
+}
+VOID ami_sana2_rx_tune_get(const AmiSana2If *iface, NetStatusRxTuning *out)
+{
+    (VOID)iface;
+    memset(out, 0, sizeof(*out));
+    out->nrt_Requested = h_tune_values;
+}
+UINT _txe_mutex_get(TX_MUTEX *mutex, ULONG wait)
+{ (VOID)mutex; (VOID)wait; return TX_SUCCESS; }
+UINT _txe_mutex_put(TX_MUTEX *mutex)
+{ (VOID)mutex; return TX_SUCCESS; }
+
+static void t_tuning_control(void)
+{
+    NetStatusRxTuneControl ctl;
+    NX_TCP_SOCKET tcp;
+    LONG rc;
+    h_reset();
+    memset(&ctl, 0, sizeof(ctl));
+    memset(&tcp, 0, sizeof(tcp));
+    h_tune_calls = 0;
+    ctl.nrtc_Control.nsc_Magic = AMI_NETSTATUS_MAGIC;
+    ctl.nrtc_Control.nsc_Version = AMI_NETSTATUS_VERSION;
+    ctl.nrtc_Mask = NETRXTUNE_TCPWINDOW;
+    ctl.nrtc_Values.tcp_window = 8192;
+    h_ip.nx_ip_interface[0].nx_interface_valid = NX_TRUE;
+    h_ip.nx_ip_interface[0].nx_interface_additional_link_info = &h_cfg[0];
+    strcpy(h_cfg[0].device, "a2065.device");
+    h_cfg[0].ip_requests = 16;
+    h_cfg[0].rx_repost = 4;
+    rc = bsd_NetStackControl(AMI_NETSTATUS_MAGIC, NETCTRL_INTERFACE_RXTUNING,
+                             &ctl, sizeof(NetStatusControl), &h_base);
+    CHECK(rc == -1 && h_tune_calls == 0, "short extended payload rejected before mutation");
+    rc = bsd_NetStackControl(AMI_NETSTATUS_MAGIC, NETCTRL_INTERFACE_RXTUNING,
+                             &ctl, sizeof(ctl), &h_base);
+    CHECK(rc == 0 && h_tune_calls == 1 && h_tune_values.tcp_window == 8192 &&
+          h_tune_mask == NETRXTUNE_TCPWINDOW, "masked payload reaches the shim intact");
+    h_ip.nx_ip_tcp_created_sockets_count = 1;
+    h_ip.nx_ip_tcp_created_sockets_ptr = &tcp;
+    tcp.nx_tcp_socket_created_next = &tcp;
+    tcp.nx_tcp_socket_connect_interface = &h_ip.nx_ip_interface[0];
+    tcp.nx_tcp_socket_state = NX_TCP_ESTABLISHED;
+    rc = bsd_NetStackControl(AMI_NETSTATUS_MAGIC, NETCTRL_INTERFACE_RXTUNING,
+                             &ctl, sizeof(ctl), &h_base);
+    CHECK(rc == -1 && h_error == AMI_EBUSY && h_tune_calls == 1,
+          "an active connection prevents temporary retuning");
+    tcp.nx_tcp_socket_state = NX_TCP_TIMED_WAIT;
+    ctl.nrtc_Mask = NETRXTUNE_RESET;
+    rc = bsd_NetStackControl(AMI_NETSTATUS_MAGIC, NETCTRL_INTERFACE_RXTUNING,
+                             &ctl, sizeof(ctl), &h_base);
+    CHECK(rc == 0 && h_tune_mask == NETRXTUNE_ALL && h_tune_values.ip_requests == 16 &&
+          h_tune_values.rx_repost == 4 && h_tune_values.tcp_window == 0,
+          "reset restores loaded configuration, including automatic window");
+    CHECK(h_cfg[0].tcp_window == 0, "temporary changes never overwrite saved config");
+    CHECK(h_query(NETSTATUS_RXTUNING, sizeof(h_buffer), AMI_NETSTATUS_VERSION) == 1,
+          "readback reports attached SANA-II interfaces only");
+    CHECK(h_depth == 0, "tuning leaves the stack bracket on all paths");
+}
+
 int main(void)
 {
     printf("NETSTATUS_SYSTEM opener order host tests\n");
 
     t_openers_before_bracket();
+    t_tuning_control();
 
     printf("system_order checks=%lu failures=%lu\n", h_checks, h_failures);
     return h_failures == 0 ? 0 : 1;

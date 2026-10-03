@@ -220,6 +220,13 @@ VOID bsd_tcp_window_settle(NX_TCP_SOCKET *tcp, ULONG rtt_ms)
         want = ami_bsd_tcp_window_fit(want, ami_sana2_get_hw_rx_bytes(sana),
                                       tcp->nx_tcp_socket_connect_mss);
 
+    /* A user ceiling never raises the pool/path/hardware-derived window. */
+    {
+        ULONG limit = ami_sana2_get_tcp_window(sana);
+        if (limit != 0 && want > limit)
+            want = limit;
+    }
+
     if (want == cur)
         return;
     if (want > cur)
