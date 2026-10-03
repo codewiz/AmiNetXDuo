@@ -43,10 +43,30 @@ Validated locally
   warnings as errors, with optional TX features both enabled and disabled.
 - SweepRx cross-build, resident diagnostic-string gate and diff whitespace.
 
-Hardware validation remains
----------------------------
-No emulator, remote rig or hardware throughput measurements were run for these
-changes. Coordinate with any existing tester before using a rig.
+Initial hardware findings and fixes
+-----------------------------------
+Claude Code tested 914926ec on the PiStorm32 A1200/CM4 GENET interface. Automatic
+settings reached 728 Mbit/s median; the completed smaller-depth/window trials
+were slower. The sweep aborted at trial 16/30 with EBUSY during apply and
+restoration. Manual recovery worked; the original installation and both
+interfaces were verified restored. No complete sweep or improvement established.
+Raw evidence: playhouse3:~/ai/claudecode-sweeprx-results.
+
+The follow-up waits for closing TCP connections ONLINE before changing settings,
+and returns online before any EBUSY retry. Normal drain uses WAIT (30 seconds
+by default); restoration has a fresh 60-second budget and ignores cancellation.
+NETSTATUS_SOCK_ACCEPT_IDLE marks SYN_RECEIVED sockets with no NetX peer binding;
+both RX/TX controls and SweepRx permit these idle accepts without permitting
+real handshakes. Socket record size/state values stay unchanged. Use the updated
+library with the tool. The recovery script also retries online, CSV uses the
+full device-path selector, and the ReadMe explains script output redirection.
+Focused validation: sanitized online-drain/retry/cancellation/timeout tests,
+155 socket-status/control checks (including real IPv6 handshakes), and Release
+m68k SweepRx/bsdsocket.library builds with warnings as errors. The native socket
+fixture uses 32-bit Amiga scalar types with host pointers; no hardware implied.
+
+These fixes still need a hardware rerun. Coordinate with the existing tester
+before using the rig.
 
 1. Verify dry-run and a small sweep on a real interface. Capture requested and
    effective values, raw CSV, console output, driver identity and build.

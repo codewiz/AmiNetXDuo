@@ -5,6 +5,9 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ## Unreleased
 
+- SweepRx waits for TCP closure with the interface online, retries busy tuning
+  changes and recovery online, and permits idle HTTP/SSH accept sockets.
+  CSV metadata retains the full device path; recovery scripts retry up to twelve times.
 - TLS rejects truncated or inconsistent Certificate and CertificateRequest
   messages before reading beyond their declared contents.
 - TLS 1.3 Finished-key derivation stays within its destination buffers.

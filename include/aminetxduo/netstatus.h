@@ -686,6 +686,7 @@ typedef struct NetStatusDest6
 
 /* nso_Flags */
 #define NETSTATUS_SOCK_TCP      0x0001  /* clear means UDP                   */
+#define NETSTATUS_SOCK_ACCEPT_IDLE 0x0002 /* armed accept, no peer bound      */
 
 typedef struct NetStatusSocket
 {

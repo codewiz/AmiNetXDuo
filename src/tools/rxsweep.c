@@ -2,6 +2,32 @@
 #include "rxsweep.h"
 #include <string.h>
 
+int rxsweep_change(const RxSweepChangeOps *ops, void *ctx,
+                   const RxSweepValues *values, int restoring, uint32_t timeout_ms)
+{
+    uint32_t started = ops->millis(ctx);
+    int rc;
+    if (ops->online(ctx, 1)) return -1;
+    for (;;) {
+        if (!restoring && ops->stopped(ctx)) return -1;
+        rc = ops->busy(ctx);
+        if (rc < 0) return -1;
+        if (!rc) {
+            if (ops->online(ctx, 0)) {
+                (void)ops->online(ctx, 1);
+                return -1;
+            }
+            rc = ops->write(ctx, values);
+            /* A connection can race the idle snapshot. Never wait for its
+               close (or retry a driver-busy result) with the link offline. */
+            if (ops->online(ctx, 1)) return -1;
+            if (rc <= 0) return rc;
+        }
+        if ((uint32_t)(ops->millis(ctx) - started) >= timeout_ms) return -1;
+        ops->pause(ctx);
+    }
+}
+
 int rxsweep_list(const char *s, uint32_t max, RxSweepList *out)
 {
     RxSweepList list = {{0}, 0};

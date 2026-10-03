@@ -3,6 +3,8 @@ SweepRx - initial TCP receive tuning sweep
 Run SweepRx on the Amiga, from a LOCAL Shell. It needs a running AmiNetXDuo
 with receive tuning support and an online, up interface with an IPv4 address.
 Close active TCP clients, including remote Shell, browser, SMB and FTP sessions.
+Idle listening servers may stay running; use the matching library build so
+SweepRx can distinguish an armed accept from a real TCP handshake.
 Do not change interface settings or run another benchmark during the sweep.
 Other interfaces share the packet pool, so keep their traffic quiet too.
 
@@ -65,6 +67,10 @@ SweepRx writes a CSV file and a sibling .restore AmigaDOS script BEFORE its
 first interface change. Use a local disk path instead of RAM: to retain them
 across reboot. Each trial takes the interface offline, applies all seven
 settings, brings it online, waits one second and checks requested readback.
+Before going offline, SweepRx waits for TCP connections to finish closing
+while the interface is still online (up to WAIT seconds). If applying settings
+returns busy, it brings the interface online before retrying. Restoration has
+a separate 60-second drain/retry budget and ignores Ctrl-C during that budget.
 The listener binds the selected interface's IPv4 address, not the wildcard.
 The interface must keep that address throughout the sweep.
 
@@ -77,6 +83,8 @@ After a crash or failed restoration, close network clients and run locally:
 
 This restores the saved temporary values, which may differ from the config
 file's values. It does not use RESETTUNING or rewrite any configuration file.
+The recovery script retries up to twelve times, waiting five seconds online
+before each attempt; it reports failure if the settings cannot be restored.
 No candidate is automatically kept or made permanent. A second SweepRx is
 refused while one runs. After a process crash, reboot before another sweep if
 the command still reports an existing sweep.
@@ -105,6 +113,15 @@ baseline medians and those medians differ by no more than about ten percent.
 The candidate order rotates between repetitions to spread gradual drift.
 Treat a small gain or wide variation as noise: repeat the sweep, then test
 normal applications. The tool does not claim statistical significance.
+
+To retain output when launching from a script, put the redirection on SweepRx
+itself inside that script (not only on Run or Execute):
+
+  SweepRx eth0 TO=RAM:eth0-sweep.csv >RAM:eth0-sweep.log
+
+The default grid is a first comparison, not an exhaustive search. Check the
+effective columns: automatic read depth can exceed 16 (GENET may use 128).
+Use explicit IPREQUESTS lists around that effective value for further tests.
 
 TCPWINDOW caps established connections; the initial SYN/SYN-ACK window remains
 automatic. Its effective column is the configured cap, not the per-socket

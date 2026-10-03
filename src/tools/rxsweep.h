@@ -35,4 +35,17 @@ int rxsweep_plan(RxSweepPlan *, const RxSweepList lists[RXSWEEP_KNOBS]);
 uint32_t rxsweep_median(const RxSweepScores *);
 /* 0 complete, -1 stopped/failed, -2 restoration failed. Always restores. */
 int rxsweep_run(const RxSweepPlan *, RxSweepResults *, const RxSweepOps *, void *);
+
+typedef struct {
+    int (*online)(void *, int online); /* 0 success, -1 failure */
+    int (*busy)(void *);              /* 0 idle, 1 active TCP, -1 query failure */
+    int (*write)(void *, const RxSweepValues *); /* 0 success, 1 busy, -1 failure */
+    int (*stopped)(void *);
+    uint32_t (*millis)(void *);
+    void (*pause)(void *);            /* yield briefly, always while online */
+} RxSweepChangeOps;
+/* Drain while ONLINE, offline/write/online, retry EBUSY while ONLINE.
+   Bounded even during recovery, which ignores cancellation. */
+int rxsweep_change(const RxSweepChangeOps *, void *, const RxSweepValues *,
+                   int restoring, uint32_t timeout_ms);
 #endif

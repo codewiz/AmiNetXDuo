@@ -1366,6 +1366,23 @@ static VOID ns_fill_routes(NX_IP *ip, NsWriter *w)
  * The created-socket lists are singly linked and circular too, so the walk is
  * bounded by the count NetX Duo keeps rather than by a NULL that never comes.
  */
+/* NetX accept(NX_NO_WAIT) enters SYN_RECEIVED before a SYN arrives.
+   bound_next distinguishes that idle accept from a real handshake (IPv4 or
+   IPv6); peer addresses/ports alone are not a reliable discriminator. */
+static BOOL ns_tcp_accept_idle(const NX_TCP_SOCKET *sock)
+{
+    return sock->nx_tcp_socket_state == NX_TCP_SYN_RECEIVED &&
+           sock->nx_tcp_socket_bound_next == NX_NULL;
+}
+
+static BOOL ns_tcp_active(const NX_TCP_SOCKET *sock)
+{
+    return sock->nx_tcp_socket_state != NX_TCP_CLOSED &&
+           sock->nx_tcp_socket_state != NX_TCP_LISTEN_STATE &&
+           sock->nx_tcp_socket_state != NX_TCP_TIMED_WAIT &&
+           !ns_tcp_accept_idle(sock);
+}
+
 static VOID ns_fill_sockets(NX_IP *ip, NsWriter *w)
 {
     ULONG n;
@@ -1381,6 +1398,8 @@ static VOID ns_fill_sockets(NX_IP *ip, NsWriter *w)
             if (out != NULL)
             {
                 out->nso_Flags       = NETSTATUS_SOCK_TCP;
+                if (ns_tcp_accept_idle(sock))
+                    out->nso_Flags |= NETSTATUS_SOCK_ACCEPT_IDLE;
                 out->nso_LocalPort   = (UWORD)sock->nx_tcp_socket_port;
                 out->nso_PeerPort    = (UWORD)sock->nx_tcp_socket_connect_port;
                 out->nso_State       = (UWORD)sock->nx_tcp_socket_state;
@@ -2092,10 +2111,7 @@ LONG bsd_NetStackControl(register ULONG magic __asm("d0"),
             tcp = ip->nx_ip_tcp_created_sockets_ptr;
             for (n = 0; n < ip->nx_ip_tcp_created_sockets_count && tcp != NULL; n++)
             {
-                if (tcp->nx_tcp_socket_connect_interface == nxif &&
-                    tcp->nx_tcp_socket_state != NX_TCP_CLOSED &&
-                    tcp->nx_tcp_socket_state != NX_TCP_LISTEN_STATE &&
-                    tcp->nx_tcp_socket_state != NX_TCP_TIMED_WAIT)
+                if (tcp->nx_tcp_socket_connect_interface == nxif && ns_tcp_active(tcp))
                     result = AMI_EBUSY;
                 tcp = tcp->nx_tcp_socket_created_next;
             }
@@ -2156,10 +2172,7 @@ LONG bsd_NetStackControl(register ULONG magic __asm("d0"),
             tcp = ip->nx_ip_tcp_created_sockets_ptr;
             for (n = 0; n < ip->nx_ip_tcp_created_sockets_count && tcp != NULL; n++)
             {
-                if (tcp->nx_tcp_socket_connect_interface == nxif &&
-                    tcp->nx_tcp_socket_state != NX_TCP_CLOSED &&
-                    tcp->nx_tcp_socket_state != NX_TCP_LISTEN_STATE &&
-                    tcp->nx_tcp_socket_state != NX_TCP_TIMED_WAIT)
+                if (tcp->nx_tcp_socket_connect_interface == nxif && ns_tcp_active(tcp))
                     result = AMI_EBUSY;
                 tcp = tcp->nx_tcp_socket_created_next;
             }

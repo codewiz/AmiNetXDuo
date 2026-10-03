@@ -488,6 +488,54 @@ static void t_tx_tuning_control(void)
     CHECK(h_depth == 0, "tuning leaves the stack bracket on all paths");
 }
 
+static void t_idle_accept(void)
+{
+    NetStatusRxTuneControl rx;
+    NetStatusTxTuneControl tx;
+    NX_TCP_SOCKET tcp;
+    NetStatusSocket *row = (NetStatusSocket *)(h_buffer + sizeof(NetStatusHeader));
+    unsigned state, bound;
+    h_reset();
+    memset(&rx, 0, sizeof(rx));
+    memset(&tx, 0, sizeof(tx));
+    memset(&tcp, 0, sizeof(tcp));
+    rx.nrtc_Control.nsc_Magic = AMI_NETSTATUS_MAGIC;
+    rx.nrtc_Control.nsc_Version = AMI_NETSTATUS_VERSION;
+    tx.nttc_Control = rx.nrtc_Control;
+    rx.nrtc_Mask = NETRXTUNE_ALL;
+    tx.nttc_Mask = NETTXTUNE_ALL;
+    h_ip.nx_ip_interface[0].nx_interface_valid = NX_TRUE;
+    h_ip.nx_ip_interface[0].nx_interface_additional_link_info = &h_cfg[0];
+    h_ip.nx_ip_tcp_created_sockets_count = 1;
+    h_ip.nx_ip_tcp_created_sockets_ptr = &tcp;
+    tcp.nx_tcp_socket_created_next = &tcp;
+    tcp.nx_tcp_socket_connect_interface = &h_ip.nx_ip_interface[0];
+    /* A wildcard IPv4 view must not hide a real IPv6 handshake. */
+    tcp.nx_tcp_socket_connect_ip.nxd_ip_version = NX_IP_VERSION_V6;
+    for (state = NX_TCP_CLOSED; state <= NX_TCP_LAST_ACK; ++state) {
+        for (bound = 0; bound <= 1; ++bound) {
+            int idle = state == NX_TCP_SYN_RECEIVED && !bound;
+            int busy = state != NX_TCP_CLOSED && state != NX_TCP_LISTEN_STATE &&
+                       state != NX_TCP_TIMED_WAIT && !idle;
+            tcp.nx_tcp_socket_state = state;
+            tcp.nx_tcp_socket_bound_next = bound ? &tcp : NULL;
+            CHECK(h_query(NETSTATUS_SOCKETS, sizeof(h_buffer), AMI_NETSTATUS_VERSION) == 1,
+                  "socket snapshot available");
+            CHECK(row->nso_State == state &&
+                  !!(row->nso_Flags & NETSTATUS_SOCK_ACCEPT_IDLE) == idle,
+                  "idle flag distinguishes armed accept from real handshake without changing state ABI");
+            CHECK(bsd_NetStackControl(AMI_NETSTATUS_MAGIC, NETCTRL_INTERFACE_RXTUNING,
+                                      &rx, sizeof(rx), &h_base) == (busy ? -1 : 0),
+                  "RX tuning allows idle accepts but blocks live and closing TCP");
+            if (busy) CHECK(h_error == AMI_EBUSY, "RX active refusal is EBUSY");
+            CHECK(bsd_NetStackControl(AMI_NETSTATUS_MAGIC, NETCTRL_INTERFACE_TXTUNING,
+                                      &tx, sizeof(tx), &h_base) == (busy ? -1 : 0),
+                  "TX tuning uses the same passive-open distinction");
+            if (busy) CHECK(h_error == AMI_EBUSY, "TX active refusal is EBUSY");
+        }
+    }
+}
+
 int main(void)
 {
     printf("NETSTATUS_SYSTEM opener order host tests\n");
@@ -495,6 +543,7 @@ int main(void)
     t_openers_before_bracket();
     t_tuning_control();
     t_tx_tuning_control();
+    t_idle_accept();
 
     printf("system_order checks=%lu failures=%lu\n", h_checks, h_failures);
     return h_failures == 0 ? 0 : 1;

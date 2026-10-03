@@ -26,6 +26,7 @@ static RxSweepList lists[RXSWEEP_KNOBS];
 static struct { NetStatusHeader h; NetStatusInterface r[NX_MAX_PHYSICAL_INTERFACES]; } interfaces;
 static struct { NetStatusHeader h; NetStatusRxTuning r[NX_MAX_PHYSICAL_INTERFACES]; } tuning;
 static struct { NetStatusHeader h; NetStatusSocket r[256]; } sockets;
+static struct { NetStatusHeader h; NetStatusIfDevice r[NX_MAX_PHYSICAL_INTERFACES]; } devices;
 static NetStatusRxTuneControl control;
 static NetStatusRxTuning effective;
 static NetStatusInterface original, before, after;
@@ -41,6 +42,7 @@ static UWORD index_if;
 static ULONG wait_seconds = 30;
 static BOOL cancelled;
 static char recovery[300], address[16];
+static char device[NETSTATUS_FILE_LEN];
 
 static VOID pack(RxSweepValues *d, const NetRxTuneValues *s)
 {
@@ -90,33 +92,68 @@ static BOOL set_state(LONG state)
     tool_error("interface state change failed (error %ld)", err);
     return FALSE;
 }
-static int apply(void *ctx, const RxSweepValues *values, int restoring)
+/* No interface index in this selector: require all TCP clients to drain.
+   The library marks armed accepts using NetX's actual peer binding, including
+   IPv6. Do not infer an idle listener just from a wildcard IPv4 address. */
+static int tcp_busy(void *ctx)
 {
-    LONG err = 0, rc = -1;
-    ULONG tries;
-    RxSweepValues got;
+    LONG j, n;
     (VOID)ctx;
-    /* Both normal changes and recovery use the same path. Ignore Ctrl-C
-       during recovery and bring the interface online even if tuning failed. */
-    if (!set_state(SM_Offline)) {
-        if (restoring) (VOID)set_state(SM_Online);
+    n = tool_netstatus_query(sb, NETSTATUS_SOCKETS, &sockets, sizeof(sockets), sizeof(NetStatusSocket));
+    if (n < 0 || n > 256 || sockets.h.nsh_Count < sockets.h.nsh_Available) {
+        tool_error("cannot check active TCP clients");
         return -1;
     }
+    for (j = 0; j < n; ++j)
+        if ((sockets.r[j].nso_Flags & NETSTATUS_SOCK_TCP) &&
+            sockets.r[j].nso_State != NETSTATUS_TCP_CLOSED &&
+            sockets.r[j].nso_State != NETSTATUS_TCP_LISTEN &&
+            sockets.r[j].nso_State != NETSTATUS_TCP_TIMED_WAIT &&
+            !(sockets.r[j].nso_State == NETSTATUS_TCP_SYN_RECEIVED &&
+              (sockets.r[j].nso_Flags & NETSTATUS_SOCK_ACCEPT_IDLE))) return 1;
+    return 0;
+}
+static int change_online(void *ctx, int online)
+{
+    (VOID)ctx;
+    return set_state(online ? SM_Online : SM_Offline) ? 0 : -1;
+}
+static uint32_t change_millis(void *ctx)
+{
+    (VOID)ctx;
+    return ami_millis();
+}
+static void change_pause(void *ctx)
+{
+    (VOID)ctx;
+    Delay(5);
+}
+static int change_write(void *ctx, const RxSweepValues *values)
+{
+    LONG err = 0;
+    (VOID)ctx;
     memset(&control, 0, sizeof(control));
     control.nrtc_Control.nsc_Index = index_if;
     control.nrtc_Mask = NETRXTUNE_ALL;
     unpack(&control.nrtc_Values, values);
-    /* A just-closed receiver may still be finishing its TCP close. */
-    for (tries = 0; tries < 50; ++tries) {
-        rc = tool_netstatus_control_sized(sb, NETCTRL_INTERFACE_RXTUNING,
-                    &control.nrtc_Control, sizeof(control), &err);
-        if (!rc || err != 16 /* BSD EBUSY */) break;
-        if (!restoring && stopped(NULL)) break;
-        Delay(5);
+    if (!tool_netstatus_control_sized(sb, NETCTRL_INTERFACE_RXTUNING,
+                    &control.nrtc_Control, sizeof(control), &err)) return 0;
+    if (err == 16 /* BSD EBUSY */) return 1;
+    tool_error("cannot apply receive settings (error %ld)", err);
+    return -1;
+}
+static int apply(void *ctx, const RxSweepValues *values, int restoring)
+{
+    RxSweepValues got;
+    static const RxSweepChangeOps change = {
+        change_online, tcp_busy, change_write, stopped, change_millis, change_pause
+    };
+    /* Recovery gets its own longer budget, even after timeout or Ctrl-C. */
+    if (rxsweep_change(&change, ctx, values, restoring,
+                       restoring ? 60000UL : wait_seconds * 1000UL)) {
+        tool_error("receive settings change failed or TCP drain timed out; close network clients");
+        return -1;
     }
-    if (rc) tool_error("cannot apply receive settings (error %ld); close other network clients", err);
-    if (!set_state(SM_Online)) return -1;
-    if (rc) return -1;
     /* Give link/driver state a second to settle, also on slow cards. */
     if (restoring) Delay(50);
     else if (tool_delay_ticks(50)) { cancelled = TRUE; return -1; }
@@ -150,7 +187,7 @@ static int measure(void *ctx, RxSweepSample *sample)
         }
         state = iperf_slice(&run);
     }
-    iperf_end(&run, &result); /* close every socket before the next OFFLINE */
+    iperf_end(&run, &result); /* next apply waits ONLINE for asynchronous close */
     if (failed || state == IPERF_FAILED) {
         tool_error("receive stopped or timed out; check the peer (error %ld)", result.err);
         return -1;
@@ -213,7 +250,7 @@ static VOID print_values(const RxSweepValues *v)
 static BOOL write_recovery(const char *path)
 {
     BPTR f;
-    unsigned k;
+    unsigned k, attempt;
     BOOL ok;
     if (strlen(path) + sizeof(".restore") > sizeof(recovery)) return FALSE;
     strcpy(recovery, path); strcat(recovery, ".restore");
@@ -222,13 +259,19 @@ static BOOL write_recovery(const char *path)
     }
     f = Open((CONST_STRPTR)recovery, MODE_NEWFILE);
     if (!f) return FALSE;
-    ok = file_printf(f, "; Restore the settings saved by SweepRx. Execute locally.\n"
-                      "FailAt 21\nConfigureNetInterface %s OFFLINE\n"
-                      "ConfigureNetInterface %s", (LONG)ifname, (LONG)ifname);
-    for (k = 0; k < RXSWEEP_KNOBS; ++k)
-        ok = file_printf(f, " %s=%lu", (LONG)keys[k], (ULONG)sweep.saved.v[k]) && ok;
-    ok = file_printf(f, "\nIF WARN\n Echo \"Tuning restore failed; close network clients and retry.\"\nENDIF\n"
-                       "ConfigureNetInterface %s ONLINE\n", (LONG)ifname) && ok;
+    ok = file_printf(f, "; Restore saved settings locally, with bounded ONLINE drain retries.\n"
+                      "FailAt 21\nConfigureNetInterface %s ONLINE\n", (LONG)ifname);
+    for (attempt = 0; attempt < 12; ++attempt) {
+        ok = file_printf(f, "Wait 5 SECS\nConfigureNetInterface %s OFFLINE\n"
+                           "ConfigureNetInterface %s", (LONG)ifname, (LONG)ifname) && ok;
+        for (k = 0; k < RXSWEEP_KNOBS; ++k)
+            ok = file_printf(f, " %s=%lu", (LONG)keys[k], (ULONG)sweep.saved.v[k]) && ok;
+        ok = file_printf(f, "\nIF NOT WARN\n ConfigureNetInterface %s ONLINE\n"
+                           " IF NOT WARN\n  Skip SwRxDone\n ENDIF\nENDIF\n"
+                           "ConfigureNetInterface %s ONLINE\n", (LONG)ifname, (LONG)ifname) && ok;
+    }
+    ok = file_printf(f, "Echo \"RESTORATION FAILED; close network clients and retry.\"\n"
+                       "Quit 20\nLab SwRxDone\nEcho \"Original settings restored; interface online.\"\n") && ok;
     if (!Close(f)) ok = FALSE;
     return ok;
 }
@@ -250,7 +293,7 @@ int main(int argc, char **argv)
     struct RDArgs *rda;
     unsigned k, i, best = RXSWEEP_CASES;
     ULONG top = 0, b0, b1;
-    LONG rc = RETURN_FAIL, n, j;
+    LONG rc = RETURN_FAIL, n;
     const char *path;
     static const RxSweepOps ops = {apply, measure, record, stopped};
     (VOID)argv;
@@ -326,23 +369,23 @@ int main(int argc, char **argv)
     if (args[A_DRY]) { rc = RETURN_OK; goto done; }
     /* This selector has no interface index; conservatively require all TCP
        clients to be closed. Do not silently disrupt a live Shell session. */
-    n = tool_netstatus_query(sb, NETSTATUS_SOCKETS, &sockets, sizeof(sockets), sizeof(NetStatusSocket));
-    if (n < 0 || n > 256 || sockets.h.nsh_Count < sockets.h.nsh_Available) {
-        tool_error("cannot check active TCP clients"); goto done;
+    if (tcp_busy(NULL)) {
+        tool_error("close active TCP clients before running the sweep locally"); goto done;
     }
-    for (j = 0; j < n; ++j)
-        if ((sockets.r[j].nso_Flags & NETSTATUS_SOCK_TCP) &&
-            sockets.r[j].nso_State != NETSTATUS_TCP_CLOSED &&
-            sockets.r[j].nso_State != NETSTATUS_TCP_LISTEN &&
-            sockets.r[j].nso_State != NETSTATUS_TCP_TIMED_WAIT) {
-            tool_error("close active TCP clients before running the sweep locally"); goto done;
+    strcpy(device, original.nsi_Device);
+    n = tool_netstatus_query(sb, NETSTATUS_IFDEVICES, &devices, sizeof(devices), sizeof(NetStatusIfDevice));
+    for (i = 0; n > 0 && i < (unsigned)n && i < NX_MAX_PHYSICAL_INTERFACES; ++i)
+        if (devices.r[i].nsd_Index == index_if) {
+            memcpy(device, devices.r[i].nsd_Device, sizeof(device));
+            device[sizeof(device) - 1] = '\0';
+            break;
         }
     if (!write_recovery(path)) { tool_error("cannot save recovery script"); goto done; }
     csv = Open((CONST_STRPTR)path, MODE_NEWFILE);
     if (!csv) { tool_fault(IoErr()); goto done; }
     if (!file_printf(csv, "# SweepRx schema=1 version=" AMINETXDUO_VERSION " interface=%s address=%s device=%s unit=%lu time=%lu repeats=%lu\n"
         "phase,case,repeat,valid,bits_per_sec,ms,bytes_hi,bytes_lo",
-        (LONG)ifname, (LONG)address, (LONG)original.nsi_Device, original.nsi_Unit,
+        (LONG)ifname, (LONG)address, (LONG)device, original.nsi_Unit,
         plan.seconds, (ULONG)sweep.repeats)) goto done;
     for (k = 0; k < RXSWEEP_KNOBS; ++k)
         if (!file_printf(csv, ",requested_%s", (LONG)keys[k])) goto done;
