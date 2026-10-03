@@ -29,7 +29,7 @@
 # upstream version numbers in the tree.  Bumping a submodule means editing the
 # matching line here, in the same commit, on purpose.
 set(AMINETXDUO_NETXDUO_VERSION_PIN "6.5.1")
-set(AMINETXDUO_THREADX_VERSION_PIN "6.5.1")
+set(AMINETXDUO_THREADX_VERSION_PIN "6.5.2")
 
 # --------------------------------------------------------------- reading ----
 
