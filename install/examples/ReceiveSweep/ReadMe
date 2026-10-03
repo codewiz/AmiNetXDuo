@@ -1,0 +1,124 @@
+SweepRx - initial TCP receive tuning sweep
+
+Run SweepRx on the Amiga, from a LOCAL Shell. It needs a running AmiNetXDuo
+with receive tuning support and an online, up interface with an IPv4 address.
+Close active TCP clients, including remote Shell, browser, SMB and FTP sessions.
+Do not change interface settings or run another benchmark during the sweep.
+Other interfaces share the packet pool, so keep their traffic quiet too.
+
+Copy rx-sweep-peer.py to a second machine on the same LAN. It needs Python 3
+and no extra packages. Replace 192.168.1.50 with the chosen Amiga interface's
+address. Start the sender there:
+
+  python3 rx-sweep-peer.py 192.168.1.50
+
+Then on the Amiga (replace eth0 with your interface name):
+
+  SweepRx eth0 DRYRUN
+  SweepRx eth0 TO=RAM:eth0-sweep.csv
+
+The sender retries while the interface is offline between trials. Stop it with
+Ctrl-C when SweepRx has finished; it also stops after 1800 seconds by default.
+Use --duration 3600 for a longer sweep, and matching --port / PORT options if
+5001 is occupied. The peer sends only to the specified address and port.
+Keep the peer/path faster than the Amiga; a limited sender masks improvements.
+Its sent-byte counts include queued data: the Amiga's receive counts are the
+measurement. This sender is for TCP receive trials, not an iperf3 server.
+
+Defaults and bounds
+
+The default grid is IPREQUESTS=0,8,16 crossed with TCPWINDOW=0,16384,65536.
+All other knobs keep their saved requested values. Every candidate is run
+three times for ten seconds, with three original-settings baseline trials
+before and after. An exact duplicate of the original settings is skipped.
+The default sweep takes roughly five to seven minutes on a responsive LAN.
+Trials use fresh TCP connections and the same blocking 64 KB receive path as
+iperf. Timing starts with the first received bytes and includes TCP startup;
+there is no excluded warmup interval in this first version.
+
+Every tuning knob accepts a comma-separated list (quote it if your Shell
+requires that). Zero means automatic, including when restoring settings.
+
+  IPREQUESTS, ARPREQUESTS       0..128
+  TCPWINDOW                    0..16777216 bytes
+  TCPACKMAX, TCPGROWRTT         0..65535
+  RXRUNMAX, RXREPOST            0..128
+
+At most eight distinct values per list and 64 combinations before removal of
+an original-settings duplicate. REPEATS must be odd, 1..9 (default 3).
+TIME is 1..120 seconds (default 10). WAIT is 1..300 seconds (default 30):
+the total trial deadline is WAIT + TIME + five seconds of allowance.
+PORT is 1..65535 (default 5001). DRYRUN prints the plan, writes no files and
+changes no settings; TO is required for a real sweep. Existing results and
+recovery files are never deliberately overwritten; use a new TO path.
+
+Refine the best depth/window combination in a smaller second sweep, e.g.:
+
+  SweepRx eth0 TO=RAM:eth0-refine.csv IPREQUESTS=16 TCPWINDOW=16384 RXREPOST=1,2,4 RXRUNMAX=16,64,128
+
+Those numbers illustrate the syntax; they are not recommendations for a card.
+You can then vary TCPACKMAX and TCPGROWRTT with depth/window held fixed.
+
+Results and recovery
+
+SweepRx writes a CSV file and a sibling .restore AmigaDOS script BEFORE its
+first interface change. Use a local disk path instead of RAM: to retain them
+across reboot. Each trial takes the interface offline, applies all seven
+settings, brings it online, waits one second and checks requested readback.
+The listener binds the selected interface's IPv4 address, not the wildcard.
+The interface must keep that address throughout the sweep.
+
+Original requested values are restored and the interface brought online on
+completion, Ctrl-C, missing peer, write error or other handled failure. A
+restoration failure is reported prominently and the command returns failure.
+After a crash or failed restoration, close network clients and run locally:
+
+  Execute RAM:eth0-sweep.csv.restore
+
+This restores the saved temporary values, which may differ from the config
+file's values. It does not use RESETTUNING or rewrite any configuration file.
+No candidate is automatically kept or made permanent. A second SweepRx is
+refused while one runs. After a process crash, reboot before another sweep if
+the command still reports an existing sweep.
+
+The CSV begins with a # metadata line; skip comment lines in CSV readers.
+A final # status marker distinguishes a complete sweep from an aborted run;
+a missing marker means the file may be incomplete.
+phase 0 is the opening baseline, 1 a candidate, 2 the closing baseline.
+case is a zero-based plan index for phase 1. Requested and effective columns
+are separate: the pool may clamp read depth; automatic policies resolve at
+runtime. Hardware bytes, packet pool counts and batch mode are included.
+Effective values and pool availability are sampled before each measurement.
+bytes_hi/bytes_lo are the two halves of the 64-bit byte count.
+
+valid=0 means a short/zero-rate trial or a rise in receive errors, overruns or
+packet allocation failures (or interface identity/address change). All repeats
+must be valid to rank a candidate. Medians and each raw trial are printed;
+redirect console output to retain the summary as well. An aborted sweep keeps
+its completed rows, returns failure, and makes no recommendation. Receive
+error counters do not include all possible network loss: TCP retransmissions,
+CPU load and latency are not measured in this version. A high throughput
+result alone is not evidence of correct payload delivery or good latency.
+
+The final report names a best measured candidate only when it beats both valid
+baseline medians and those medians differ by no more than about ten percent.
+The candidate order rotates between repetitions to spread gradual drift.
+Treat a small gain or wide variation as noise: repeat the sweep, then test
+normal applications. The tool does not claim statistical significance.
+
+TCPWINDOW caps established connections; the initial SYN/SYN-ACK window remains
+automatic. Its effective column is the configured cap, not the per-socket
+advertisement after pool/MSS/RTT/scaling constraints. RXBUFFER describes the
+card's actual capacity and is not swept. Device batch reads keep their own
+repost policy; RXREPOST may consequently have little effect in batch mode.
+This first version supports one interface and IPv4 TCP receive at a time.
+
+Transmit controls
+
+ConfigureNetInterface INTERFACE TXTUNING reports independent transmit knobs:
+WRITEREQUESTS (outstanding writes), TXRUNMAX (frames per transmit run), and
+TXREAP (completion collection policy). They can be changed temporarily while
+the interface is offline and fully drained, with no active TCP clients.
+RESETTXTUNING restores their attachment-time values. See the user guide for
+ranges, requested/effective readback and hardware/build fallbacks. SweepRx's
+current grid still measures receive and changes only the seven receive knobs.

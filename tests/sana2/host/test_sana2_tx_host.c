@@ -5,6 +5,7 @@
  */
 
 #include "sana2_internal.h"
+#include "aminetxduo/netstack.h"
 #include "aminetxduo/anxs2ext.h"
 
 /* BeginIO(), which the transmit path posts with; the shim declares it and
@@ -1231,9 +1232,129 @@ static void test_full_ring_queues_in_order(void)
             "and released every write that waited");
 }
 
+static void test_tx_tuning(void)
+{
+    NetTxTuneValues v = {4, 8, 1};
+    NetStatusTxTuning out;
+    fixture_init(FALSE, S2WireType_Ethernet);
+    h_check(ami_sana2_tx_tune_set(&iface, &v, NETTXTUNE_ALL) == AMI_NET_ERR_BUSY,
+            "online TX tuning is refused");
+    iface.online = FALSE;
+    h_check(ami_sana2_tx_tune_set(&iface, &v, 0) == AMI_NET_ERR_CONFIG,
+            "empty TX mask refused");
+    h_check(ami_sana2_tx_tune_set(&iface, &v, 8) == AMI_NET_ERR_CONFIG,
+            "unknown TX mask refused");
+    v.tx_reap = 3;
+    h_check(ami_sana2_tx_tune_set(&iface, &v, NETTXTUNE_ALL) == AMI_NET_ERR_CONFIG &&
+            iface.tx_slots == AMI_SANA2_TX_SLOTS && iface.tx_run_max == 0,
+            "bad collection mode leaves the whole candidate unchanged");
+    v.tx_reap = 1;
+    iface.tx[AMI_SANA2_TX_SLOTS - 1].busy = TRUE;
+    h_check(ami_sana2_tx_tune_set(&iface, &v, NETTXTUNE_ALL) == AMI_NET_ERR_BUSY,
+            "cannot shrink a ring past a retained write");
+    iface.tx[AMI_SANA2_TX_SLOTS - 1].busy = FALSE;
+    iface.tx_pend_count = 1;
+    h_check(ami_sana2_tx_tune_set(&iface, &v, NETTXTUNE_ALL) == AMI_NET_ERR_BUSY,
+            "pending frames prevent retuning");
+    iface.tx_pend_count = 0;
+    iface.tx_orphaned = TRUE;
+    h_check(ami_sana2_tx_tune_set(&iface, &v, NETTXTUNE_ALL) == AMI_NET_ERR_BUSY,
+            "orphaned writes prevent retuning");
+    iface.tx_orphaned = FALSE;
+#ifdef AMINETXDUO_TX_RUN
+    iface.tx_flush_busy = 1;
+    h_check(ami_sana2_tx_tune_set(&iface, &v, NETTXTUNE_ALL) == AMI_NET_ERR_BUSY,
+            "a retained run flush prevents retuning");
+    iface.tx_flush_busy = 0;
+#endif
+    h_check(ami_sana2_tx_tune_set(&iface, &v, NETTXTUNE_ALL) == AMI_NET_OK,
+            "a drained offline interface accepts the candidate");
+    ami_sana2_tx_tune_get(&iface, &out);
+    h_check(out.ntt_Requested.write_requests == 4 && out.ntt_Effective.write_requests == 4 &&
+            out.ntt_Requested.tx_run_max == 8 && out.ntt_Effective.tx_run_max == 1 &&
+            out.ntt_Effective.tx_reap == 1 && out.ntt_MaxWrites == AMI_SANA2_TX_SLOTS,
+            "requested values round-trip, unavailable runs report immediate fallback");
+    v.write_requests = AMI_CFG_WRITEREQUESTS_MAX + 1;
+    h_check(ami_sana2_tx_tune_set(&iface, &v, NETTXTUNE_WRITEREQUESTS) == AMI_NET_ERR_CONFIG,
+            "write count cannot exceed this build's slots");
+    v.write_requests = 0;
+    h_check(ami_sana2_tx_tune_set(&iface, &v, NETTXTUNE_WRITEREQUESTS) == AMI_NET_OK &&
+            iface.tx_run_max == 8 && iface.tx_reap == 1,
+            "masked reset of write count preserves the other knobs");
+    ami_sana2_tx_tune_get(&iface, &out);
+    h_check(out.ntt_Requested.write_requests == 0 &&
+            out.ntt_Effective.write_requests == AMI_SANA2_TX_SLOTS,
+            "automatic depth is preserved separately from effective depth");
+#ifdef AMINETXDUO_TX_LAZY_COLLECT
+    ami_sana2_tx_lazy_start(&iface);
+    h_check(!iface.tx_lazy_timer_up, "immediate policy does not create a lazy timer");
+#endif
+    v.tx_reap = 2;
+    h_check(ami_sana2_tx_tune_set(&iface, &v, NETTXTUNE_TXREAP) == AMI_NET_OK,
+            "explicit lazy request is retained, including on a build without it");
+    ami_sana2_tx_tune_get(&iface, &out);
+#ifdef AMINETXDUO_TX_LAZY_COLLECT
+    h_check(out.ntt_Effective.tx_reap == 2, "offline readback predicts lazy collection");
+    iface.online = TRUE;
+    ami_sana2_tx_tune_get(&iface, &out);
+    h_check(out.ntt_Effective.tx_reap == 1, "online without a timer reports immediate fallback");
+    ami_sana2_tx_lazy_start(&iface);
+    ami_sana2_tx_tune_get(&iface, &out);
+    h_check(out.ntt_Effective.tx_reap == 2, "live timer enables requested lazy collection");
+    ami_sana2_tx_lazy_stop(&iface);
+#else
+    h_check(out.ntt_Effective.tx_reap == 1, "build without lazy collection reports fallback");
+#endif
+}
+
+#ifdef AMINETXDUO_TX_RUN
+static void test_run_cap(void)
+{
+    unsigned i;
+    fixture_init(FALSE, S2WireType_Ethernet);
+    iface.tx_quick_ok = TRUE; iface.tx_more_ok = 1; h_quick_kept = 1;
+    iface.tx_run_max = 3;
+    ami_sana2_tx_run_begin(&iface);
+    for (i = 0; i < 7; ++i)
+    {
+        packet_init(arp_frame, ARP_LEN);
+        (VOID)ami_sana2_tx_send(&iface, &pkt, AMI_ETHERTYPE_ARP, 0xFFFF, 0xFFFFFFFF);
+        h_check(h_flushes == (i + 1) / 3, "each complete three-write group is flushed immediately");
+    }
+    ami_sana2_tx_run_end(&iface);
+    h_check(h_flushes == 3 && iface.tx_held == 0 && iface.tx_run_count == 0,
+            "end flushes the partial group, resetting its counter");
+    iface.tx_run_max = 1;
+    ami_sana2_tx_run_begin(&iface);
+    packet_init(arp_frame, ARP_LEN);
+    (VOID)ami_sana2_tx_send(&iface, &pkt, AMI_ETHERTYPE_ARP, 0xFFFF, 0xFFFFFFFF);
+    h_check(iface.tx_holder == NULL &&
+            !(ami_sana2_tx_flags(sent_req()->ios2_Data) & ANXD_S2_TXF_MORE),
+            "cap one disables run batching without renegotiating the driver");
+    iface.tx_run_max = 2;
+    ami_sana2_tx_run_begin(&iface);
+    h_flush_error = IOERR_NOCMD;
+    for (i = 0; i < 2; ++i)
+    {
+        packet_init(arp_frame, ARP_LEN);
+        (VOID)ami_sana2_tx_send(&iface, &pkt, AMI_ETHERTYPE_ARP, 0xFFFF, 0xFFFFFFFF);
+    }
+    packet_init(arp_frame, ARP_LEN);
+    (VOID)ami_sana2_tx_send(&iface, &pkt, AMI_ETHERTYPE_ARP, 0xFFFF, 0xFFFFFFFF);
+    h_check(iface.tx_more_ok == 0 &&
+            !(ami_sana2_tx_flags(sent_req()->ios2_Data) & ANXD_S2_TXF_MORE),
+            "failed mid-run flush disables MORE on subsequent writes in the same bracket");
+    ami_sana2_tx_run_end(&iface);
+}
+#endif
+
 int main(void)
 {
     frames_init();
+    test_tx_tuning();
+#ifdef AMINETXDUO_TX_RUN
+    test_run_cap();
+#endif
     test_quick_write_completes_inline();
 #ifdef AMINETXDUO_TX_RUN
     test_run_flags_and_flushes();

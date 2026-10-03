@@ -854,6 +854,7 @@ struct AmiSana2If
     UBYTE               tx_flush_busy;  /* the flush request is queued at
                                            the device (never with ours: the
                                            command is quick)                 */
+    UWORD               tx_run_count;  /* writes since the last run boundary */
     TX_THREAD          *tx_holder;      /* the run's opener, NULL outside    */
     struct IOSana2Req   tx_flush_req;   /* ANXD_CMD_TX_FLUSH, reply on
                                            tx_port, told apart by command    */
@@ -892,6 +893,9 @@ struct AmiSana2If
     UWORD               rx_want_ip;
     UWORD               rx_want_arp;
     UWORD               tx_slots;
+    UWORD               tx_want_slots; /* preserves zero/automatic */
+    UWORD               tx_run_max;
+    UWORD               tx_reap;
     ULONG               hw_type;
     UWORD               addr_bits;
     UWORD               addr_bytes;     /* 6 for Ethernet, 0 if addressless */

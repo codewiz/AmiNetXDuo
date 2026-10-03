@@ -23,7 +23,8 @@ static const char version_tag[] __attribute__((used)) =
                     "ONLINE/S,OFFLINE/S,UP/S,DOWN/S,PRIORITY/K/N,"          \
                     "TUNING/S,RESETTUNING/S,IPREQUESTS/K/N,ARPREQUESTS/K/N," \
                     "TCPWINDOW/K/N,TCPACKMAX/K/N,TCPGROWRTT/K/N,"           \
-                    "RXRUNMAX/K/N,RXREPOST/K/N"
+                    "RXRUNMAX/K/N,RXREPOST/K/N,TXTUNING/S,RESETTXTUNING/S," \
+                    "WRITEREQUESTS/K/N,TXRUNMAX/K/N,TXREAP/K/N"
 
 enum
 {
@@ -54,8 +55,62 @@ enum
     ARG_TCPGROWRTT,
     ARG_RXRUNMAX,
     ARG_RXREPOST,
+    ARG_TXTUNING,
+    ARG_RESETTXTUNING,
+    ARG_WRITEREQUESTS,
+    ARG_TXRUNMAX,
+    ARG_TXREAP,
     ARG_COUNT
 };
+
+static NetStatusTxTuneControl cni_tx_tune;
+static struct
+{
+    NetStatusHeader hdr;
+    NetStatusTxTuning rows[NX_MAX_PHYSICAL_INTERFACES];
+} cni_tx_tuning;
+
+static LONG tx_tuning_command(struct Library *base, UWORD index, LONG *args)
+{
+    LONG err = 0, n, i;
+    if (cni_tx_tune.nttc_Mask != 0)
+    {
+        cni_tx_tune.nttc_Control.nsc_Index = index;
+        if (tool_netstatus_control_sized(base, NETCTRL_INTERFACE_TXTUNING,
+                &cni_tx_tune.nttc_Control, sizeof(cni_tx_tune), &err) != 0)
+        {
+            if (err == 16)
+                tool_error("TX tuning requires OFFLINE, drained writes and no active TCP connections; nothing changed");
+            else
+                tool_error("TX tuning refused (error %ld); the library must support TX tuning", err);
+            return RETURN_FAIL;
+        }
+    }
+    n = tool_netstatus_query(base, NETSTATUS_TXTUNING, &cni_tx_tuning,
+                             sizeof(cni_tx_tuning), sizeof(NetStatusTxTuning));
+    for (i = 0; i < n && i < NX_MAX_PHYSICAL_INTERFACES; ++i)
+    {
+        NetStatusTxTuning *r = &cni_tx_tuning.rows[i];
+        NetTxTuneValues *v = &r->ntt_Requested;
+        if (r->ntt_Index != index) continue;
+        if (args[ARG_QUIET] == 0)
+        {
+            Printf((CONST_STRPTR)"WRITEREQUESTS=%lu TXRUNMAX=%lu TXREAP=%lu\n",
+                   v->write_requests, v->tx_run_max, v->tx_reap);
+            v = &r->ntt_Effective;
+            Printf((CONST_STRPTR)"%s: writes=%lu/%lu run=%lu reap=%lu; outstanding=%lu pending=%lu\n",
+                   (LONG)((r->ntt_Flags & NETTXTUNE_ONLINE) ? "Active TX" : "Next-start TX"),
+                   v->write_requests, r->ntt_MaxWrites, v->tx_run_max, v->tx_reap,
+                   r->ntt_Outstanding, r->ntt_Pending);
+            Printf((CONST_STRPTR)"Run available=%lu lazy collection built=%lu; run 0=full bracket, 1=immediate; reap 1=immediate, 2=lazy\n",
+                   (ULONG)((r->ntt_Flags & NETTXTUNE_RUN_AVAILABLE) != 0),
+                   (ULONG)((r->ntt_Flags & NETTXTUNE_LAZY_BUILT) != 0));
+        }
+        return RETURN_OK;
+    }
+    tool_error("TX tuning readback failed%s", (LONG)(cni_tx_tune.nttc_Mask ? "; the change was applied" : ""));
+    return RETURN_FAIL;
+}
 
 static NetStatusRxTuneControl cni_tune;
 static struct
@@ -632,6 +687,7 @@ int main(int argc, char **argv)
     ULONG            timeout      = CNI_DHCP_TIMEOUT;
     BOOL             have_mtu     = FALSE;
     BOOL             have_tuning = FALSE;
+    BOOL             have_tx_tuning = FALSE;
     BOOL             tuning_valid = TRUE;
     UWORD            argi;
     BOOL             have_priority = FALSE;
@@ -684,7 +740,8 @@ int main(int argc, char **argv)
                    "[RELEASE] [TIMEOUT <secs>] [MTU <bytes>] "
                    "[ONLINE|OFFLINE|UP|DOWN] [PRIORITY <n>] or TUNING, "
                    "RESETTUNING, IPREQUESTS, ARPREQUESTS, TCPWINDOW, TCPACKMAX, "
-                   "TCPGROWRTT, RXRUNMAX, RXREPOST",
+                   "TCPGROWRTT, RXRUNMAX, RXREPOST, TXTUNING, RESETTXTUNING, "
+                   "WRITEREQUESTS, TXRUNMAX, TXREAP",
                    "Change what a running interface is addressed with.");
         return RETURN_ERROR;
     }
@@ -972,15 +1029,38 @@ int main(int argc, char **argv)
         if (cni_tune.nrtc_Mask != 0) tuning_valid = FALSE;
         cni_tune.nrtc_Mask = NETRXTUNE_RESET;
     }
+    have_tx_tuning = args[ARG_TXTUNING] != 0 || args[ARG_RESETTXTUNING] != 0;
+#define CNI_TX_ARG(arg, field, bit, max)                                    \
+    if (args[arg] != 0)                                                     \
+    {                                                                      \
+        LONG value = *(LONG *)args[arg];                                    \
+        have_tx_tuning = TRUE;                                             \
+        if (value < 0 || (ULONG)value > (ULONG)(max)) tuning_valid = FALSE;  \
+        cni_tx_tune.nttc_Values.field = (ULONG)value;                        \
+        cni_tx_tune.nttc_Mask |= bit;                                       \
+    }
+    CNI_TX_ARG(ARG_WRITEREQUESTS, write_requests, NETTXTUNE_WRITEREQUESTS, AMI_CFG_WRITEREQUESTS_MAX)
+    CNI_TX_ARG(ARG_TXRUNMAX, tx_run_max, NETTXTUNE_TXRUNMAX, AMI_CFG_TX_RUN_MAX)
+    CNI_TX_ARG(ARG_TXREAP, tx_reap, NETTXTUNE_TXREAP, AMI_CFG_TX_REAP_MAX)
+#undef CNI_TX_ARG
+    if (args[ARG_RESETTXTUNING] != 0)
+    {
+        if (cni_tx_tune.nttc_Mask != 0) tuning_valid = FALSE;
+        cni_tx_tune.nttc_Mask = NETTXTUNE_RESET;
+    }
+    /* Separate atomic transactions; never partially apply a mixed RX/TX command. */
+    if (have_tuning && have_tx_tuning) tuning_valid = FALSE;
+    have_tuning = have_tuning || have_tx_tuning;
     if (have_tuning)
     {
         for (argi = ARG_ADDRESS; argi <= ARG_PRIORITY; argi++)
             if (args[argi] != 0) tuning_valid = FALSE;
         if (!tuning_valid)
         {
-            tool_error("use tuning separately from other changes; RESETTUNING "
-                       "cannot accompany values. Counts 0..128, window "
-                       "0..16777216, ACK/RTT 0..65535; zero means automatic");
+            tool_error("use RX or TX tuning separately from other changes; resets cannot accompany values. "
+                       "RX counts/TXRUNMAX 0..128, window 0..16777216, ACK/RTT 0..65535, "
+                       "writes 0..%lu, TXREAP 0..2; zero means automatic",
+                       (ULONG)AMI_CFG_WRITEREQUESTS_MAX);
             FreeArgs(rda);
             return RETURN_ERROR;
         }
@@ -1035,7 +1115,8 @@ int main(int argc, char **argv)
 
     if (have_tuning)
     {
-        LONG result = tuning_command(base, (UWORD)index, args);
+        LONG result = have_tx_tuning ? tx_tuning_command(base, (UWORD)index, args)
+                                     : tuning_command(base, (UWORD)index, args);
         tool_netstatus_close(base);
         FreeArgs(rda);
         return result;

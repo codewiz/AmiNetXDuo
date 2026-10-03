@@ -136,6 +136,9 @@ static const char *const ami_cfg_advice_text[] =
     "TCPWINDOW is a receive-window ceiling in bytes, 1 to 16777216. "
     "RXRUNMAX and RXREPOST are frame counts, 1 to 128. Zero selects "
     "the automatic window, the default drain limit or immediate reposting.",
+    "TXRUNMAX is 0 for the full send bracket, 1 for immediate transmission, "
+    "or 2 to 128 frames per run. TXREAP is 0 for the build default, "
+    "1 for immediate completion collection or 2 for lazy collection.",
 };
 
 const char *ami_cfg_advice(UWORD code)

@@ -117,6 +117,9 @@ LONG        ami_sana2_attach(AmiSana2If *iface, NX_IP *ip, UINT index);
 LONG ami_sana2_rx_tune_set(AmiSana2If *iface, const NetRxTuneValues *values,
                           ULONG mask);
 VOID ami_sana2_rx_tune_get(const AmiSana2If *iface, NetStatusRxTuning *out);
+LONG ami_sana2_tx_tune_set(AmiSana2If *iface, const NetTxTuneValues *values,
+                          ULONG mask);
+VOID ami_sana2_tx_tune_get(const AmiSana2If *iface, NetStatusTxTuning *out);
 
 /* Hardware facts, valid after ami_sana2_open(). */
 VOID        ami_sana2_get_mac(const AmiSana2If *iface, UCHAR mac[AMI_ETH_ADDR_SIZE]);

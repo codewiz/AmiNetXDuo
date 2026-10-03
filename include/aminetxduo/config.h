@@ -62,6 +62,8 @@ extern "C" {
 #define AMI_CFG_TCP_WINDOW_MAX      16777216UL
 #define AMI_CFG_RX_RUN_MAX          128UL
 #define AMI_CFG_RX_REPOST_MAX       128UL
+#define AMI_CFG_TX_RUN_MAX          128UL
+#define AMI_CFG_TX_REAP_MAX         2UL
 #define AMI_CFG_PATH_LEN            128
 
 /* The default domain gets its own cap: SetDefaultDomainName()'s autodoc says
@@ -218,6 +220,8 @@ typedef struct AmiIfConfig {
     ULONG       tcp_window;
     UWORD       rx_run_max;
     UWORD       rx_repost;
+    UWORD       tx_run_max;    /* 0 = full send bracket, 1 = immediate */
+    UWORD       tx_reap;       /* 0 = build default, 1 = immediate, 2 = lazy */
     BYTE        priority;                    /* PRIORITY=, -128..127, 0 unset: the
                                                 highest wins a route two
                                                 interfaces could carry        */

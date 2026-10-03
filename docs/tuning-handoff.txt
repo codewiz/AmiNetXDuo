@@ -1,0 +1,72 @@
+Receive sweep and TX tuning handoff
+==================================
+
+Branch: codex/interface-rx-tuning
+Base: c2766a97a (per-interface receive tuning controls)
+
+Implemented
+-----------
+SweepRx is a native Amiga command for one interface's IPv4 TCP receive path.
+It uses the existing blocking iperf receive benchmark, sweeps IPREQUESTS and
+TCPWINDOW by default, and accepts lists for all seven RX tuning keys. It saves
+requested settings, writes a recovery script before changing them, records
+repeated trials and before/after baselines, and restores on handled failures
+or cancellation. It never persists the winning candidate. The policy engine
+is src/tools/rxsweep.c; the command is src/tools/sweeprx.c.
+
+The peer and full user instructions ship in install/examples/ReceiveSweep.
+Start rx-sweep-peer.py on another LAN machine, then run SweepRx locally on the
+Amiga. Active TCP clients must be closed. Example:
+
+  peer:  python3 rx-sweep-peer.py AMIGA_IPV4
+  Amiga: SweepRx eth0 DRYRUN
+  Amiga: SweepRx eth0 TO=RAM:eth0-sweep.csv
+
+TX knobs are separate: WRITEREQUESTS, TXRUNMAX and TXREAP. ConfigureNetInterface
+INTERFACE TXTUNING reports requested/effective values and capabilities.
+Temporary updates require an offline interface with fully drained TX and no
+active TCP connections. RESETTXTUNING restores attachment-time TX values.
+See docs/user/AmiNetXDuo.guide for bounds and fallbacks. Existing RX ABI records
+and default TX behaviour are preserved. New TX selectors are NETSTATUS_TXTUNING
+25 and NETCTRL_INTERFACE_TXTUNING 29.
+
+Validated locally
+-----------------
+- Configuration parsing, SANA-II TX and device tests under ASan/UBSan.
+- TX tests with TX_RUN and TX_LAZY_COLLECT disabled, also sanitized.
+- Netstatus dispatch/order, hostsource, ifdevices, neighbour and DHCP6 fixtures
+  using the existing native host shim with 32-bit Amiga scalar types.
+- Receive sweep policy tests: restoration after apply/measure/output failures
+  and cancellation, restoration failure reporting, bounded grids and ranking.
+- Python peer loopback tests: reconnect after close and bounded missing peer.
+- m68k Release builds of bsdsocket.library and ConfigureNetInterface with
+  warnings as errors, with optional TX features both enabled and disabled.
+- SweepRx cross-build, resident diagnostic-string gate and diff whitespace.
+
+Hardware validation remains
+---------------------------
+No emulator, remote rig or hardware throughput measurements were run for these
+changes. Coordinate with any existing tester before using a rig.
+
+1. Verify dry-run and a small sweep on a real interface. Capture requested and
+   effective values, raw CSV, console output, driver identity and build.
+2. Check settings and online state are restored on success, Ctrl-C, absent peer
+   and output failure. Exercise the saved .restore script from a local Shell.
+3. Confirm runtime WRITEREQUESTS, TXRUNMAX and TXREAP with iperf transmit tests,
+   including unsupported-driver/build fallback and offline/busy rejection.
+4. Repeat promising candidates against the original settings. Baseline drift,
+   sender/path limits and shared-pool activity can mask or imitate gains.
+
+Current limits
+--------------
+SweepRx still measures receive and varies only RX knobs. TX measurement and TX
+candidate lists are not implemented in the sweep runner. A generic command name
+can be chosen when extending it to both directions.
+
+The receive benchmark includes TCP startup; there is no excluded warmup period.
+TCPWINDOW caps established connections, not the initial SYN/SYN-ACK window.
+Device batch reads retain their own repost policy. Throughput ranking does not
+measure latency, payload integrity, CPU use or all TCP retransmissions. All
+repeats must be valid; a candidate is named only when it beats both valid
+baseline medians and baseline drift is within roughly ten percent. This is
+screening, not a statistical significance claim.

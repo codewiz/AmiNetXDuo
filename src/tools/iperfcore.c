@@ -336,7 +336,11 @@ LONG iperf_begin(IperfRun *run, struct Library *sb, const IperfPlan *plan,
         ULONG a = ami_millis();
         ULONG b;
 
-        (VOID)tool_delay_ticks(2);
+        if (tool_delay_ticks(2))
+        {
+            iperf_fail(run, "interrupted during timer check", TOOL_EINTR);
+            return -1;
+        }
         b = ami_millis();
 
         if (a == b)

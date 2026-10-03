@@ -590,6 +590,10 @@ aminetxduo_add_tool(tool_iperf   iperf    SOURCES iperf.c iperfcore.c
                                           iperfwire.c toolsock.c toolbudget.c
                                  RT)
 
+# Receive tuning uses the same blocking receive benchmark as iperf.
+aminetxduo_add_tool(tool_sweeprx SweepRx SOURCES sweeprx.c rxsweep.c
+    iperfcore.c iperfwire.c toolsock.c toolbudget.c RT)
+
 # paysum is iperf's content-verifying sibling: iperf proves how many bytes
 # crossed, paysum proves they were the RIGHT bytes.  The receive path computes
 # its checksum in the same pass that places the bytes, so a placement bug is
@@ -684,7 +688,7 @@ add_dependencies(tools
     tool_netsetup tool_netprefs tool_online tool_offline tool_host tool_hostname
     tool_fetch tool_nc tool_telnet tool_nettrace tool_netcapture
     tool_traceroute tool_nslookup tool_arp
-    tool_tftp tool_whois tool_httpd tool_iperf
+    tool_tftp tool_whois tool_httpd tool_iperf tool_sweeprx
     tool_sntp tool_shownetservices
     tool_shownetstatus tool_netstat tool_ping tool_smoke tool_wbgrab)
 if(CMAKE_CROSSCOMPILING)
@@ -748,6 +752,10 @@ endif()
 # that does not build on a host, which is why the sources are named directly
 # (src/mbuf/CMakeLists.txt and tests/fuzz/CMakeLists.txt say the same).
 if(NOT CMAKE_CROSSCOMPILING)
+    add_executable(test_rxsweep test/test_rxsweep.c rxsweep.c)
+    target_include_directories(test_rxsweep PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_compile_options(test_rxsweep PRIVATE -Wall -Wextra)
+    add_test(NAME receive_sweep COMMAND test_rxsweep)
     add_executable(test_httppath
         test/test_httppath.c
         httppath.c)
@@ -1056,6 +1064,8 @@ if(NOT CMAKE_CROSSCOMPILING)
     # unlike the httpd pages, which are committed because an m68k build must
     # not need the generator.
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME receive_sweep_peer COMMAND "${Python3_EXECUTABLE}" -B
+        "${CMAKE_SOURCE_DIR}/tests/tools/test_rx_sweep_peer.py")
 
     add_custom_command(
         OUTPUT  "${CMAKE_CURRENT_BINARY_DIR}/tr_clock.inc"

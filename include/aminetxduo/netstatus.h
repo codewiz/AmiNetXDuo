@@ -140,6 +140,35 @@ typedef struct NetStatusRxTuning
        retain their own repost policy. Posted counts are a point-in-time view. */
 } NetStatusRxTuning;
 
+/* TX tuning has its own selector: the existing RX record stays unchanged. */
+#define NETSTATUS_TXTUNING     25  /* NetStatusTxTuning[] */
+#define NETTXTUNE_WRITEREQUESTS 0x0001UL
+#define NETTXTUNE_TXRUNMAX      0x0002UL
+#define NETTXTUNE_TXREAP        0x0004UL
+#define NETTXTUNE_ALL           0x0007UL
+#define NETTXTUNE_RESET         0x80000000UL
+#define NETTXTUNE_ONLINE        0x0001U
+#define NETTXTUNE_RUN_AVAILABLE 0x0002U /* negotiated, not disabled by a fault */
+#define NETTXTUNE_LAZY_BUILT    0x0004U
+
+typedef struct NetTxTuneValues
+{
+    ULONG write_requests; /* 0 = build's full slot count */
+    ULONG tx_run_max;     /* 0 = full send bracket; 1 = no MORE; 2..128 = cap */
+    ULONG tx_reap;        /* 0 = build default; 1 = immediate; 2 = lazy */
+} NetTxTuneValues;
+
+typedef struct NetStatusTxTuning
+{
+    UWORD ntt_Index;
+    UWORD ntt_Flags;
+    NetTxTuneValues ntt_Requested;
+    NetTxTuneValues ntt_Effective;
+    ULONG ntt_MaxWrites;   /* this build's WRITEREQUESTS ceiling */
+    ULONG ntt_Outstanding; /* write requests currently owned by the driver */
+    ULONG ntt_Pending;     /* frames waiting for a write slot */
+} NetStatusTxTuning;
+
 /* Every buffer starts with this.  Truncation is detectable rather than silent:
    nsh_Count < nsh_Available. */
 typedef struct NetStatusHeader
@@ -1109,6 +1138,18 @@ typedef struct NetStatusRxTuneControl
     ULONG nrtc_Mask;
     NetRxTuneValues nrtc_Values;
 } NetStatusRxTuneControl;
+
+/* Same atomic/offline/active-TCP rules as RX, plus an entirely drained TX
+   path (including retained writes and flush requests). Unsupported optional
+   policies are retained as requests; effective values report the fallback.
+   RESET restores attachment-time TX settings only. */
+#define NETCTRL_INTERFACE_TXTUNING 29
+typedef struct NetStatusTxTuneControl
+{
+    NetStatusControl nttc_Control;
+    ULONG nttc_Mask;
+    NetTxTuneValues nttc_Values;
+} NetStatusTxTuneControl;
 
 #ifdef __cplusplus
 }

@@ -70,5 +70,6 @@
 #define AMI_CFG_SAYS_NUMERIC_IPTYPE_IGNORED              55
 
 #define AMI_CFG_ADVICE_RX_TUNING                        56
+#define AMI_CFG_ADVICE_TX_TUNING                        57
 
 #endif /* AMINETXDUO_CONFIG_ADVICE_H */

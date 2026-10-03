@@ -418,3 +418,8 @@ int main(void)
     printf("ifdevices checks=%lu failures=%lu\n", h_checks, h_failures);
     return h_failures == 0 ? 0 : 1;
 }
+
+LONG ami_sana2_tx_tune_set(AmiSana2If *iface, const NetTxTuneValues *v, ULONG mask)
+{ (VOID)iface; (VOID)v; (VOID)mask; return AMI_NET_OK; }
+VOID ami_sana2_tx_tune_get(const AmiSana2If *iface, NetStatusTxTuning *out)
+{ (VOID)iface; memset(out, 0, sizeof(*out)); }

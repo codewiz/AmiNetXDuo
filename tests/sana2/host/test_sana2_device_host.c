@@ -1571,10 +1571,16 @@ static void case_tcp_grow_rtt(void)
     h_cfg.tcp_window = 8192;
     h_cfg.rx_run_max = 16;
     h_cfg.rx_repost = 4;
+    h_cfg.write_requests = 8;
+    h_cfg.tx_run_max = 4;
+    h_cfg.tx_reap = 1;
     iface = ami_sana2_open(&h_cfg, &err);
     h_check(iface != NULL && ami_sana2_get_tcp_window(iface) == 8192 &&
             iface->rx_run_max == 16 && iface->rx_repost == 4,
             "window, drain and replenishment settings reach the opened interface");
+    h_check(iface != NULL && iface->tx_want_slots == 8 && iface->tx_slots == 8 &&
+            iface->tx_run_max == 4 && iface->tx_reap == 1,
+            "TX depth, run cap and collection policy reach the opened interface");
     h_check(ami_sana2_get_tcp_window(NULL) == 0,
             "a non-SANA-II socket keeps the automatic window policy");
     h_check(iface != NULL && ami_sana2_get_tcp_grow_rtt(iface) == 2UL,

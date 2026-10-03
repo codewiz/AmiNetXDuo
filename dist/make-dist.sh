@@ -80,7 +80,7 @@ CMDS=(AddNetInterface NetSetup NetPrefs Online Offline ShowNetStatus ShowNetServ
       ping netstat host hostname
       nslookup arp fetch nc telnet NetTrace NetCapture sntp traceroute tftp
       whois httpd
-      iperf
+      iperf SweepRx
       CheckNetConfig CheckNetDevice CreateAmiNetXDuoStatusReport
       GetNetStatus NetShutdown RemoveNetInterface
       ConfigureNetInterface

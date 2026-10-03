@@ -452,6 +452,28 @@
              and micro use 8 to save 2,832 bytes per attached
              interface. CheckNetConfig reports the applicable limit.
 
+  @{b}TXRUNMAX@{ub}
+             Maximum frames grouped in a transmit run, 2 to 128.
+             1 starts every write immediately. 0 (the default) keeps
+             the existing full send bracket, flushed at its end and
+             before any wait. A finite cap flushes each complete group
+             and the bracket's end flushes its remaining tail.
+             This requires transmit-run support in the build and the
+             driver's negotiated extension. A driver that refuses or
+             queues a run flush disables runs until reattachment.
+             A setting cannot turn that protection back on.
+
+  @{b}TXREAP@{ub}
+             Completion collection: 0 keeps the build's default,
+             1 collects completions through the reader's immediate
+             signal path, 2 asks for lazy collection. Lazy collection
+             reaps replies on subsequent sends, with the existing
+             one-tick timer as its safety net. Queued writes still
+             request immediate collection so they can advance.
+             A build without lazy collection, or a failed timer start,
+             uses immediate collection. Check effective TXTUNING
+             readback after ONLINE to see which policy is active.
+
   @{b}RXBUFFER@{ub}
              The bytes the card holds from the wire before it has to
              drop a frame: its receive ring or FIFO. The TCP window a
@@ -550,6 +572,63 @@
   RESETTUNING does not reread a subsequently edited file. A tuning tool
   can instead save the requested values from TUNING and restore those
   exact values. Reattach the interface to reread the file.
+
+  SweepRx automates repeated TCP receive trials, saves requested settings
+  and restores them on completion, Ctrl-C or a handled failure. Run it
+  from a local Shell with network clients closed. Start the Python sender
+  from Examples/ReceiveSweep on a second LAN machine, then:
+
+    SweepRx eth0 DRYRUN
+    SweepRx eth0 TO=RAM:eth0-sweep.csv
+
+  The default sweep varies IPREQUESTS and TCPWINDOW; all seven tuning
+  keys accept comma-separated candidate lists. It writes raw CSV results
+  and a .restore recovery script, reports medians against before/after
+  baselines, and never changes the interface file. Read
+  Examples/ReceiveSweep/ReadMe for peer setup, limits and interpretation.
+
+  @{b}Temporary transmit tuning@{ub}
+
+  TX has its own snapshot and atomic update, leaving the receive
+  tuning record unchanged. First read the current requested settings:
+
+    ConfigureNetInterface eth0 TXTUNING
+
+  Close TCP clients and use a local Shell. Change only a fully drained,
+  offline interface, for example:
+
+    ConfigureNetInterface eth0 OFFLINE
+    ConfigureNetInterface eth0 WRITEREQUESTS 8 TXRUNMAX 4 TXREAP 1
+    ConfigureNetInterface eth0 ONLINE
+    ConfigureNetInterface eth0 TXTUNING
+
+  These numbers illustrate the syntax, not a recommendation for a card.
+  Temporary WRITEREQUESTS accepts 0 for the build default or 1 to the
+  build's maximum. In an interface file, omit WRITEREQUESTS to use the
+  default. TXRUNMAX and TXREAP accept 0 in either place. All defaults
+  preserve the existing transmit behaviour.
+
+  Readback includes requested and effective values, the build's write
+  limit, outstanding requests, pending frames, available run support
+  and whether lazy collection was built. Offline effective values are
+  next-start predictions; online values report actual fallback policy.
+  Effective TXRUNMAX=1 means immediate writes; 0 means the full send
+  bracket. Effective TXREAP is 1 (immediate) or 2 (lazy).
+
+  Retained writes, pending frames, an outstanding flush, orphaned I/O,
+  running readers or active TCP connections prevent temporary changes.
+  RX and TX updates are separate commands; mixing their settings is
+  refused before either is applied. Neither writes a configuration file.
+
+    ConfigureNetInterface eth0 OFFLINE
+    ConfigureNetInterface eth0 RESETTXTUNING
+    ConfigureNetInterface eth0 ONLINE
+
+  RESETTXTUNING restores attachment-time TX values. RESETTUNING still
+  restores RX values only. A sweep should save TXTUNING's requested
+  values and restore those exact values, including zeros, after its run.
+  The initial SweepRx measures receive and varies only the RX knobs;
+  use these TX controls with iperf transmit measurements for now.
 
   Interface files written for Roadshow usually carry other keywords:
   COPYMODE, ALIAS, METRIC, LEASE, DHCPUNICAST, LINKSTATUSCOMMAND,
@@ -1241,6 +1320,8 @@
     tftp              the small file transfer protocol
     iperf             measure throughput against an iperf server, or
                       act as one
+    SweepRx           sweep temporary receive settings on one interface;
+                      see Examples/ReceiveSweep/ReadMe and SweepRx HELP
     httpd             serve mounted volumes over HTTP and WebDAV; -F adds a file
                       manager, -T a Shell and @{"-C the screen" link CONSOLE}
 

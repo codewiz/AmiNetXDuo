@@ -5,6 +5,7 @@
  */
 
 #include "sana2_internal.h"
+#include "aminetxduo/netstack.h"
 #include "aminetxduo/nxstatus.h"
 #include "aminetxduo/anxs2ext.h"
 
@@ -73,6 +74,7 @@ VOID ami_sana2_tx_init(AmiSana2If *iface)
     iface->tx_flush_req.ios2_Req.io_Command = ANXD_CMD_TX_FLUSH;
     iface->tx_holder     = NULL;
     iface->tx_held       = 0;
+    iface->tx_run_count  = 0;
     iface->tx_flush_busy = 0;
 #endif
 
@@ -173,7 +175,7 @@ static VOID ami_sana2_tx_lazy_tick(ULONG argument)
 
 VOID ami_sana2_tx_lazy_start(AmiSana2If *iface)
 {
-    if (iface == NULL || iface->tx_lazy_timer_up)
+    if (iface == NULL || iface->tx_lazy_timer_up || iface->tx_reap == 1)
         return;
 
     iface->tx_lazy_parked    = FALSE;
@@ -484,6 +486,7 @@ VOID ami_sana2_tx_drain(AmiSana2If *iface)
        one flush a queuing device may still hold. */
     iface->tx_holder = NULL;
     iface->tx_held   = 0;
+    iface->tx_run_count = 0;
     if (iface->tx_flush_busy)
         AbortIO((struct IORequest *)&iface->tx_flush_req);
 #endif
@@ -755,7 +758,7 @@ VOID ami_sana2_tx_run_begin(AmiSana2If *iface)
 {
     TX_THREAD *me;
 
-    if (iface == NULL || !iface->tx_more_ok)
+    if (iface == NULL || !iface->tx_more_ok || iface->tx_run_max == 1)
         return;
 
     me = tx_thread_identify();
@@ -783,6 +786,7 @@ VOID ami_sana2_tx_run_flush(AmiSana2If *iface)
         return;
 
     iface->tx_held = 0;
+    iface->tx_run_count = 0;
     if (iface->tx_flush_busy || !iface->online)
         return;
 
@@ -992,10 +996,12 @@ static UINT ami_sana2_tx_launch(AmiSana2If *iface, AmiTxSlot *slot,
        starts this one.  The holder's own thread only -- the kick that
        launches a queued write from the reader, or an acknowledgement the IP
        thread sends meanwhile, is a plain write and starts what is held. */
-    if (iface->tx_holder != NULL && iface->tx_holder == tx_thread_identify())
+    if (iface->tx_more_ok && iface->tx_holder != NULL &&
+        iface->tx_holder == tx_thread_identify())
     {
         slot->tx_flags |= ANXD_S2_TXF_MORE;
-        iface->tx_held  = 1;
+        iface->tx_held = 1;
+        if (iface->tx_run_max != 0) ++iface->tx_run_count;
     }
 #endif
 
@@ -1075,6 +1081,13 @@ static UINT ami_sana2_tx_launch(AmiSana2If *iface, AmiTxSlot *slot,
 #endif
 
     BeginIO((struct IORequest *)&slot->req);
+#ifdef AMINETXDUO_TX_RUN
+    /* Flush the bounded group even if its last write failed. A driver that
+       refuses/queues the flush disables MORE for the remainder of this run. */
+    if (iface->tx_run_max != 0 && iface->tx_run_count >= iface->tx_run_max)
+        ami_sana2_tx_run_flush(iface);
+#endif
+
 
     /* Kept: finished in there, no reply coming.  Cleared: queued, the reap
        collects it.  Read after BeginIO(), which is where the device decides. */
@@ -1090,4 +1103,67 @@ static UINT ami_sana2_tx_launch(AmiSana2If *iface, AmiTxSlot *slot,
 #endif
 
     return NX_SUCCESS;
+}
+
+/* Called under the IP mutex; no allocation, wait or device I/O here. */
+LONG ami_sana2_tx_tune_set(AmiSana2If *iface, const NetTxTuneValues *v, ULONG mask)
+{
+    UWORD i;
+    if (iface == NULL || v == NULL || !mask || (mask & ~NETTXTUNE_ALL))
+        return AMI_NET_ERR_CONFIG;
+    if (((mask & NETTXTUNE_WRITEREQUESTS) && v->write_requests > AMI_CFG_WRITEREQUESTS_MAX) ||
+        ((mask & NETTXTUNE_TXRUNMAX) && v->tx_run_max > AMI_CFG_TX_RUN_MAX) ||
+        ((mask & NETTXTUNE_TXREAP) && v->tx_reap > AMI_CFG_TX_REAP_MAX))
+        return AMI_NET_ERR_CONFIG;
+    if (iface->online || iface->rx_running || iface->rx_orphaned || iface->reader.started ||
+        iface->offline_held || iface->tx_orphaned || iface->tx_pend_count || iface->tx_kicking)
+        return AMI_NET_ERR_BUSY;
+    for (i = 0; i < AMI_SANA2_TX_SLOTS; ++i)
+        if (iface->tx[i].busy) return AMI_NET_ERR_BUSY;
+#ifdef AMINETXDUO_TX_RUN
+    if (iface->tx_holder != NULL || iface->tx_held || iface->tx_flush_busy)
+        return AMI_NET_ERR_BUSY;
+#endif
+#ifdef AMINETXDUO_TX_LAZY_COLLECT
+    if (iface->tx_lazy_timer_up || iface->tx_lazy_parked) return AMI_NET_ERR_BUSY;
+#endif
+    if (mask & NETTXTUNE_WRITEREQUESTS)
+    {
+        iface->tx_want_slots = (UWORD)v->write_requests;
+        iface->tx_slots = v->write_requests ? (UWORD)v->write_requests : AMI_SANA2_TX_SLOTS;
+    }
+    if (mask & NETTXTUNE_TXRUNMAX) iface->tx_run_max = (UWORD)v->tx_run_max;
+    if (mask & NETTXTUNE_TXREAP) iface->tx_reap = (UWORD)v->tx_reap;
+    return AMI_NET_OK;
+}
+
+VOID ami_sana2_tx_tune_get(const AmiSana2If *iface, NetStatusTxTuning *out)
+{
+    UWORD i;
+    out->ntt_Index = (UWORD)iface->index;
+    out->ntt_Flags = iface->online ? NETTXTUNE_ONLINE : 0;
+    out->ntt_Requested.write_requests = iface->tx_want_slots;
+    out->ntt_Requested.tx_run_max = iface->tx_run_max;
+    out->ntt_Requested.tx_reap = iface->tx_reap;
+    out->ntt_Effective = out->ntt_Requested;
+    out->ntt_Effective.write_requests = iface->tx_slots;
+    out->ntt_Effective.tx_run_max = 1;
+    out->ntt_Effective.tx_reap = 1;
+#ifdef AMINETXDUO_TX_RUN
+    if (iface->tx_more_ok)
+    {
+        out->ntt_Flags |= NETTXTUNE_RUN_AVAILABLE;
+        out->ntt_Effective.tx_run_max = iface->tx_run_max;
+    }
+#endif
+#ifdef AMINETXDUO_TX_LAZY_COLLECT
+    out->ntt_Flags |= NETTXTUNE_LAZY_BUILT;
+    if (iface->tx_reap != 1 && (!iface->online || iface->tx_lazy_timer_up))
+        out->ntt_Effective.tx_reap = 2;
+#endif
+    out->ntt_MaxWrites = AMI_SANA2_TX_SLOTS;
+    out->ntt_Outstanding = 0;
+    for (i = 0; i < AMI_SANA2_TX_SLOTS; ++i)
+        if (iface->tx[i].busy) ++out->ntt_Outstanding;
+    out->ntt_Pending = iface->tx_pend_count;
 }

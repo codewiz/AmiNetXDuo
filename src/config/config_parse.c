@@ -48,6 +48,8 @@ typedef enum
     IF_KEY_TCPWINDOW,
     IF_KEY_RXRUNMAX,
     IF_KEY_RXREPOST,
+    IF_KEY_TXRUNMAX,
+    IF_KEY_TXREAP,
     IF_KEY_PRIORITY
 } IfKey;
 
@@ -86,6 +88,8 @@ ami_if_keywords[] =
     { "tcpwindow",          IF_KEY_TCPWINDOW         },
     { "rxrunmax",           IF_KEY_RXRUNMAX          },
     { "rxrepost",           IF_KEY_RXREPOST          },
+    { "txrunmax",           IF_KEY_TXRUNMAX          },
+    { "txreap",             IF_KEY_TXREAP            },
     { "priority",           IF_KEY_PRIORITY          },   /* Roadshow's, and PRI */
     { "pri",                IF_KEY_PRIORITY          },
 
@@ -772,6 +776,22 @@ LONG ami_cfg_parse_interface(const char *name, char *buf, AmiIfConfig *out)
                                      value, AMI_CFG_ADVICE_RXBUFFER_IS_THE);
                 }
                 break;
+
+            case IF_KEY_TXRUNMAX:
+            case IF_KEY_TXREAP:
+            {
+                IfKey which = lookup_if_keyword(key);
+                ULONG max = which == IF_KEY_TXRUNMAX ? AMI_CFG_TX_RUN_MAX : AMI_CFG_TX_REAP_MAX;
+                if (ami_cfg_parse_ulong(value, &n) && n <= max)
+                {
+                    if (which == IF_KEY_TXRUNMAX) out->tx_run_max = (UWORD)n;
+                    else out->tx_reap = (UWORD)n;
+                }
+                else
+                    report_bad_value(lineno, AMI_CFG_PROBLEM_WARN, key, value,
+                                     AMI_CFG_ADVICE_TX_TUNING);
+                break;
+            }
 
             case IF_KEY_TCPWINDOW:
             case IF_KEY_RXRUNMAX:

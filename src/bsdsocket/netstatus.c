@@ -77,6 +77,10 @@ _Static_assert(NETSTATUS_TCP_LAST_ACK     == NX_TCP_LAST_ACK,      "TCP state AB
 /* The header is copied by hand below. Its size is part of the ABI. */
 _Static_assert(sizeof(NetStatusHeader) == 16, "NetStatusHeader ABI");
 _Static_assert(sizeof(NetRxTuneValues) == 28, "NetRxTuneValues ABI");
+_Static_assert(sizeof(NetTxTuneValues) == 12, "NetTxTuneValues ABI");
+_Static_assert(sizeof(NetStatusTxTuning) == 40, "NetStatusTxTuning ABI");
+_Static_assert(sizeof(NetStatusTxTuneControl) == sizeof(NetStatusControl) + 16,
+               "transmit tuning extends the old control ABI");
 _Static_assert(sizeof(NetStatusRxTuning) == 88, "NetStatusRxTuning ABI");
 _Static_assert(sizeof(NetStatusRxTuneControl) == sizeof(NetStatusControl) + 32,
                "receive tuning extends, never changes, the old control ABI");
@@ -1584,6 +1588,7 @@ LONG bsd_NetStackQuery(register ULONG magic __asm("d0"),
         case NETSTATUS_SYSTEM:      need = sizeof(NetStatusSystem);  break;
         case NETSTATUS_STATS:       need = sizeof(NetStatusStats);   break;
         case NETSTATUS_INTERFACES:  need = 0;                        break;
+        case NETSTATUS_TXTUNING:    need = 0;                        break;
         case NETSTATUS_RXTUNING:    need = 0;                        break;
         case NETSTATUS_IFDEVICES:   need = 0;                        break;
         case NETSTATUS_HOSTSOURCE:  need = sizeof(NetStatusHostSource); break;
@@ -1883,6 +1888,24 @@ LONG bsd_NetStackQuery(register ULONG magic __asm("d0"),
             break;
         }
 
+        case NETSTATUS_TXTUNING:
+        {
+            UINT i;
+            ns_writer_init(&w, hdr, size, NETSTATUS_TXTUNING,
+                           sizeof(NetStatusTxTuning));
+            for (i = 0; i < NX_MAX_PHYSICAL_INTERFACES; i++)
+            {
+                NX_INTERFACE *nxif = &ip->nx_ip_interface[i];
+                AmiSana2If *sana = (AmiSana2If *)nxif->nx_interface_additional_link_info;
+                NetStatusTxTuning *out;
+                if (!nxif->nx_interface_valid || sana == NULL) continue;
+                out = (NetStatusTxTuning *)ns_writer_next(&w);
+                if (out != NULL) ami_sana2_tx_tune_get(sana, out);
+            }
+            ns_writer_finish(&w);
+            break;
+        }
+
         case NETSTATUS_IFDEVICES:
             ns_writer_init(&w, hdr, size, NETSTATUS_IFDEVICES,
                            sizeof(NetStatusIfDevice));
@@ -2095,6 +2118,66 @@ LONG bsd_NetStackControl(register ULONG magic __asm("d0"),
             if (result == 0)
             {
                 LONG st = ami_sana2_rx_tune_set(sana, &values, mask);
+                if (st != AMI_NET_OK)
+                    result = st == AMI_NET_ERR_BUSY ? AMI_EBUSY : AMI_EINVAL;
+            }
+        }
+        tx_mutex_put(&ip->nx_ip_protection);
+        bsd_nx_leave(SocketBase);
+        return result == 0 ? 0 : bsd_fail(SocketBase, result);
+    }
+
+    if (op == NETCTRL_INTERFACE_TXTUNING)
+    {
+        NetStatusTxTuneControl *t = (NetStatusTxTuneControl *)arg;
+        NetTxTuneValues values;
+        NX_INTERFACE *nxif;
+        NX_TCP_SOCKET *tcp;
+        AmiSana2If *sana;
+        ULONG mask, n;
+        LONG result;
+        if (size < sizeof(*t) || ctl->nsc_Index >= NX_MAX_PHYSICAL_INTERFACES)
+            return bsd_fail(SocketBase, AMI_EINVAL);
+        mask = t->nttc_Mask;
+        values = t->nttc_Values;
+        if (bsd_nx_enter(SocketBase) != 0)
+            return bsd_fail(SocketBase, AMI_ENETDOWN);
+        ip = bsd_stack_ip(SocketBase);
+        if (ip == NULL)
+        { bsd_nx_leave(SocketBase); return bsd_fail(SocketBase, AMI_ENETDOWN); }
+        if (tx_mutex_get(&ip->nx_ip_protection, TX_WAIT_FOREVER) != TX_SUCCESS)
+        { bsd_nx_leave(SocketBase); return bsd_fail(SocketBase, AMI_EIO); }
+        nxif = &ip->nx_ip_interface[ctl->nsc_Index];
+        sana = (AmiSana2If *)nxif->nx_interface_additional_link_info;
+        result = AMI_ENXIO;
+        if (nxif->nx_interface_valid && sana != NULL)
+        {
+            result = 0;
+            tcp = ip->nx_ip_tcp_created_sockets_ptr;
+            for (n = 0; n < ip->nx_ip_tcp_created_sockets_count && tcp != NULL; n++)
+            {
+                if (tcp->nx_tcp_socket_connect_interface == nxif &&
+                    tcp->nx_tcp_socket_state != NX_TCP_CLOSED &&
+                    tcp->nx_tcp_socket_state != NX_TCP_LISTEN_STATE &&
+                    tcp->nx_tcp_socket_state != NX_TCP_TIMED_WAIT)
+                    result = AMI_EBUSY;
+                tcp = tcp->nx_tcp_socket_created_next;
+            }
+            if (mask == NETTXTUNE_RESET)
+            {
+                const AmiIfConfig *cfg = ns_config_for(ctl->nsc_Index);
+                if (cfg == NULL) result = AMI_ENXIO;
+                else
+                {
+                    values.write_requests = cfg->write_requests;
+                    values.tx_run_max = cfg->tx_run_max;
+                    values.tx_reap = cfg->tx_reap;
+                    mask = NETTXTUNE_ALL;
+                }
+            }
+            if (result == 0)
+            {
+                LONG st = ami_sana2_tx_tune_set(sana, &values, mask);
                 if (st != AMI_NET_OK)
                     result = st == AMI_NET_ERR_BUSY ? AMI_EBUSY : AMI_EINVAL;
             }

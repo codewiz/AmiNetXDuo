@@ -1146,6 +1146,9 @@ AmiSana2If *ami_sana2_open(const AmiIfConfig *cfg, LONG *err)
     iface->rx_repost = cfg->rx_repost;
     iface->rx_want_ip  = (UWORD)cfg->ip_requests;
     iface->rx_want_arp = (UWORD)cfg->arp_requests;
+    iface->tx_want_slots = (UWORD)cfg->write_requests;
+    iface->tx_run_max = cfg->tx_run_max;
+    iface->tx_reap = cfg->tx_reap;
     iface->tx_slots    = (UWORD)AMI_SANA2_TX_SLOTS;
     if (cfg->write_requests != 0 &&
         cfg->write_requests < (ULONG)AMI_SANA2_TX_SLOTS)
