@@ -766,9 +766,23 @@ UINT                       params_offset;
     }
 }
 
+/* nx_secure_tls_session_create_ext() carves a session's CertificateVerify
+   scratch out of the crypto metadata area and points the session at it.
+   test_pss_schemes() zeroes a bare session instead, so it gives the session
+   the same area itself, ULONG-aligned as the carve is, after each reset. */
+static void attach_certificate_verify_scratch(NX_SECURE_TLS_SESSION *session,
+                                              ULONG *scratch)
+{
+    session -> nx_secure_tls_certificate_verify_scratch = scratch;
+    session -> nx_secure_tls_certificate_verify_scratch_size =
+        NX_SECURE_TLS_CERTIFICATE_VERIFY_SCRATCH_SIZE;
+}
+
 static void test_pss_schemes(void)
 {
 NX_SECURE_TLS_SESSION session;
+ULONG                  cv_scratch[(NX_SECURE_TLS_CERTIFICATE_VERIFY_SCRATCH_SIZE +
+                                   sizeof(ULONG) - 1) / sizeof(ULONG)];
 NX_SECURE_X509_CRYPTO method;
 NX_SECURE_X509_CERT   certificate;
 UCHAR                  verify_message[4];
@@ -780,6 +794,7 @@ UINT                   status;
     printf("pss schemes\n");
 
     memset(&session, 0, sizeof(session));
+    attach_certificate_verify_scratch(&session, cv_scratch);
     memset(&method, 0, sizeof(method));
     session.nx_secure_tls_1_3 = 1;
     method.nx_secure_x509_public_cipher_method = &crypto_method_rsa;
@@ -800,6 +815,7 @@ UINT                   status;
           "SHA-512 advertises both PSS key encodings");
 
     memset(&session, 0, sizeof(session));
+    attach_certificate_verify_scratch(&session, cv_scratch);
     memset(&certificate, 0, sizeof(certificate));
     status = _nx_secure_x509_certificate_initialize(&certificate,
                                                     (UCHAR *)x509_psskey_root,
