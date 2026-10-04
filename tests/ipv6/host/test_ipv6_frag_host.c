@@ -144,6 +144,12 @@ VOID _nx_icmpv4_send_error_message(NX_IP *ip_ptr, NX_PACKET *offending_packet,
 
 static NX_IP          h_ip;
 static NX_PACKET_POOL h_pool;
+
+/* NX_IP_FRAGMENT_ADMIT (nx_ip.h) reads the count nx_ip_create() keeps, and
+   this fixture builds its one NX_IP by hand without nx_ip_create.c, so the
+   count is defined here as that one instance. */
+ULONG _nx_ip_created_count = 1;
+
 static NX_PACKET      h_packet[H_PACKETS];
 static UCHAR          h_body[H_PACKETS][H_PAYLOAD];
 static NX_IPV6_HEADER h_v6_header[H_PACKETS];
