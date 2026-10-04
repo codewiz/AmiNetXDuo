@@ -128,7 +128,16 @@ UINT _nx_packet_allocate(NX_PACKET_POOL *pool_ptr, NX_PACKET **packet_ptr,
     return NX_SUCCESS;
 }
 
-UINT _nx_packet_release(NX_PACKET *packet_ptr)          { (void) packet_ptr; return NX_SUCCESS; }
+/* No arm releases a packet (counted: 0 calls in all ten): the IPv4 send and
+   _nx_ipv6_header_add above keep theirs, and the cache's own releases are in
+   _nx_tcp_syncache_hold, which no arm reaches.  A call is a path this test
+   does not model, so it stops the test, as the two below do.  */
+UINT _nx_packet_release(NX_PACKET *packet_ptr)
+{
+    (void) packet_ptr;
+    printf("FAIL _nx_packet_release reached: an unmodelled path\n");
+    abort();
+}
 UINT _nx_packet_transmit_release(NX_PACKET *packet_ptr) { (void) packet_ptr; return NX_SUCCESS; }
 
 /* A SYN fed into the cache from inside the detach: in the unlocked ARP/ND
