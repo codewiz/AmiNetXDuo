@@ -52,6 +52,31 @@ include(CTest)
 add_test(NAME syncache_cookie COMMAND test_syncache cookie)
 add_test(NAME syncache_cache  COMMAND test_syncache cache)
 
+# The same test with ULONG 64 bits wide.  No target this ships for has one,
+# and the x86_64 hosts the fork's 64-bit suite runs on keep ULONG at 32 bits
+# (ThreadX's linux tx_port.h), so nothing else builds the cookie that way;
+# nx_tcp_syncache.c says every step of it masks to 32 bits so that a wide
+# ULONG computes the same thing.  This is where that is checked: the cookie
+# vectors, the counter wrap and the carry, and the cache, on the same file.
+add_executable(test_syncache_ulong64
+    host/test_syncache_host.c
+    "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_syncache.c")
+target_include_directories(test_syncache_ulong64 PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/host/ulong64"          # tx_port.h, first
+    "${AMINETXDUO_NETXDUO}/ports/linux/gnu/inc"
+    "${CMAKE_SOURCE_DIR}/port/netxduo-amiga/inc"
+    "${AMINETXDUO_NETXDUO}/common/inc"
+    "${AMINETXDUO_THREADX}/common/inc")
+target_compile_definitions(test_syncache_ulong64 PRIVATE
+    NX_PACKET_ALIGNMENT=8
+    NX_INCLUDE_USER_DEFINE_FILE
+    NX_IPV6_UTIL_INLINE
+    AMINETXDUO_HOST_VENDORED_TX_PORT="${AMINETXDUO_THREADX}/ports/linux/gnu/inc/tx_port.h")
+target_compile_options(test_syncache_ulong64 PRIVATE -Wall -Wextra)
+set_target_properties(test_syncache_ulong64 PROPERTIES C_STANDARD 11)
+add_test(NAME syncache_cookie_ulong64 COMMAND test_syncache_ulong64 cookie)
+add_test(NAME syncache_cache_ulong64  COMMAND test_syncache_ulong64 cache)
+
 # Issue #50: a SYN-cache entry outlives the interface its SYN arrived on.
 # The cache, _nx_ip_interface_detach, the TCP control senders, the IPv4 route
 # lookup and _nx_ipv6_packet_send are all the shipped files; host_nx_assert.h
