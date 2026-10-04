@@ -1384,7 +1384,7 @@ UINT _nx_secure_tls_send_record(NX_SECURE_TLS_SESSION *tls_session, NX_PACKET *s
     return(NX_SUCCESS);
 }
 
-/* The packet stays the caller's on every error: nothing here releases it. */
+/* The sender consumes the packet on every return: an error return releases it here, once. */
 static unsigned hrr_packets_released;
 
 UINT _nx_packet_release(NX_PACKET *packet_ptr)
@@ -1628,17 +1628,17 @@ static void test_hrr_handshake_cache(void)
 
     hrr_cache_prefill((UINT)(HRR_CACHE_SIZE - (body + 4u) + 1u));
     status = hrr_send(body);
-    check(status == NX_SECURE_TLS_PACKET_BUFFER_TOO_SMALL && hrr_records_sent == 0 && hrr_packets_released == 0 && hrr_tail_intact(),
+    check(status == NX_SECURE_TLS_PACKET_BUFFER_TOO_SMALL && hrr_records_sent == 0 && hrr_packets_released == 1 && hrr_tail_intact(),
           "one byte over rejected, length intact");
 
     hrr_cache_prefill(0);
     status = hrr_send(HRR_CACHE_SIZE - 4u + 1u);
-    check(status == NX_SECURE_TLS_PACKET_BUFFER_TOO_SMALL && hrr_records_sent == 0 && hrr_packets_released == 0 && hrr_tail_intact(),
+    check(status == NX_SECURE_TLS_PACKET_BUFFER_TOO_SMALL && hrr_records_sent == 0 && hrr_packets_released == 1 && hrr_tail_intact(),
           "501-byte ClientHello rejected, tail intact");
 
     hrr_cache_prefill((UINT)HRR_CACHE_SIZE + 1u);
     status = hrr_send(16);
-    check(status == NX_SECURE_TLS_PACKET_BUFFER_TOO_SMALL && hrr_records_sent == 0 && hrr_packets_released == 0 && hrr_tail_intact(),
+    check(status == NX_SECURE_TLS_PACKET_BUFFER_TOO_SMALL && hrr_records_sent == 0 && hrr_packets_released == 1 && hrr_tail_intact(),
           "corrupt cache length rejected");
 }
 
