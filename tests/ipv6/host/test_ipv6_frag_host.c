@@ -144,6 +144,12 @@ VOID _nx_icmpv4_send_error_message(NX_IP *ip_ptr, NX_PACKET *offending_packet,
 
 static NX_IP          h_ip;
 static NX_PACKET_POOL h_pool;
+
+/* NX_IP_FRAGMENT_ADMIT (nx_ip.h) reads the count nx_ip_create() keeps, and
+   this fixture builds its one NX_IP by hand without nx_ip_create.c, so the
+   count is defined here as that one instance. */
+ULONG _nx_ip_created_count = 1;
+
 static NX_PACKET      h_packet[H_PACKETS];
 static UCHAR          h_body[H_PACKETS][H_PAYLOAD];
 static NX_IPV6_HEADER h_v6_header[H_PACKETS];
@@ -355,7 +361,15 @@ static VOID test_reassembles_out_of_order(VOID)
 
 static VOID test_pool_reserve(VOID)
 {
-UINT status;
+UINT  status;
+ULONG ip_count;
+
+    /* The pool-wide reserve is the gate for a pool another IP instance may
+       share: NX_IP_FRAGMENT_ADMIT applies it only while more than one NX_IP
+       exists.  Model that second, live instance for this test alone, and
+       give the one-instance count back on the way out. */
+    ip_count = _nx_ip_created_count;
+    _nx_ip_created_count = 2;
 
     h_reset();
 
@@ -386,6 +400,8 @@ UINT status;
     h_check(status != NX_SUCCESS, "a fragment below the reserve is refused");
     h_check(h_ip.nx_ip_received_fragment_head == NX_NULL,
             "and is queued nowhere either");
+
+    _nx_ip_created_count = ip_count;
 }
 
 static VOID test_incomplete_times_out(VOID)

@@ -267,6 +267,7 @@ static NX_IP          h_ip;
 static NX_INTERFACE   h_iface;
 static NX_TCP_SOCKET  h_sock;
 static TX_THREAD      h_waiter;
+static NX_PACKET      h_waiting_write;     /* what h_waiter is blocked on    */
 
 static NX_PACKET      h_pkt[H_PACKETS];
 static UCHAR          h_pkt_buf[H_PACKETS][H_BUF];
@@ -277,6 +278,7 @@ static void h_fixture(void)
     memset(&h_ip, 0, sizeof(h_ip));
     memset(&h_iface, 0, sizeof(h_iface));
     memset(&h_waiter, 0, sizeof(h_waiter));
+    memset(&h_waiting_write, 0, sizeof(h_waiting_write));
 
     h_now       = 1000;
     h_datagrams = 0;
@@ -506,6 +508,13 @@ static void g_congestion_window_is_not_a_sliver(void)
 static void i_a_blocked_sender_is_woken_once(void)
 {
     h_fixture();
+
+    /* A sender blocked in nx_tcp_socket_send() waits with its packet in
+       tx_thread_additional_suspend_info (nx_tcp_socket_send_internal.c), and
+       transmit_check measures the window against that packet.  A full
+       segment of data, as a bulk writer would have queued. */
+    h_waiting_write.nx_packet_length = H_MSS;
+    h_waiter.tx_thread_additional_suspend_info = (VOID *)&h_waiting_write;
     h_sock.nx_tcp_socket_transmit_suspension_list = &h_waiter;
     h_sock.nx_tcp_socket_transmit_suspended_count = 1;
     h_in_flight(512, 200);
