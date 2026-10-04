@@ -372,7 +372,10 @@ static void a_open_window_sends(void)
            (unsigned long)h_sock.nx_tcp_socket_tx_window_advertised);
 }
 
-static void b_sliver_with_flight_holds(void)
+/* RFC 1122 4.2.3.4 rule (2) with Nagle off, as it is here: a pushed write
+   that fits whole in the usable window (D <= U) goes now, even into a sliver
+   with data in flight (a820b430).  One that does not fit is still held. */
+static void b_sliver_with_flight_sends_a_write_that_fits(void)
 {
     UINT status;
 
@@ -381,16 +384,34 @@ static void b_sliver_with_flight_holds(void)
 
     status = h_write(100);
 
-    h_check_eq(h_datagrams, 0,
-               "a 100-byte write went out into 200 bytes of usable window "
-               "with 512 bytes still in flight (no sender SWS avoidance)");
-    h_check_eq(status, NX_WINDOW_OVERFLOW,
-               "a send the window rule refused did not report the window");
+    h_check_eq(status, NX_SUCCESS,
+               "a 100-byte write that fits 200 bytes of usable window was "
+               "refused (rule 2: a pushed write that fits goes now)");
+    h_check_eq(h_datagrams, 1,
+               "a 100-byte write that fits 200 bytes of usable window with "
+               "512 bytes in flight was withheld (rule 2)");
 
     h_check(h_sock.nx_tcp_socket_zero_window_probe_has_data == NX_FALSE,
             "a non-zero window armed the zero-window persist probe");
 
-    printf("  sliver, in flight   %u datagram(s), status %u\n",
+    printf("  sliver, in flight   fits: %u datagram(s), status %u\n",
+           (unsigned int)h_datagrams, (unsigned int)status);
+
+    /* The negative control: a write larger than the sliver is held, whole. */
+    h_fixture();
+    h_in_flight(512, 200);
+
+    status = h_write(300);
+
+    h_check_eq(h_datagrams, 0,
+               "a 300-byte write went out into 200 bytes of usable window "
+               "with 512 bytes still in flight (no sender SWS avoidance)");
+    h_check_eq(status, NX_WINDOW_OVERFLOW,
+               "a send the window rule refused did not report the window");
+    h_check(h_sock.nx_tcp_socket_zero_window_probe_has_data == NX_FALSE,
+            "a held write into a non-zero window armed the persist probe");
+
+    printf("  sliver, in flight   too big: %u datagram(s), status %u\n",
            (unsigned int)h_datagrams, (unsigned int)status);
 }
 
@@ -447,21 +468,36 @@ static void e_half_the_max_window_releases(void)
     h_check_eq(h_datagrams, 1,
                "1200 usable bytes of a 2400-byte peer window sent nothing");
 
-    /* The same 1200 bytes, on a peer that has offered 64 KB before now: this
-       one IS dribbling, and 1200 is neither a full segment nor half of what it
-       has shown it can take. */
+    /* The same 1200 usable bytes on a peer that has offered 64 KB before now:
+       1200 is neither a full segment nor half of what it has shown it can
+       take, so rules (1) and (3) do not release it.  A write of exactly 1200
+       still goes, by rule (2): it fits whole (a820b430). */
     h_fixture();
     h_in_flight(512, 1200);
 
     status = h_write(1200);
 
+    h_check_eq(status, NX_SUCCESS,
+               "a 1200-byte write that fits 1200 usable bytes of a 65535-byte "
+               "peer window was refused (rule 2)");
+    h_check_eq(h_datagrams, 1,
+               "a 1200-byte write that fits 1200 usable bytes of a 65535-byte "
+               "peer window sent nothing (rule 2)");
+
+    /* One that does not fit is held: no rule releases it. */
+    h_fixture();
+    h_in_flight(512, 1200);
+
+    status = h_write(1300);
+
     h_check_eq(h_datagrams, 0,
-               "1200 usable bytes of a 65535-byte peer window went out");
+               "a 1300-byte write into 1200 usable bytes of a 65535-byte "
+               "peer window went out");
     h_check_eq(status, NX_WINDOW_OVERFLOW,
                "a send the window rule refused did not report the window");
 
-    printf("  1200 usable         sent under a 2400-byte peak, held under "
-           "65535\n");
+    printf("  1200 usable         sent under a 2400-byte peak; under 65535 "
+           "a write that fits goes, a bigger one is held\n");
 }
 
 static void f_zero_window_still_persists(void)
@@ -572,16 +608,19 @@ static void j_peak_window_is_remembered(void)
            (unsigned long)h_sock.nx_tcp_socket_tx_window_advertised_max);
 }
 
-/* One pure ACK out of the real control path, with rx_window_current at
-   `current` and the socket's buffer at `dflt`.  Answers the window that
-   reached the wire. */
-static ULONG h_advertise(ULONG current, ULONG dflt)
+/* One pure ACK out of the real control path, with rx_window_current (the
+   free space) at `current`, the edge last put on the wire at `last_sent`,
+   and the socket's buffer at `dflt`.  Answers the window that reached the
+   wire.  NX_TCP_RX_WINDOW_ADVERTISED (nx_tcp.h, 5615cfd8): at or above the
+   floor, min(MSS, buffer / 2), the free space; below it, the edge last sent
+   is held, or the free space if that is less. */
+static ULONG h_advertise_edge(ULONG current, ULONG last_sent, ULONG dflt)
 {
     h_fixture();
 
     h_sock.nx_tcp_socket_rx_window_default = dflt;
     h_sock.nx_tcp_socket_rx_window_current = current;
-    h_sock.nx_tcp_socket_rx_window_last_sent = current;
+    h_sock.nx_tcp_socket_rx_window_last_sent = last_sent;
 
     h_last_window = 0xFFFFFFFFUL;
     h_acks        = 0;
@@ -595,23 +634,68 @@ static ULONG h_advertise(ULONG current, ULONG dflt)
     h_alloc_ok = 0;
 
     h_check(h_acks == 1, "the control path sent no acknowledgment");
+    h_check_eq(h_sock.nx_tcp_socket_rx_window_last_sent, h_last_window,
+               "rx_window_last_sent is not the window that went on the wire");
 
     return h_last_window;
 }
 
-static void k_a_runt_window_is_advertised_as_zero(void)
+/* The edge last sent equal to the free space: what an established socket
+   has after an acknowledgment that drained nothing. */
+static ULONG h_advertise(ULONG current, ULONG dflt)
+{
+    return h_advertise_edge(current, current, dflt);
+}
+
+/* Below the floor, a window already offered is not withdrawn (RFC 9293
+   3.8.6.2.2): with the edge last sent equal to the free space, the free space
+   goes out again rather than zero (5615cfd8). */
+static void k_a_runt_window_already_offered_is_kept(void)
 {
 ULONG w;
 
     w = h_advertise(68UL, 8192UL);
-    h_check(w == 0UL, "68 bytes of window was advertised rather than zero");
+    h_check_eq(w, 68UL, "68 bytes of window already offered was not kept");
 
     w = h_advertise(104UL, 8192UL);
-    h_check(w == 0UL, "104 bytes of window was advertised rather than zero");
+    h_check_eq(w, 104UL, "104 bytes of window already offered was not kept");
 
     w = h_advertise(H_MSS - 1UL, 8192UL);
-    h_check(w == 0UL, "one byte short of an MSS was advertised rather than "
-                      "zero");
+    h_check_eq(w, H_MSS - 1UL, "one byte short of an MSS, already offered, "
+                               "was not kept");
+}
+
+/* Below the floor, the edge is not moved (RFC 1122 4.2.3.3): free space past
+   the edge last sent opens no new sliver, and a zero edge stays zero.  Less
+   free space than the edge is a genuine shrink, and goes out as it is. */
+static void o_below_the_floor_the_edge_holds(void)
+{
+ULONG w;
+
+    /* 1000 free, 200 on the wire, floor 1460 (8192-byte buffer). */
+    w = h_advertise_edge(1000UL, 200UL, 8192UL);
+    h_check_eq(w, 200UL, "below the floor, free space past the edge opened "
+                         "a new sliver");
+
+    w = h_advertise_edge(100UL, 0UL, 8192UL);
+    h_check_eq(w, 0UL, "below the floor, a zero edge was reopened by a "
+                       "runt of free space");
+
+    w = h_advertise_edge(H_MSS - 1UL, 0UL, 8192UL);
+    h_check_eq(w, 0UL, "one byte short of the floor reopened a zero edge");
+
+    /* At the floor the free space goes out, whatever the edge was. */
+    w = h_advertise_edge(H_MSS, 0UL, 8192UL);
+    h_check_eq(w, H_MSS, "free space at the floor did not reopen a zero "
+                         "edge");
+
+    /* A genuine shrink: the buffer itself has less than the edge promised. */
+    w = h_advertise_edge(100UL, 300UL, 8192UL);
+    h_check_eq(w, 100UL, "less free space than the edge was not advertised "
+                         "as it is");
+
+    printf("  held edge           kept below the floor, reopened at it, "
+           "shrunk with the buffer\n");
 }
 
 /* And the rule stops exactly at one MSS: a window a sender can fill is never
@@ -639,9 +723,20 @@ ULONG w;
     h_check(w == 600UL, "a small-buffer socket advertised zero and could "
                         "never reopen");
 
-    /* Below half of it, the rule still applies. */
+    /* Below half of it, 100 already offered is kept (5615cfd8), and a zero
+       edge is not reopened by it. */
     w = h_advertise(100UL, 1000UL);
-    h_check(w == 0UL, "a runt below half a small buffer was still advertised");
+    h_check_eq(w, 100UL, "a runt below half a small buffer, already offered, "
+                         "was not kept");
+
+    w = h_advertise_edge(100UL, 0UL, 1000UL);
+    h_check_eq(w, 0UL, "a runt below half a small buffer reopened a zero "
+                       "edge");
+
+    /* At half of it, 500, the small buffer reopens a zero edge. */
+    w = h_advertise_edge(500UL, 0UL, 1000UL);
+    h_check_eq(w, 500UL, "a small buffer at its floor did not reopen a zero "
+                         "edge");
 }
 
 /* A window that is genuinely zero is still zero, and is not confused with one
@@ -664,7 +759,7 @@ int main(void)
            (unsigned long)(H_PEER_WINDOW >> 1));
 
     a_open_window_sends();
-    b_sliver_with_flight_holds();
+    b_sliver_with_flight_sends_a_write_that_fits();
     c_small_write_is_not_delayed();
     d_nothing_in_flight_always_sends();
     e_half_the_max_window_releases();
@@ -675,10 +770,11 @@ int main(void)
 
     printf("RFC 1122 4.2.3.3 receiver silly-window avoidance, against the real "
            "control path\n");
-    k_a_runt_window_is_advertised_as_zero();
+    k_a_runt_window_already_offered_is_kept();
     l_a_full_segment_is_advertised();
     m_a_buffer_below_one_mss_still_opens();
     n_zero_stays_zero();
+    o_below_the_floor_the_edge_holds();
 
     printf("%lu checks, %lu failures, %s\n",
            h_checks, h_failures, (h_failures == 0UL) ? "PASS" : "FAIL");
