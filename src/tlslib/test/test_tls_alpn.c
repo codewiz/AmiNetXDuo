@@ -1,5 +1,5 @@
 /*
- * RFC 7301 ALPN, src/tls/alpn/nx_secure_tls_alpn.c and src/tlslib/tls_alpn.c.
+ * RFC 7301 ALPN, third_party/netxduo/nx_secure/src/nx_secure_tls_alpn.c and src/tlslib/tls_alpn.c.
  *
  * nx_secure had no ALPN at all, so nothing built on it could negotiate
  * HTTP/2: h2 over TLS is defined only over a negotiated "h2" (RFC 7540 3.2).
