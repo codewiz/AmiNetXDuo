@@ -797,8 +797,9 @@ LONG bsd_getsockopt(register LONG sock_fd     __asm("d0"),
 
             /*
              * The four numbers that make a stall visible while it is running.
-             * Read under the NX lock because the fast periodic timer writes
-             * three of them.
+             * The three the IP thread's fast periodic pass writes are read
+             * inside the bsd_nx_enter() bracket; nx_ip_protection is not
+             * taken.
              */
             case TCP_STALLINFO:
             {
@@ -1061,8 +1062,9 @@ LONG bsd_getsockname(register LONG sock_fd          __asm("d0"),
     scope = sock->as_LocalScopeId;
 
     /* A wildcard endpoint is resolved from live route/address tables below.
-       Adopt this Exec task before taking nx_ip_protection, and keep the
-       ThreadX scheduler still while the TCP connection interface is read. */
+       The TCP connection interface is read inside the bsd_nx_enter()
+       bracket, which adopts this Exec task as a ThreadX thread;
+       nx_ip_protection is not taken. */
     if ((sock->as_Flags & ASF_CONNECTED) != 0 &&
         ((addr.nxd_ip_version == NX_IP_VERSION_V4 &&
           addr.nxd_ip_address.v4 == 0UL)
