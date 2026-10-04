@@ -11,6 +11,7 @@
 #include "nx_api.h"
 #include "nx_ip.h"
 #include "nx_tcp.h"
+#include "nx_packet.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -115,6 +116,115 @@ VOID _nx_tcp_socket_state_syn_received(NX_TCP_SOCKET *socket_ptr,
     stub_established++;
 }
 
+/* What the cache asks of the rest of the stack once a connection is handed
+   over (2d44d563).  Each is a model of what the real one does to what the
+   cache gives it, checked, so a call the cache should not make, or makes with
+   the wrong thing, fails the arm instead of being absorbed.  */
+static int stub_violations;
+
+static void stub_violation(const char *what)
+{
+    printf("FAIL model: %s\n", what);
+    stub_violations++;
+}
+
+/* _nx_tcp_packet_send_ack: an ACK from a connection that has a peer, at the
+   sequence number it is handed.  Recorded with the window it advertises.  */
+static int            stub_acks;
+static NX_TCP_SOCKET *stub_ack_socket;
+static ULONG          stub_ack_seq;
+static ULONG          stub_ack_ack;
+static ULONG          stub_ack_window;
+
+VOID _nx_tcp_packet_send_ack(NX_TCP_SOCKET *socket_ptr, ULONG tx_sequence)
+{
+    if ((socket_ptr == NX_NULL) || (socket_ptr -> nx_tcp_socket_connect_port == 0))
+    {
+        stub_violation("an ACK from a socket with no peer");
+        return;
+    }
+    stub_acks++;
+    stub_ack_socket = socket_ptr;
+    stub_ack_seq = tx_sequence;
+    stub_ack_ack = socket_ptr -> nx_tcp_socket_rx_sequence;
+    stub_ack_window = socket_ptr -> nx_tcp_socket_rx_window_current;
+}
+
+/* The rig's packets.  A packet is the cache's to hold or release only while
+   it is allocated: releasing one twice, or one the rig never gave out, is a
+   violation.  */
+#define RIG_PACKETS 4
+static NX_PACKET rig_rx[RIG_PACKETS];
+static UCHAR     rig_rx_data[RIG_PACKETS][64];
+static int       rig_rx_live[RIG_PACKETS];
+static int       stub_released;
+
+static int rig_rx_index(NX_PACKET *packet_ptr)
+{
+    int i;
+
+    for (i = 0; i < RIG_PACKETS; i++)
+    {
+        if (packet_ptr == &rig_rx[i])
+        {
+            return(i);
+        }
+    }
+    return(-1);
+}
+
+UINT _nx_packet_release(NX_PACKET *packet_ptr)
+{
+    int i = rig_rx_index(packet_ptr);
+
+    if ((i < 0) || (rig_rx_live[i] == 0))
+    {
+        stub_violation("a packet released that the cache did not own");
+        return(NX_PTR_ERROR);
+    }
+    rig_rx_live[i] = 0;
+    stub_released++;
+    return(NX_SUCCESS);
+}
+
+/* _nx_tcp_socket_packet_process, as an ESTABLISHED socket takes in-order
+   data: the packet is the socket's, no longer on any queue, and starts at
+   the next byte the socket expects; the socket takes its data and the
+   packet.  */
+static int    stub_processed;
+static ULONG  stub_processed_bytes;
+
+VOID _nx_tcp_socket_packet_process(NX_TCP_SOCKET *socket_ptr, NX_PACKET *packet_ptr)
+{
+    NX_TCP_HEADER *h;
+    ULONG          header_length;
+    int            i = rig_rx_index(packet_ptr);
+
+    if ((i < 0) || (rig_rx_live[i] == 0))
+    {
+        stub_violation("a packet processed that the cache did not own");
+        return;
+    }
+    if (socket_ptr -> nx_tcp_socket_state != NX_TCP_ESTABLISHED)
+    {
+        stub_violation("a held packet processed before the socket is established");
+    }
+    if (packet_ptr -> nx_packet_union_next.nx_packet_tcp_queue_next != (NX_PACKET *) NX_PACKET_ALLOCATED)
+    {
+        stub_violation("a held packet processed while still marked queued");
+    }
+    h = (NX_TCP_HEADER *) packet_ptr -> nx_packet_prepend_ptr;
+    header_length = (h -> nx_tcp_header_word_3 >> NX_TCP_HEADER_SHIFT) << 2;
+    if (h -> nx_tcp_sequence_number != socket_ptr -> nx_tcp_socket_rx_sequence)
+    {
+        stub_violation("a held packet processed out of order");
+    }
+    socket_ptr -> nx_tcp_socket_rx_sequence += packet_ptr -> nx_packet_length - header_length;
+    stub_processed_bytes += packet_ptr -> nx_packet_length - header_length;
+    stub_processed++;
+    rig_rx_live[i] = 0;
+}
+
 ULONG _nx_ip_route_find(NX_IP *ip_ptr, ULONG destination_address,
                         NX_INTERFACE **nx_ip_interface, ULONG *next_hop_address)
 {
@@ -209,6 +319,108 @@ static UINT cookie_case(void)
     ok("refused from the step before it was minted",
        _nx_tcp_syncache_cookie_check(test_key, tuple, 3, irs, count - 1, cookie,
                                      &back) == NX_FALSE);
+
+    /* The counter at the top of its range.  It is read off the clock as a
+       ULONG and only its low eight bits go into the cookie, so the step after
+       0xFFFFFFFF is 0 on a 32-bit ULONG and 0x100000000 on a 64-bit one; both
+       are the next step.  */
+    {
+        ULONG top = 0xFFFFFFFFUL;
+        ULONG wrap = _nx_tcp_syncache_cookie_build(test_key, tuple, 3, irs, top, 0x2AB);
+
+        ok("minted at counter 0xFFFFFFFF, accepted in its own step",
+           _nx_tcp_syncache_cookie_check(test_key, tuple, 3, irs, top, wrap, &back) == NX_TRUE &&
+           back == 0x2AB);
+        ok("accepted one step on, at counter 0",
+           _nx_tcp_syncache_cookie_check(test_key, tuple, 3, irs, 0UL, wrap, &back) == NX_TRUE &&
+           back == 0x2AB);
+        ok("accepted one step on, as top + 1 in ULONG arithmetic",
+           _nx_tcp_syncache_cookie_check(test_key, tuple, 3, irs, top + 1UL, wrap, &back) == NX_TRUE);
+        ok("refused two steps on, at counter 1",
+           _nx_tcp_syncache_cookie_check(test_key, tuple, 3, irs, 1UL, wrap, &back) == NX_FALSE);
+        ok("refused two steps on, as top + 2",
+           _nx_tcp_syncache_cookie_check(test_key, tuple, 3, irs, top + 2UL, wrap, &back) == NX_FALSE);
+        ok("refused the step before, 0xFFFFFFFE",
+           _nx_tcp_syncache_cookie_check(test_key, tuple, 3, irs, 0xFFFFFFFEUL, wrap, &back) == NX_FALSE);
+
+        wrap = _nx_tcp_syncache_cookie_build(test_key, tuple, 3, irs, 0xFFUL, 0x011);
+        ok("minted at 0xFF, the eight-bit field's top, accepted at 0x100",
+           _nx_tcp_syncache_cookie_check(test_key, tuple, 3, irs, 0x100UL, wrap, &back) == NX_TRUE &&
+           back == 0x011);
+        ok("and refused at 0x101",
+           _nx_tcp_syncache_cookie_check(test_key, tuple, 3, irs, 0x101UL, wrap, &back) == NX_FALSE);
+    }
+
+    /* The additive carry.  The cookie is h1 + irs + (count << 24) +
+       ((h2 + data) mod 2^24): pick a peer sequence number for which h1 + irs
+       overflows 32 bits and h2 + data crosses 2^24, so building it carries
+       out of the option field and checking it, (rest - h2), borrows.  Once
+       at an ordinary counter and once at 0xFFFFFFFF, where the step after
+       also wraps.  Searched, not assumed: h2 depends on irs and the counter.  */
+    {
+        static const ULONG counts[2] = { 12345UL, 0xFFFFFFFFUL };
+        UINT  k;
+
+        for (k = 0; k < 2; k++)
+        {
+            ULONG cnt = counts[k];
+            ULONG start;
+            ULONG c_irs;
+            ULONG h1;
+            ULONG h2 = 0;
+            ULONG counted[5];
+            ULONG carry_cookie;
+            ULONG tries;
+            int   found = 0;
+
+            h1 = _nx_tcp_syncache_hash(&test_key[0], tuple, 3) & 0xFFFFFFFFUL;
+            start = (0xFFFFFFFFUL - h1 + 1UL) & 0xFFFFFFFFUL;
+            for (tries = 0, c_irs = start; tries < 0x400000UL; tries++, c_irs = (c_irs + 1UL) & 0xFFFFFFFFUL)
+            {
+                counted[0] = tuple[0];
+                counted[1] = tuple[1];
+                counted[2] = tuple[2];
+                counted[3] = cnt & 0xFFFFFFFFUL;
+                counted[4] = c_irs;
+                h2 = _nx_tcp_syncache_hash(&test_key[2], counted, 5) & 0xFFFFFFFFUL;
+                if (((h2 & 0x00FFFFFFUL) > (0x00FFFFFFUL - 0x3FFUL)) &&
+                    (((h1 + c_irs) & 0xFFFFFFFFUL) < h1))
+                {
+                    found = 1;
+                    break;
+                }
+            }
+            printf("     carry vector at counter %08lx: found %d, h1 %08lx irs %08lx h2 %08lx\n",
+                   (unsigned long) cnt, found, (unsigned long) h1, (unsigned long) c_irs,
+                   (unsigned long) h2);
+            eq("a carry vector was found within the bound", (unsigned long) found, 1);
+            if (found == 0)
+            {
+                continue;
+            }
+
+            carry_cookie = _nx_tcp_syncache_cookie_build(test_key, tuple, 3, c_irs, cnt, 0x3FF);
+            ok("h2 + data crosses 2^24 and h1 + irs 2^32: the options round trip",
+               _nx_tcp_syncache_cookie_check(test_key, tuple, 3, c_irs, cnt, carry_cookie,
+                                             &back) == NX_TRUE && back == 0x3FF);
+            ok("the carry does not move the counter step: accepted one on",
+               _nx_tcp_syncache_cookie_check(test_key, tuple, 3, c_irs,
+                                             (cnt + 1UL) & 0xFFFFFFFFUL, carry_cookie,
+                                             &back) == NX_TRUE && back == 0x3FF);
+            ok("refused two on",
+               _nx_tcp_syncache_cookie_check(test_key, tuple, 3, c_irs,
+                                             (cnt + 2UL) & 0xFFFFFFFFUL, carry_cookie,
+                                             &back) == NX_FALSE);
+            ok("refused one before",
+               _nx_tcp_syncache_cookie_check(test_key, tuple, 3, c_irs,
+                                             (cnt - 1UL) & 0xFFFFFFFFUL, carry_cookie,
+                                             &back) == NX_FALSE);
+            carry_cookie = _nx_tcp_syncache_cookie_build(test_key, tuple, 3, c_irs, cnt, 0x000);
+            ok("the same irs with data 0, no carry out of the field, round trips",
+               _nx_tcp_syncache_cookie_check(test_key, tuple, 3, c_irs, cnt, carry_cookie,
+                                             &back) == NX_TRUE && back == 0x000);
+        }
+    }
 
     /* The peer's own sequence number is bound in, so a cookie cannot be
        lifted onto a different handshake from the same address.  */
@@ -368,6 +580,7 @@ static UINT cookie_case(void)
 static NX_IP          rig_ip;
 static NX_TCP_LISTEN  rig_listen;
 static NX_TCP_SOCKET  rig_socket;
+static NX_TCP_SOCKET  rig_socket2;     /* what a relisten parks next */
 static NX_INTERFACE   rig_interface;
 static NX_PACKET      rig_packet;
 
@@ -385,7 +598,10 @@ static void rig_reset(void)
     memset(&rig_ip, 0, sizeof(rig_ip));
     memset(&rig_listen, 0, sizeof(rig_listen));
     memset(&rig_socket, 0, sizeof(rig_socket));
+    memset(&rig_socket2, 0, sizeof(rig_socket2));
     memset(&rig_interface, 0, sizeof(rig_interface));
+    memset(rig_rx, 0, sizeof(rig_rx));
+    memset(rig_rx_live, 0, sizeof(rig_rx_live));
     memset(&rig_packet, 0, sizeof(rig_packet));
 
     rig_interface.nx_interface_ip_mtu_size = 1500;
@@ -405,6 +621,10 @@ static void rig_reset(void)
     rig_socket.nx_tcp_socket_state = NX_TCP_LISTEN_STATE;
     rig_socket.nx_tcp_socket_rx_window_default = 8192;
 
+    /* What nx_tcp_server_socket_relisten() hands deliver(): unbound, CLOSED. */
+    rig_socket2.nx_tcp_socket_ip_ptr = &rig_ip;
+    rig_socket2.nx_tcp_socket_state = NX_TCP_CLOSED;
+    rig_socket2.nx_tcp_socket_rx_window_default = 8192;
 
     host_now = 100000;
     host_ms  = 0;
@@ -413,6 +633,11 @@ static void rig_reset(void)
     stub_established = 0;
     stub_last_socket = NX_NULL;
     rig_callbacks = 0;
+    stub_acks = 0;
+    stub_ack_socket = NX_NULL;
+    stub_released = 0;
+    stub_processed = 0;
+    stub_processed_bytes = 0;
 
     _nx_tcp_syncache_initialize(&rig_ip);
     memcpy(rig_ip.nx_ip_tcp_syncache.nx_tcp_syncache_key, test_key, sizeof(test_key));
@@ -455,6 +680,54 @@ static UINT rig_ack(ULONG n, ULONG irs, ULONG iss)
                                           &rig_interface, NX_TRUE, 888);
 }
 
+/* A segment from the peer of a connection waiting for accept, as
+   _nx_tcp_packet_process would hand it to _nx_tcp_syncache_hold: header in
+   host order, `len` bytes of data after it.  */
+static NX_PACKET *rig_segment(int slot, ULONG word_3, ULONG seq, ULONG ack, ULONG len)
+{
+    NX_PACKET     *p = &rig_rx[slot];
+    NX_TCP_HEADER *h = (NX_TCP_HEADER *) rig_rx_data[slot];
+
+    memset(p, 0, sizeof(*p));
+    memset(rig_rx_data[slot], 0, sizeof(rig_rx_data[slot]));
+    h -> nx_tcp_header_word_3 = (5UL << NX_TCP_HEADER_SHIFT) | word_3 | 8192UL;
+    h -> nx_tcp_sequence_number = seq;
+    h -> nx_tcp_acknowledgment_number = ack;
+    p -> nx_packet_prepend_ptr = rig_rx_data[slot];
+    /* Twenty bytes of header on the wire, the data offset above: not
+       sizeof(NX_TCP_HEADER), which is wider with a 64-bit ULONG.  */
+    p -> nx_packet_append_ptr = rig_rx_data[slot] + 20 + len;
+    p -> nx_packet_length = 20UL + len;
+    rig_rx_live[slot] = 1;
+    return(p);
+}
+
+/* A connection the cache handed over and accept has not been called on is
+   left as upstream left one: bound, in LISTEN, with the peer's port
+   (2d44d563).  */
+static int rig_awaiting_accept(NX_TCP_SOCKET *socket_ptr, ULONG n)
+{
+    return((socket_ptr -> nx_tcp_socket_state == NX_TCP_LISTEN_STATE) &&
+           (socket_ptr -> nx_tcp_socket_bound_next != NX_NULL) &&
+           (socket_ptr -> nx_tcp_socket_connect_port == (UINT) (30000u + (n & 0xFFFu))));
+}
+
+/* Fill the cache with answered handshakes while a socket is parked, then take
+   the socket away: the cache is full and a SYN can only be answered with a
+   cookie, with no socket on the port (96502647: with no socket a SYN that
+   finds room is deferred, so the cache is filled while one is parked).  */
+static void rig_fill_then_unpark(ULONG base, ULONG irs)
+{
+    ULONG i;
+
+    rig_listen.nx_tcp_listen_socket_ptr = &rig_socket;
+    for (i = 0; i < NX_TCP_SYNCACHE_SIZE; i++)
+    {
+        (void) rig_syn(base + i, irs + i);
+    }
+    rig_listen.nx_tcp_listen_socket_ptr = NX_NULL;
+}
+
 static UINT cache_case(void)
 {
     NX_TCP_SYNCACHE *cache = &rig_ip.nx_ip_tcp_syncache;
@@ -480,11 +753,23 @@ static UINT cache_case(void)
 
     ok("the ACK is consumed", rig_ack(1, 0x1000, iss_first) == NX_TRUE);
     eq("the entry is given back", cache -> nx_tcp_syncache_count, 0);
-    eq("the connection is established", (unsigned long) stub_established, 1);
     eq("the application is told once", (unsigned long) rig_callbacks, 1);
     ok("the listen request's socket has been taken",
        rig_listen.nx_tcp_listen_socket_ptr == NX_NULL);
+    /* 2d44d563: accept moves it on, not the ACK.  */
+    eq("the connection waits for accept, not established by the ACK",
+       (unsigned long) stub_established, 0);
+    ok("on the parked socket, bound in LISTEN with the peer's port",
+       rig_awaiting_accept(&rig_socket, 1));
+    eq("and nothing is sent while it waits", (unsigned long) stub_acks, 0);
+    ok("accept connects it", _nx_tcp_syncache_accept(&rig_socket) == NX_TRUE);
+    eq("the connection is established", (unsigned long) stub_established, 1);
     ok("and it is the socket that was parked", stub_last_socket == &rig_socket);
+    eq("accept sends one ACK, which opens the window", (unsigned long) stub_acks, 1);
+    ok("from that socket, at iss + 1, acknowledging irs + 1",
+       stub_ack_socket == &rig_socket && stub_ack_seq == iss_first + 1 && stub_ack_ack == 0x1001);
+    ok("a second accept is not a second connection",
+       _nx_tcp_syncache_accept(&rig_socket) == NX_FALSE && stub_established == 1);
     eq("with the sequence numbers the handshake agreed",
        rig_socket.nx_tcp_socket_tx_sequence, (unsigned long) (iss_first + 1));
     eq("and the peer's", rig_socket.nx_tcp_socket_rx_sequence, 0x1001);
@@ -503,6 +788,35 @@ static UINT cache_case(void)
     eq("and TS.Recent came off the ACK, which is fresher than the SYN",
        rig_socket.nx_tcp_socket_ts_recent, 888);
 #endif
+
+    /* Data the peer sends before accept is held on the socket unacknowledged
+       and processed by accept, in order (2d44d563); a segment that does not
+       continue it is released.  */
+    rig_reset();
+    rig_listen.nx_tcp_listen_socket_ptr = &rig_socket;
+    {
+        ULONG iss = rig_syn(2, 0x1100);
+
+        ok("a handshake to hold data for", rig_ack(2, 0x1100, iss) == NX_TRUE &&
+                                           rig_awaiting_accept(&rig_socket, 2));
+        ok("in-order data is held",
+           _nx_tcp_syncache_hold(&rig_socket,
+                                 rig_segment(0, NX_TCP_ACK_BIT | NX_TCP_PSH_BIT, 0x1101, iss + 1, 10)) == NX_TRUE);
+        ok("a segment that does not follow it is taken",
+           _nx_tcp_syncache_hold(&rig_socket,
+                                 rig_segment(1, NX_TCP_ACK_BIT, 0x1101 + 500, iss + 1, 10)) == NX_TRUE);
+        eq("and released, not held", (unsigned long) stub_released, 1);
+        eq("one segment is held", rig_socket.nx_tcp_socket_receive_queue_count, 1);
+        eq("nothing was acknowledged while held", (unsigned long) stub_acks, 0);
+        eq("nor processed", (unsigned long) stub_processed, 0);
+        ok("accept connects it", _nx_tcp_syncache_accept(&rig_socket) == NX_TRUE);
+        eq("and processes what was held", (unsigned long) stub_processed, 1);
+        eq("all ten bytes of it", (unsigned long) stub_processed_bytes, 10);
+        eq("leaving nothing on the hold queue", rig_socket.nx_tcp_socket_receive_queue_count, 0);
+        eq("after the one window-opening ACK", (unsigned long) stub_acks, 1);
+        eq("and no packet is left owned by the cache",
+           (unsigned long) (rig_rx_live[0] + rig_rx_live[1]), 0);
+    }
 
     rig_reset();
     rig_listen.nx_tcp_listen_socket_ptr = &rig_socket;
@@ -540,6 +854,9 @@ static UINT cache_case(void)
     eq("with no entry ever stored for it", cache -> nx_tcp_syncache_count,
        NX_TCP_SYNCACHE_SIZE);
     eq("the cookie was recognised", cache -> nx_tcp_syncache_cookies_valid, 1);
+    ok("the connection waits for accept on the parked socket (2d44d563)",
+       stub_established == 0 && rig_awaiting_accept(&rig_socket, 9999));
+    ok("and accept connects it", _nx_tcp_syncache_accept(&rig_socket) == NX_TRUE);
     eq("the connection is established", (unsigned long) stub_established, 1);
 #ifdef NX_ENABLE_TCP_WINDOW_SCALING
     eq("the window scale survived the cookie",
@@ -604,41 +921,76 @@ static UINT cache_case(void)
     _nx_tcp_syncache_periodic(&rig_ip);
     eq("the entry is gone", cache -> nx_tcp_syncache_count, 0);
 
-    /* The clock has moved less than one cookie counter step, so the ACK is
-       still inside the window.  This is why a cached entry's sequence number
-       is a cookie too: the client's handshake is not lost with the entry.  */
-    ok("but the acknowledgment still completes it",
-       rig_ack(77, 0x6000, iss_first) == NX_TRUE);
-    eq("from the cookie alone", cache -> nx_tcp_syncache_cookies_valid, 1);
-    eq("and the connection is made", (unsigned long) stub_established, 1);
+    /* The clock has moved less than one cookie counter step, so a cookie
+       minted with the SYN would still be inside the window.  A cached entry's
+       sequence number is not a cookie (e5e89f1b): the handshake is lost with
+       the entry.  What this rig proves is the cache's side only: the ACK is
+       not consumed (NX_FALSE) and the cache sends nothing for it.  It does
+       not link _nx_tcp_packet_process and is no evidence of the RST that
+       goes on the wire; the fork's netx_3_06, 8_02 and 10_23_01 and
+       ctl_syncookie check that.  */
+    stub_rsts = 0;
+    stub_synacks = 0;
+    ok("the acknowledgment of an expired cached entry is not consumed (NX_FALSE)",
+       rig_ack(77, 0x6000, iss_first) == NX_FALSE);
+    eq("it does not decode as a cookie", cache -> nx_tcp_syncache_cookies_valid, 0);
+    eq("and is counted as not one", cache -> nx_tcp_syncache_cookies_invalid, 1);
+    eq("no connection is made", (unsigned long) stub_established, 0);
+    ok("or rebuilt onto the parked socket",
+       rig_listen.nx_tcp_listen_socket_ptr == &rig_socket &&
+       rig_socket.nx_tcp_socket_state == NX_TCP_LISTEN_STATE &&
+       rig_socket.nx_tcp_socket_connect_port == 0);
+    eq("the cache sends nothing for it itself", (unsigned long) (stub_rsts + stub_synacks), 0);
+    eq("and holds nothing for it", cache -> nx_tcp_syncache_count, 0);
 
-    rig_reset();
-    rig_listen.nx_tcp_listen_socket_ptr = NX_NULL;
-
-    for (i = 0; i < 8; i++)
+    /* The peer starts again, and that works.  */
     {
-        ULONG iss = rig_syn(4000 + i, 0x7000 + i);
+        ULONG iss = rig_syn(77, 0x6100);
 
-        (void) rig_ack(4000 + i, 0x7000 + i, iss);
+        eq("a fresh SYN from the same peer is answered", (unsigned long) stub_synacks, 1);
+        ok("with a new sequence number", iss != iss_first);
+        ok("and its ACK completes the handshake", rig_ack(77, 0x6100, iss) == NX_TRUE &&
+                                                  rig_awaiting_accept(&rig_socket, 77));
+        ok("which accept connects", _nx_tcp_syncache_accept(&rig_socket) == NX_TRUE &&
+                                    stub_established == 1);
     }
-    eq("a full backlog waits", cache -> nx_tcp_syncache_accept_count, 8);
-    eq("and none of them reset the peer", (unsigned long) stub_rsts, 0);
-    eq("and no socket was committed", (unsigned long) stub_established, 0);
 
+    /* A SYN with no socket parked is deferred and not answered (96502647),
+       so a finished handshake with no socket comes from SYNs answered while
+       one was parked: ten arrive, the first ACK takes the socket, the next
+       eight queue for accept, and the tenth is past the backlog.  */
+    rig_reset();
+    rig_listen.nx_tcp_listen_socket_ptr = &rig_socket;
     {
-        ULONG iss = rig_syn(4008, 0x7008);
+        ULONG iss[10];
 
-        (void) rig_ack(4008, 0x7008, iss);
+        for (i = 0; i < 10; i++)
+        {
+            iss[i] = rig_syn(4000 + i, 0x7000 + i);
+        }
+        eq("ten SYNs answered while a socket is parked", (unsigned long) stub_synacks, 10);
+        ok("the first ACK takes the parked socket",
+           rig_ack(4000, 0x7000, iss[0]) == NX_TRUE && rig_awaiting_accept(&rig_socket, 4000));
+        for (i = 1; i < 9; i++)
+        {
+            (void) rig_ack(4000 + i, 0x7000 + i, iss[i]);
+        }
+        eq("a full backlog waits", cache -> nx_tcp_syncache_accept_count, 8);
+        eq("and none of them reset the peer", (unsigned long) stub_rsts, 0);
+        eq("and no socket was committed", (unsigned long) stub_established, 0);
+
+        (void) rig_ack(4009, 0x7009, iss[9]);
     }
     eq("past the backlog the queue does not grow",
        cache -> nx_tcp_syncache_accept_count, 8);
     eq("and the peer is told, rather than left hanging",
        (unsigned long) stub_rsts, 1);
 
-    rig_socket.nx_tcp_socket_state = NX_TCP_CLOSED;
     ok("relisten takes one", _nx_tcp_syncache_deliver(&rig_ip, &rig_listen,
-                                                      &rig_socket) == NX_TRUE);
+                                                      &rig_socket2) == NX_TRUE);
     eq("the queue shortens", cache -> nx_tcp_syncache_accept_count, 7);
+    ok("onto the relistened socket, waiting for accept", rig_awaiting_accept(&rig_socket2, 4001));
+    ok("which accept connects", _nx_tcp_syncache_accept(&rig_socket2) == NX_TRUE);
     eq("and the connection reaches the application",
        (unsigned long) stub_established, 1);
 
@@ -650,13 +1002,9 @@ static UINT cache_case(void)
     eq("and resets every peer waiting on it", (unsigned long) stub_rsts, 7);
 
     rig_reset();
-    rig_listen.nx_tcp_listen_socket_ptr = NX_NULL;
     rig_listen.nx_tcp_listen_rx_window = 65536 * 4;      /* needs a scale */
 
-    for (i = 0; i < NX_TCP_SYNCACHE_SIZE; i++)
-    {
-        (void) rig_syn(6000 + i, 0xA000 + i);
-    }
+    rig_fill_then_unpark(6000, 0xA000);
     iss_last = rig_syn(6999, 0xB000);                    /* past full: a cookie */
     eq("the cookie SYN-ACK was sent with no socket on the port",
        cache -> nx_tcp_syncache_cookies_sent, 1);
@@ -664,9 +1012,10 @@ static UINT cache_case(void)
     ok("and it announced a window scale", stub_synack_scale > 0);
 #endif
 
-    rig_socket.nx_tcp_socket_state = NX_TCP_LISTEN_STATE;
     rig_listen.nx_tcp_listen_socket_ptr = &rig_socket;
-    ok("the cookie completes", rig_ack(6999, 0xB000, iss_last) == NX_TRUE);
+    ok("the cookie completes", rig_ack(6999, 0xB000, iss_last) == NX_TRUE &&
+                               cache -> nx_tcp_syncache_cookies_valid == 1 &&
+                               rig_awaiting_accept(&rig_socket, 6999));
 #ifdef NX_ENABLE_TCP_WINDOW_SCALING
     eq("with the scale the SYN-ACK announced, not the parked socket's",
        rig_socket.nx_tcp_rcv_win_scale_value, stub_synack_scale);
@@ -695,20 +1044,18 @@ static UINT cache_case(void)
     }
 
     rig_reset();
-    rig_listen.nx_tcp_listen_socket_ptr = NX_NULL;
     rig_listen.nx_tcp_listen_rx_window = 100352;
     rig_listen.nx_tcp_listen_rx_window_maximum = 262144;
-    for (i = 0; i < NX_TCP_SYNCACHE_SIZE; i++)
-    {
-        (void) rig_syn(7000 + i, 0xA100 + i);
-    }
+    rig_socket.nx_tcp_socket_rx_window_default = 100352;
+    rig_fill_then_unpark(7000, 0xA100);
+    stub_synack_scale = 0;
     iss_last = rig_syn(7999, 0xB100);                    /* past full: a cookie */
+    eq("past full with no socket parked, a cookie", cache -> nx_tcp_syncache_cookies_sent, 1);
     eq("a cookie SYN-ACK announces the grown window's scale too",
        stub_synack_scale, 3);
-    rig_socket.nx_tcp_socket_state = NX_TCP_LISTEN_STATE;
-    rig_socket.nx_tcp_socket_rx_window_default = 100352;
     rig_listen.nx_tcp_listen_socket_ptr = &rig_socket;
-    ok("the cookie completes", rig_ack(7999, 0xB100, iss_last) == NX_TRUE);
+    ok("the cookie completes", rig_ack(7999, 0xB100, iss_last) == NX_TRUE &&
+                               cache -> nx_tcp_syncache_cookies_valid == 1);
     eq("and the ACK reconstructs that scale, not the advertised window's",
        rig_socket.nx_tcp_rcv_win_scale_value, 3);
 
@@ -721,11 +1068,15 @@ static UINT cache_case(void)
     eq("no maximum: the scale is the advertised window's", stub_synack_scale, 1);
 #endif
 
+    /* Two SYNs answered while one socket is parked: the first ACK takes the
+       socket, the second finishes with none (96502647).  */
     rig_reset();
-    rig_listen.nx_tcp_listen_socket_ptr = NX_NULL;
+    rig_listen.nx_tcp_listen_socket_ptr = &rig_socket;
     {
+        ULONG iss87 = rig_syn(87, 0xBF00);
         ULONG iss = rig_syn(88, 0xC000);
 
+        (void) rig_ack(87, 0xBF00, iss87);
         (void) rig_ack(88, 0xC000, iss);
     }
     eq("one finished handshake is waiting", cache -> nx_tcp_syncache_accept_count, 1);
@@ -836,36 +1187,32 @@ static UINT cache_case(void)
     }
 
     rig_reset();
-    rig_listen.nx_tcp_listen_socket_ptr = NX_NULL;
+    rig_listen.nx_tcp_listen_socket_ptr = &rig_socket;
     host_ms = 3000;
     {
+        ULONG iss96 = rig_syn(98, 0xE380);
         ULONG iss = rig_syn(97, 0xE400);
 
         host_ms = 3040;
+        (void) rig_ack(98, 0xE380, iss96);                 /* takes the socket */
         ok("with no socket parked the handshake is queued",
            rig_ack(97, 0xE400, iss) == NX_TRUE);
         eq("in the accept queue", cache -> nx_tcp_syncache_accept_count, 1);
         host_ms = 9000;
-        rig_socket.nx_tcp_socket_state = NX_TCP_LISTEN_STATE;
-        rig_listen.nx_tcp_listen_socket_ptr = &rig_socket;
         ok("a relisten takes it", _nx_tcp_syncache_deliver(&rig_ip, &rig_listen,
-                                                           &rig_socket) == NX_TRUE);
+                                                           &rig_socket2) == NX_TRUE);
         eq("with the round trip of the handshake, not of the wait",
-           rig_socket.nx_tcp_socket_handshake_rtt, 40);
+           rig_socket2.nx_tcp_socket_handshake_rtt, 40);
     }
 
     rig_reset();
-    rig_listen.nx_tcp_listen_socket_ptr = NX_NULL;
     host_ms = 4000;
-    for (i = 0; i < NX_TCP_SYNCACHE_SIZE; i++)
-    {
-        (void) rig_syn(8000 + i, 0xF000 + i);
-    }
+    rig_fill_then_unpark(8000, 0xF000);
     iss_last = rig_syn(8999, 0xF999);                    /* past full: a cookie */
     host_ms = 4030;
-    rig_socket.nx_tcp_socket_state = NX_TCP_LISTEN_STATE;
     rig_listen.nx_tcp_listen_socket_ptr = &rig_socket;
-    ok("a cookie completes", rig_ack(8999, 0xF999, iss_last) == NX_TRUE);
+    ok("a cookie completes", rig_ack(8999, 0xF999, iss_last) == NX_TRUE &&
+                             cache -> nx_tcp_syncache_cookies_valid == 1);
     eq("and carries no round trip: nothing was stored to time it",
        rig_socket.nx_tcp_socket_handshake_rtt, 0);
 
@@ -890,6 +1237,8 @@ int main(int argc, char **argv)
         printf("usage: test_syncache cookie|cache\n");
         return 2;
     }
+
+    failures += stub_violations;
 
     if (failures != 0)
     {

@@ -128,7 +128,16 @@ UINT _nx_packet_allocate(NX_PACKET_POOL *pool_ptr, NX_PACKET **packet_ptr,
     return NX_SUCCESS;
 }
 
-UINT _nx_packet_release(NX_PACKET *packet_ptr)          { (void) packet_ptr; return NX_SUCCESS; }
+/* No arm releases a packet (counted: 0 calls in all ten): the IPv4 send and
+   _nx_ipv6_header_add above keep theirs, and the cache's own releases are in
+   _nx_tcp_syncache_hold, which no arm reaches.  A call is a path this test
+   does not model, so it stops the test, as the two below do.  */
+UINT _nx_packet_release(NX_PACKET *packet_ptr)
+{
+    (void) packet_ptr;
+    printf("FAIL _nx_packet_release reached: an unmodelled path\n");
+    abort();
+}
 UINT _nx_packet_transmit_release(NX_PACKET *packet_ptr) { (void) packet_ptr; return NX_SUCCESS; }
 
 /* A SYN fed into the cache from inside the detach: in the unlocked ARP/ND
@@ -155,6 +164,28 @@ UINT _nx_igmp_multicast_interface_leave_internal(NX_IP *ip_ptr, ULONG group, UIN
     return NX_SUCCESS;
 }
 VOID _nx_tcp_socket_connection_reset(NX_TCP_SOCKET *socket_ptr)        { (void) socket_ptr; }
+
+/* nx_tcp_syncache.c calls these two only from _nx_tcp_syncache_accept and
+   _nx_tcp_syncache_hold (2d44d563), which no arm here calls, and the ACK also
+   from _nx_tcp_syncache_send_ack (96502647), for a segment carrying data to a
+   handshake in the accept queue, which no arm sends.  A call is a path this
+   test does not model, so it stops the test rather than being absorbed.
+   tests/syncache/host/test_syncache_host.c models both and drives them.  */
+VOID _nx_tcp_socket_packet_process(NX_TCP_SOCKET *socket_ptr, NX_PACKET *packet_ptr)
+{
+    (void) socket_ptr;
+    (void) packet_ptr;
+    printf("FAIL _nx_tcp_socket_packet_process reached: an unmodelled path\n");
+    abort();
+}
+
+VOID _nx_tcp_packet_send_ack(NX_TCP_SOCKET *socket_ptr, ULONG tx_sequence)
+{
+    (void) socket_ptr;
+    (void) tx_sequence;
+    printf("FAIL _nx_tcp_packet_send_ack reached: an unmodelled path\n");
+    abort();
+}
 #ifdef FEATURE_NX_IPV6
 VOID _nx_nd_cache_interface_entries_delete(NX_IP *ip_ptr, UINT index)
 {
@@ -461,11 +492,23 @@ static void case_v6_retry(void)
 static void case_v6_accept(void)
 {
     ULONG iss;
+    ULONG iss_taker;
 
+    /* A SYN with no socket parked is deferred and not answered (96502647),
+       so the queued handshake comes from two SYNs answered while one socket
+       is parked: an IPv4 one on K takes the socket, the IPv6 one finishes
+       with none and queues.  */
     rig_reset();
-    rig_listen.nx_tcp_listen_socket_ptr = NX_NULL;
+    rig_listen.nx_tcp_listen_socket_ptr = &rig_socket;
     rig_syn(NX_IP_VERSION_V6, 0x2000);
-    iss = rig_ip.nx_ip_tcp_syncache.nx_tcp_syncache_age_head -> nx_tcp_syncache_iss;
+    iss = rig_ip.nx_ip_tcp_syncache.nx_tcp_syncache_age_tail -> nx_tcp_syncache_iss;
+    rig_syn(NX_IP_VERSION_V4, 0x2100);
+    iss_taker = rig_ip.nx_ip_tcp_syncache.nx_tcp_syncache_age_tail -> nx_tcp_syncache_iss;
+    ok("both SYNs are answered", rig_ip.nx_ip_tcp_syncache.nx_tcp_syncache_count == 2);
+    rig_ack(NX_IP_VERSION_V4, 0x2100, iss_taker);
+    ok("the first finished handshake takes the parked socket",
+       rig_listen.nx_tcp_listen_socket_ptr == NX_NULL &&
+       rig_socket.nx_tcp_socket_connect_port == 40000);
     rig_ack(NX_IP_VERSION_V6, 0x2000, iss);
     ok("the handshake is queued for accept",
        rig_ip.nx_ip_tcp_syncache.nx_tcp_syncache_accept_count == 1);
@@ -515,21 +558,40 @@ static void case_keep_other(void)
 {
     ULONG iss;
 
+    ULONG iss_taker;
+
+    /* Every SYN arrives while a socket is parked, so each is answered
+       (96502647: with none parked a SYN is deferred, unanswered, and never
+       retried).  The first ACK takes the socket; the second finishes with
+       none and queues.  */
     rig_reset();
-    rig_listen.nx_tcp_listen_socket_ptr = NX_NULL;
+    rig_listen.nx_tcp_listen_socket_ptr = &rig_socket;
 
     rig_if = 0;
     rig_syn(NX_IP_VERSION_V4, 0x6000);
-    iss = rig_ip.nx_ip_tcp_syncache.nx_tcp_syncache_age_head -> nx_tcp_syncache_iss;
-    rig_ack(NX_IP_VERSION_V4, 0x6000, iss);         /* queued on 0 */
-    ok("a handshake on interface 0 is queued for accept",
-       rig_ip.nx_ip_tcp_syncache.nx_tcp_syncache_accept_count == 1);
+    iss = rig_ip.nx_ip_tcp_syncache.nx_tcp_syncache_age_tail -> nx_tcp_syncache_iss;
+    peer4_other += 2;                               /* the peer that takes the socket */
+    rig_syn(NX_IP_VERSION_V4, 0x6100);
+    iss_taker = rig_ip.nx_ip_tcp_syncache.nx_tcp_syncache_age_tail -> nx_tcp_syncache_iss;
+    peer4_other -= 2;
     peer4_other++;                                  /* another peer on 0 */
     rig_syn(NX_IP_VERSION_V4, 0x6200);
     peer4_other--;
 
     rig_if = K;
     rig_syn(NX_IP_VERSION_V4, 0x6300);              /* half-open on K */
+
+    rig_if = 0;
+    peer4_other += 2;
+    rig_ack(NX_IP_VERSION_V4, 0x6100, iss_taker);   /* takes the socket */
+    peer4_other -= 2;
+    ok("the first finished handshake takes the parked socket",
+       rig_listen.nx_tcp_listen_socket_ptr == NX_NULL &&
+       rig_socket.nx_tcp_socket_connect_port == 40000);
+    rig_ack(NX_IP_VERSION_V4, 0x6000, iss);         /* queued on 0 */
+    ok("a handshake on interface 0 is queued for accept",
+       rig_ip.nx_ip_tcp_syncache.nx_tcp_syncache_accept_count == 1);
+    rig_if = K;
     ok("two half-open, one queued",
        rig_ip.nx_ip_tcp_syncache.nx_tcp_syncache_count == 2 &&
        rig_ip.nx_ip_tcp_syncache.nx_tcp_syncache_accept_count == 1);
@@ -537,6 +599,8 @@ static void case_keep_other(void)
     rig_detach();
     rig_cache_check(1, 1);
     ok("the survivors are both on interface 0",
+       rig_ip.nx_ip_tcp_syncache.nx_tcp_syncache_age_head != NX_NULL &&
+       rig_ip.nx_ip_tcp_syncache.nx_tcp_syncache_accept_head != NX_NULL &&
        rig_ip.nx_ip_tcp_syncache.nx_tcp_syncache_age_head -> nx_tcp_syncache_interface
            == &rig_ip.nx_ip_interface[0] &&
        rig_ip.nx_ip_tcp_syncache.nx_tcp_syncache_accept_head -> nx_tcp_syncache_interface

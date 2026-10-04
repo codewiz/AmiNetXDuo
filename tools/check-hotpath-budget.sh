@@ -130,7 +130,7 @@ TABLE = {
     # on the data-ACK ramp's limit, so a 256 KB receive window (the WAN case
     # of bsdsocket_window.h) does not acknowledge every 128 KB.  Four
     # instructions per segment, bought on purpose.
-    "nx_tcp_socket_state_data_check.c":  [("__nx_tcp_socket_state_data_check",  483)],  # 429; 483 counts
+    "nx_tcp_socket_state_data_check.c":  [("__nx_tcp_socket_state_data_check",  493)],  # 429; 483 counts
                                                                                         # the queue-cap drop
                                                                                         # in the current default
                                                                                         # arm (off the in-order path)

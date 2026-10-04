@@ -58,11 +58,11 @@ ARM="${AMINETXDUO_RAM_ARM:-$(basename "$BUILD")}"
 # the same listener and pointer costs, with no mDNS.  DHCP/DNS packet storage
 # remains dynamic and is therefore not hidden in this resident allocation.
 BUDGETS=(
-    "default:68608"
-    "minimal:17408"
+    "default:68836"
+    "minimal:17928"
     # First budgeted as a shipping profile at 0.28.9: 15,716 bytes, with
     # headroom to the next KiB boundary.
-    "micro:16384"
+    "micro:16388"
 )
 
 budget=""

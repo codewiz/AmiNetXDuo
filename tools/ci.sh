@@ -470,7 +470,10 @@ host_test_targets() { # builddir
 #      551 with tls_send_record_ownership (GHSA-8w5x-ff58-2fr2): a TLS
 #      record's packet chain is left alone once TCP has accepted it, and
 #      wiped only on a failed send (all hosts).
-HOST_TESTS_EXPECTED=551
+#      553 with syncache_cookie_ulong64/_cache_ulong64: the SYN cache's
+#      cookie, counter wrap, carry and cache with ULONG 64 bits wide
+#      (all hosts).
+HOST_TESTS_EXPECTED=553
 case "$(uname -m)" in
     x86_64|amd64) ;;
     # test_inet, test_route, test_expunge, test_expunge_cork, test_select,
