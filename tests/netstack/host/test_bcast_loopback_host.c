@@ -38,6 +38,12 @@ static void h_check(int ok, const char *what)
 
 static NX_IP           h_ip;
 static NX_PACKET_POOL  h_pool;
+
+/* NX_IP_FRAGMENT_ADMIT (nx_ip.h) reads the count nx_ip_create() keeps, and
+   this fixture builds its one NX_IP by hand without nx_ip_create.c, so the
+   count is defined here as that one instance. */
+ULONG _nx_ip_created_count = 1;
+
 static NX_UDP_SOCKET   h_server;            /* bound to H_SERVER_PORT       */
 static NX_UDP_SOCKET   h_client;            /* the one that broadcasts      */
 

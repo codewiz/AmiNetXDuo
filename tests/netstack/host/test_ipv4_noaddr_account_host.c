@@ -46,6 +46,12 @@ static void h_check(int ok, const char *what)
 
 static unsigned long h_releases;
 
+
+/* NX_IP_FRAGMENT_ADMIT (nx_ip.h) reads the count nx_ip_create() keeps, and
+   h_run() builds its one NX_IP on the stack without nx_ip_create.c, so the
+   count is defined here as that one instance. */
+ULONG _nx_ip_created_count = 1;
+
 VOID _nx_packet_release(NX_PACKET *packet_ptr)
 {
     (void)packet_ptr;

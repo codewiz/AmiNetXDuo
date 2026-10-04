@@ -16,6 +16,12 @@
 #include "nx_api.h"
 
 
+/* NX_IP_FRAGMENT_ADMIT (nx_ip.h) reads the count nx_ip_create() keeps.  No
+   binary that links this file links nx_ip_create.c; each builds at most one
+   NX_IP by hand, so the count is defined here as that one instance. */
+ULONG _nx_ip_created_count = 1;
+
+
 
 UINT _tx_mutex_get(TX_MUTEX *mutex_ptr, ULONG wait_option)
 {
