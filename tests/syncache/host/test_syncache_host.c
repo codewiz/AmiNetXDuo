@@ -924,12 +924,14 @@ static UINT cache_case(void)
     /* The clock has moved less than one cookie counter step, so a cookie
        minted with the SYN would still be inside the window.  A cached entry's
        sequence number is not a cookie (e5e89f1b): the handshake is lost with
-       the entry, and its acknowledgment goes back to the caller, which answers
-       an ACK on a port in LISTEN with <SEQ=SEG.ACK><CTL=RST> (RFC 9293
-       3.10.7.2; the fork's netx_3_06, 8_02 and 10_23_01 check that reset).  */
+       the entry.  What this rig proves is the cache's side only: the ACK is
+       not consumed (NX_FALSE) and the cache sends nothing for it.  It does
+       not link _nx_tcp_packet_process and is no evidence of the RST that
+       goes on the wire; the fork's netx_3_06, 8_02 and 10_23_01 and
+       ctl_syncookie check that.  */
     stub_rsts = 0;
     stub_synacks = 0;
-    ok("the acknowledgment of an expired cached entry is not consumed: it is reset",
+    ok("the acknowledgment of an expired cached entry is not consumed (NX_FALSE)",
        rig_ack(77, 0x6000, iss_first) == NX_FALSE);
     eq("it does not decode as a cookie", cache -> nx_tcp_syncache_cookies_valid, 0);
     eq("and is counted as not one", cache -> nx_tcp_syncache_cookies_invalid, 1);
