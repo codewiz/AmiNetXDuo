@@ -582,8 +582,9 @@ static BOOL dp8390_overwrite(NetdevNic *nic, UBYTE isr)
 /* ------------------------------------------------------------ interrupt --- */
 
 /*
- * Drain all of it: the loop re-reads ISR until it reads zero.  The line is
- * level-triggered, and a bit left set is an interrupt that never ends.
+ * Drain all of it: the loop re-reads ISR until no enabled bit is left.  The
+ * line is level-triggered, and an enabled bit left set is an interrupt that
+ * never ends.
  */
 BOOL dp8390_intr(NetdevNic *nic)
 {
