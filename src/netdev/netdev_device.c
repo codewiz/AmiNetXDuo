@@ -1407,6 +1407,17 @@ ULONG netdev_interrupt(NetdevUnit *unit)
 }
 
 /*
+ * The server's place in its chain.  Exec stops a server chain at the first
+ * server that claims, so a server ahead of ours that claims an interrupt it did
+ * not raise starves this card while its level interrupt stays asserted, and the
+ * machine never leaves INT2.  The TF4060's ehide.device sits at 20 and claims on
+ * a gateware latch.  Every core here claims only for a cause its own chip
+ * raised, so going first takes nothing from the servers behind it.  Below the
+ * CIA servers (120).
+ */
+#define NETDEV_INT_PRI  21
+
+/*
  * Where a unit's interrupt comes from.  A Zorro board shares INT2; the PCMCIA
  * slot is card.resource's and is bound elsewhere; a device-tree board is on
  * the Pi's GIC, behind gic400.library.  Every site that adds or removes the
@@ -1819,7 +1830,7 @@ static BOOL netdev_add_unit(NetdevDevice *dev, const NetdevCard *card,
     unit->nu_ExecUnit.unit_flags = 0;
 
     unit->nu_Intr.is_Node.ln_Type = NT_INTERRUPT;
-    unit->nu_Intr.is_Node.ln_Pri  = 10;
+    unit->nu_Intr.is_Node.ln_Pri  = NETDEV_INT_PRI;
     unit->nu_Intr.is_Node.ln_Name = netdev_name;
     unit->nu_Intr.is_Data     = unit;
     unit->nu_Intr.is_Code     = (VOID (*)())netdev_server_entry;
