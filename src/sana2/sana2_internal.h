@@ -254,6 +254,9 @@
 #ifndef AMI_SANA2_GRO_MAX
 #define AMI_SANA2_GRO_MAX           16
 #endif
+#if AMI_SANA2_GRO_MAX != 16 || AMI_CFG_GRO_FRAMES_MAX != 16UL
+#error "GROFRAMES (config.h) and AMI_SANA2_GRO_MAX bound the same run"
+#endif
 #if defined(AMINETXDUO_RX_CHECKSUM_OFFLOAD) && !defined(AMINETXDUO_RX_VERIFY)
 #error "AMINETXDUO_RX_CHECKSUM_OFFLOAD needs AMINETXDUO_RX_VERIFY"
 #endif
@@ -874,6 +877,9 @@ struct AmiSana2If
     UWORD               tcp_grow_rtt;
     /* TCPWANWINDOW in bytes, 0 = not set (bsdsocket_window.h). */
     ULONG               tcp_wan_window;
+    /* GROFRAMES: the most frames one held run chains, 1..AMI_SANA2_GRO_MAX
+       (attach turns the file's 0 into the maximum). */
+    UWORD               gro_frames;
 
     /* The interface file's IPREQUESTS, ARPREQUESTS (0 = the plan decides)
        and WRITEREQUESTS (1..AMI_SANA2_TX_SLOTS: how many of tx[] are

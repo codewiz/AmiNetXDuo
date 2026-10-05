@@ -57,6 +57,9 @@ extern "C" {
 #define AMI_CFG_TCP_ACK_MAX         65535UL
 #define AMI_CFG_TCP_GROW_RTT_MAX    65535UL
 #define AMI_CFG_TCP_WAN_WINDOW_MAX  1048576UL
+/* GROFRAMES: the most frames one receive-offload run chains; sana2_internal.h
+   sizes the run at this and checks it. */
+#define AMI_CFG_GRO_FRAMES_MAX      16UL
 #define AMI_CFG_PATH_LEN            128
 
 /* The default domain gets its own cap: SetDefaultDomainName()'s autodoc says
@@ -215,6 +218,11 @@ typedef struct AmiIfConfig {
        smaller than the path's bandwidth-delay product behind an upstream that
        spaces the data (bsdsocket_window.h, ami_bsd_tcp_window_receive_bound). */
     ULONG       tcp_wan_window;
+    /* GROFRAMES: the most TCP frames the reader chains into one segment
+       before TCP sees it, 1..AMI_CFG_GRO_FRAMES_MAX.  Smaller runs reach
+       TCP's acknowledgment test sooner, so a sender limited by the window
+       is answered -- and releases -- in smaller steps.  0 = the maximum. */
+    UBYTE       gro_frames;
     BYTE        priority;                    /* PRIORITY=, -128..127, 0 unset: the
                                                 highest wins a route two
                                                 interfaces could carry        */

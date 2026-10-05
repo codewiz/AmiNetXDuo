@@ -447,6 +447,7 @@ static void fixture_init(void)
     iface.interface_ptr = &interface_obj;
     iface.addr_bytes    = AMI_ETH_ADDR_SIZE;
     iface.mtu           = 1500;
+    iface.gro_frames    = AMI_SANA2_GRO_MAX;   /* attach's default */
 
     h_went           = TO_NOWHERE;
     h_seen_length    = 0;
@@ -1274,6 +1275,38 @@ static void test_run_is_capped(void)
     h_check(rxs.gro_head == NX_NULL, "and nothing is held after");
     h_check(pkt.nx_packet_last == &many[AMI_SANA2_GRO_MAX - 1],
             "with the last frame as the chain's last");
+    gro_done();
+}
+
+/* GROFRAMES=4: the run goes up at its fourth frame, not the sixteenth. */
+static void test_run_follows_groframes(void)
+{
+    AmiRxSum head = h_flagged(ANXD_S2_RXF_SUMMED | ANXD_S2_RXF_VERIFIED);
+    AmiRxSum cont = h_flagged(ANXD_S2_RXF_SUMMED | ANXD_S2_RXF_VERIFIED);
+    static NX_PACKET  few[4];
+    static UCHAR      bufs[4][256];
+    UWORD i;
+
+    printf("sana2: GROFRAMES 4 delivers a run at its fourth frame\n");
+
+    gro_init();
+    iface.gro_frames = 4;
+    tcp_frame_init(&pkt, buffer, 6, 10);
+    (VOID)ami_sana2_gro_take(&rxs, &pkt, &head);
+
+    for (i = 1; i < 4; i++)
+    {
+        tcp_frame_init(&few[i], bufs[i], 6, 10);
+        tcp_frame_seq(bufs[i], 1000UL + (ULONG)i * 10UL);
+        h_check(ami_sana2_gro_take(&rxs, &few[i], &cont) == TRUE,
+                "each continuing frame is taken");
+        if (i < 3)
+            h_check(h_went == TO_NOWHERE, "and held");
+    }
+
+    h_check(h_went == TO_IP, "the fourth frame delivers the run");
+    h_check(h_seen_length == 50UL + 10UL * 3UL, "as four frames");
+    h_check(rxs.gro_head == NX_NULL, "and nothing is held after");
     gro_done();
 }
 
@@ -2284,6 +2317,7 @@ int main(void)
     test_stack_gro_ipv6();
     test_run_ends_on_a_frame_that_does_not_continue();
     test_run_is_capped();
+    test_run_follows_groframes();
 #endif
 
     printf("%lu checks, %lu failures, %s\n", h_checks, h_failures,

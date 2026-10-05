@@ -500,6 +500,14 @@
              card's size. Editing the file takes effect when the
              interface is next attached.
 
+  @{b}GROFRAMES@{ub}
+             Frames, 1 to 16: the most received TCP frames joined into
+             one segment before TCP sees them (receive offload). A
+             smaller number lets TCP acknowledge sooner, so a sender
+             limited by the window sends in smaller bursts. Leave it out
+             for 16. Editing the file takes effect when the interface is
+             next attached.
+
   Interface files written for Roadshow usually carry other keywords:
   COPYMODE, ALIAS, METRIC, LEASE, DHCPUNICAST, LINKSTATUSCOMMAND,
   MULTICAST, POINTTOPOINT, DESTINATION and BROADCASTADDRESS among

@@ -1269,6 +1269,50 @@ static void test_interface_tcp_ack_max(void)
     ami_config_set_reporter(NULL, NULL);
 }
 
+static void test_interface_gro_frames(void)
+{
+    AmiIfConfig iface;
+    char       *buf;
+
+    printf("interface: GROFRAMES is optional and bounded per interface\n");
+
+    buf = dup_text("device = anxnet.device\nconfigure = dhcp\n");
+    CHECK(ami_cfg_parse_interface("xsurf100", buf, &iface) == AMI_CFG_OK);
+    CHECK(iface.gro_frames == 0);
+    free(buf);
+
+    buf = dup_text("device = anxnet.device\nconfigure = dhcp\n"
+                   "groframes = 4\n");
+    CHECK(ami_cfg_parse_interface("xsurf100", buf, &iface) == AMI_CFG_OK);
+    CHECK(iface.gro_frames == 4);
+    free(buf);
+
+    buf = dup_text("device = anxnet.device\nconfigure = dhcp\n"
+                   "groframes = 16\n");
+    CHECK(ami_cfg_parse_interface("xsurf100", buf, &iface) == AMI_CFG_OK);
+    CHECK(iface.gro_frames == 16);
+    free(buf);
+
+    seen_count = 0;
+    ami_config_set_reporter(collect, NULL);
+    ami_cfg_problem_file("DEVS:NetInterfaces/xsurf100");
+    buf = dup_text("device = anxnet.device\nconfigure = dhcp\n"
+                   "groframes = 0\n");
+    CHECK(ami_cfg_parse_interface("xsurf100", buf, &iface) == AMI_CFG_OK);
+    CHECK(iface.gro_frames == 0);
+    CHECK(seen_count == 1 && seen[0].line == 3);
+    free(buf);
+
+    seen_count = 0;
+    buf = dup_text("device = anxnet.device\nconfigure = dhcp\n"
+                   "groframes = 17\n");
+    CHECK(ami_cfg_parse_interface("xsurf100", buf, &iface) == AMI_CFG_OK);
+    CHECK(iface.gro_frames == 0);
+    CHECK(seen_count == 1 && seen[0].line == 3);
+    free(buf);
+    ami_config_set_reporter(NULL, NULL);
+}
+
 static void test_interface_tcp_grow_rtt(void)
 {
     AmiIfConfig iface;
@@ -4394,6 +4438,7 @@ int main(int argc, char **argv)
     test_inert_keywords_are_notes();
     test_request_counts_have_ceilings();
     test_interface_tcp_ack_max();
+    test_interface_gro_frames();
     test_interface_tcp_grow_rtt();
     test_interface_tcp_wan_window();
     test_interface_priority();

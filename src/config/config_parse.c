@@ -46,6 +46,7 @@ typedef enum
     IF_KEY_TCPACKMAX,
     IF_KEY_TCPGROWRTT,
     IF_KEY_TCPWANWINDOW,
+    IF_KEY_GROFRAMES,
     IF_KEY_PRIORITY
 } IfKey;
 
@@ -82,6 +83,7 @@ ami_if_keywords[] =
     { "tcpackmax",          IF_KEY_TCPACKMAX         },
     { "tcpgrowrtt",         IF_KEY_TCPGROWRTT        },
     { "tcpwanwindow",       IF_KEY_TCPWANWINDOW      },
+    { "groframes",          IF_KEY_GROFRAMES         },
     { "priority",           IF_KEY_PRIORITY          },   /* Roadshow's, and PRI */
     { "pri",                IF_KEY_PRIORITY          },
 
@@ -811,6 +813,21 @@ LONG ami_cfg_parse_interface(const char *name, char *buf, AmiIfConfig *out)
                     report_bad_value(lineno, AMI_CFG_PROBLEM_WARN,
                                      "TCPWANWINDOW", value,
                                      AMI_CFG_ADVICE_TCPWANWINDOW_IS_BYTES);
+                }
+                break;
+
+            case IF_KEY_GROFRAMES:
+                if (ami_cfg_parse_ulong(value, &n) &&
+                    n != 0 && n <= AMI_CFG_GRO_FRAMES_MAX)
+                {
+                    out->gro_frames = (UBYTE)n;
+                }
+                else
+                {
+                    AMI_WARN("config: %s: bad GROFRAMES '%s'", out->name, value);
+                    report_bad_value(lineno, AMI_CFG_PROBLEM_WARN,
+                                     "GROFRAMES", value,
+                                     AMI_CFG_ADVICE_GROFRAMES_IS_FRAMES);
                 }
                 break;
 

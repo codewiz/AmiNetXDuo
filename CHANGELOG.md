@@ -32,6 +32,8 @@ Add new entries under `Unreleased`; published release sections are history.
   for a whole round trip: 8.4 -> 10.3 Mbit/s.
 - New interface option TCPWANWINDOW: the TCP receive window on a long path,
   for a card whose memory limits it.
+- New interface option GROFRAMES: the most received TCP frames joined into
+  one before TCP sees them (1 to 16, default 16).
 
 - TLS accepts a handshake record that ends one fragmented message and goes
   on with the next ones: the messages after the last fragment are processed

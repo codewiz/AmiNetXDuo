@@ -1349,6 +1349,8 @@ AmiSana2If *ami_sana2_open(const AmiIfConfig *cfg, LONG *err)
      */
     iface->tcp_grow_rtt = cfg->tcp_grow_rtt;
     iface->tcp_wan_window = cfg->tcp_wan_window;
+    iface->gro_frames = (cfg->gro_frames != 0) ? cfg->gro_frames
+                                               : AMI_SANA2_GRO_MAX;
     iface->rx_capacity_live    = FALSE;
     iface->rx_capacity_at      = 0;
     iface->rx_capacity_changed = FALSE;

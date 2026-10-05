@@ -135,6 +135,8 @@ static const char *const ami_cfg_advice_text[] =
     "numeric IPTYPE is accepted for compatibility but ignored",
     "TCPWANWINDOW is bytes, 1 to 1048576: the receive window on a long "
     "path in place of the RXBUFFER fit. Leave it out to keep the fit.",
+    "GROFRAMES is frames, 1 to 16: the most received TCP frames joined "
+    "into one before TCP sees them. Leave it out for 16.",
 };
 
 const char *ami_cfg_advice(UWORD code)

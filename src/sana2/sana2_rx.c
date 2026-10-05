@@ -1423,7 +1423,7 @@ BOOL ami_sana2_gro_take(AmiSana2Rx *rx, NX_PACKET *packet, AmiRxSum *sum)
         head->nx_packet_length      += key.data;
         rx->gro_next                 = key.seq + key.data;
 
-        if (++rx->gro_count >= AMI_SANA2_GRO_MAX)
+        if (++rx->gro_count >= rx->iface->gro_frames)
             ami_sana2_gro_flush(rx);
         return TRUE;
     }
