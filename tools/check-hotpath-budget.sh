@@ -130,7 +130,12 @@ TABLE = {
     # on the data-ACK ramp's limit, so a 256 KB receive window (the WAN case
     # of bsdsocket_window.h) does not acknowledge every 128 KB.  Four
     # instructions per segment, bought on purpose.
-    "nx_tcp_socket_state_data_check.c":  [("__nx_tcp_socket_state_data_check",  493)],  # 429; 483 counts
+    # 493 -> 505 on 2026-10-05: the receive pass's mark (a socket that took
+    # in-order data while a pass is open) and the window-update test against
+    # the capped window (NetX 02604196).  Twelve instructions per segment,
+    # bought on purpose: on an A3000 X-Surf 100 the pass's end-of-burst ACK
+    # took a 25 ms path from 8.4 to 10.3 Mbit/s.
+    "nx_tcp_socket_state_data_check.c":  [("__nx_tcp_socket_state_data_check",  505)],  # 429; 483 counts
                                                                                         # the queue-cap drop
                                                                                         # in the current default
                                                                                         # arm (off the in-order path)

@@ -488,6 +488,18 @@
              this interface only; editing the file takes effect when
              the interface is next attached.
 
+  @{b}TCPWANWINDOW@{ub}
+             Bytes, 1 to 1048576: the TCP receive window on a path
+             whose handshake round trip is at or above TCPGROWRTT, in
+             place of the size the card's receive memory allows. Only
+             for a card whose memory limits the window, such as an
+             X-Surf 100 on a switch port without flow control. More
+             than the card holds can overrun it on a bursty path; on
+             an A3000 a 16-frame window (23360) was 23% faster on a
+             25 ms path and lost frames. Leave it out to keep the
+             card's size. Editing the file takes effect when the
+             interface is next attached.
+
   Interface files written for Roadshow usually carry other keywords:
   COPYMODE, ALIAS, METRIC, LEASE, DHCPUNICAST, LINKSTATUSCOMMAND,
   MULTICAST, POINTTOPOINT, DESTINATION and BROADCASTADDRESS among

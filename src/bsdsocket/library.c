@@ -15,6 +15,7 @@
 #include "netmonitor.h"
 
 #include "aminetxduo/config.h"
+#include "aminetxduo/sana2.h"     /* ami_sana2_set_capacity_hook() */
 #include "aminetxduo/exec_port.h"
 #include "aminetxduo/version.h"
 #include "aminetxduo/events.h"
@@ -739,6 +740,9 @@ static VOID bsd_netstack_boot_main(VOID)
             bsd_orphans_reclaim();
             /* This is a Process, which a BPF opener may not be (F-219). */
             bsd_bpf_zone_read();
+            /* A device whose capacity changes while online re-applies the
+               TCP windows on it (socket.c, bsd_tcp_window_recap). */
+            ami_sana2_set_capacity_hook(bsd_tcp_window_recap);
             b->nb_Result = netstack_startup_loopback();
             if (b->nb_Result != AMI_NET_OK)
                 (VOID)netstack_shutdown();

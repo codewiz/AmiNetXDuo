@@ -1321,6 +1321,50 @@ static void test_interface_tcp_grow_rtt(void)
     ami_config_set_reporter(NULL, NULL);
 }
 
+static void test_interface_tcp_wan_window(void)
+{
+    AmiIfConfig iface;
+    char       *buf;
+
+    printf("interface: TCPWANWINDOW is optional and bounded per interface\n");
+
+    buf = dup_text("device = anxnet.device\nconfigure = dhcp\n");
+    CHECK(ami_cfg_parse_interface("xsurf100", buf, &iface) == AMI_CFG_OK);
+    CHECK(iface.tcp_wan_window == 0);
+    free(buf);
+
+    buf = dup_text("device = anxnet.device\nconfigure = dhcp\n"
+                   "TCPWANWINDOW=23360\n");
+    CHECK(ami_cfg_parse_interface("xsurf100", buf, &iface) == AMI_CFG_OK);
+    CHECK(iface.tcp_wan_window == 23360UL);
+    free(buf);
+
+    buf = dup_text("device = anxnet.device\nconfigure = dhcp\n"
+                   "tcpwanwindow = 1048576\n");
+    CHECK(ami_cfg_parse_interface("xsurf100", buf, &iface) == AMI_CFG_OK);
+    CHECK(iface.tcp_wan_window == 1048576UL);
+    free(buf);
+
+    seen_count = 0;
+    ami_config_set_reporter(collect, NULL);
+    ami_cfg_problem_file("DEVS:NetInterfaces/xsurf100");
+    buf = dup_text("device = anxnet.device\nconfigure = dhcp\n"
+                   "tcpwanwindow = 0\n");
+    CHECK(ami_cfg_parse_interface("xsurf100", buf, &iface) == AMI_CFG_OK);
+    CHECK(iface.tcp_wan_window == 0);
+    CHECK(seen_count == 1 && seen[0].line == 3);
+    free(buf);
+
+    seen_count = 0;
+    buf = dup_text("device = anxnet.device\nconfigure = dhcp\n"
+                   "tcpwanwindow = 1048577\n");
+    CHECK(ami_cfg_parse_interface("xsurf100", buf, &iface) == AMI_CFG_OK);
+    CHECK(iface.tcp_wan_window == 0);
+    CHECK(seen_count == 1 && seen[0].line == 3);
+    free(buf);
+    ami_config_set_reporter(NULL, NULL);
+}
+
 static void test_interface_priority(void)
 {
     AmiIfConfig iface;
@@ -4351,6 +4395,7 @@ int main(int argc, char **argv)
     test_request_counts_have_ceilings();
     test_interface_tcp_ack_max();
     test_interface_tcp_grow_rtt();
+    test_interface_tcp_wan_window();
     test_interface_priority();
     test_interface_ipv6_only();
 #ifdef AMINETXDUO_IPV6

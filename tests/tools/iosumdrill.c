@@ -242,9 +242,15 @@ static ULONG ref_lsum(ULONG longs, ULONG portval)
     return sum;
 }
 
+/*
+ * The routine reads the port with movem.l, four longwords from port+0..+12
+ * at a time, as the X-Surf 100's mirrored data window allows.  The fixture
+ * is that window: four longwords each holding the port's value, so every
+ * block read sees the port and nothing past it.
+ */
 static VOID one_long(ULONG longs, ULONG portval)
 {
-    static volatile ULONG port;
+    static volatile ULONG port[4] __attribute__((aligned(4)));
     UBYTE  *buf;
     UBYTE  *dst;
     ULONG   bytes = longs << 2;
@@ -267,9 +273,10 @@ static VOID one_long(ULONG longs, ULONG portval)
     /* PRE is 4, so the destination is longword aligned, which is what the
        routine requires and what the receive slot's payload pointer is. */
     dst  = buf + PRE;
-    port = portval;
+    for (i = 0UL; i < 4UL; i++)
+        port[i] = portval;
 
-    got  = n68k_port_in_l_sum(dst, (const volatile void *)&port, longs);
+    got  = n68k_port_in_l_sum(dst, (const volatile void *)port, longs);
     want = ref_lsum(longs, portval);
 
     for (i = 0UL; i < PRE; i++)

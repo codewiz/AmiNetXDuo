@@ -102,6 +102,8 @@ if(NOT CMAKE_CROSSCOMPILING)
         host/test_tcp_retries_host.c
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_create.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_send_internal.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rx_window_open.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rx_window_advertised.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_retransmit.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_fast_periodic_processing.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_connection_reset.c"
@@ -301,6 +303,8 @@ if(NOT CMAKE_CROSSCOMPILING)
         "${AMINETXDUO_NETXDUO}/common/src/nx_ip_route_find.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_packet_send_syn.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_packet_send_control.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rx_window_open.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rx_window_advertised.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_create.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_packet_pool_create.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_packet_pool_initialize.c"
@@ -393,6 +397,8 @@ if(NOT CMAKE_CROSSCOMPILING)
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rtt_sample.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_create.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_send_internal.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rx_window_open.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rx_window_advertised.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_state_ack_check.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_retransmit.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_transmit_configure.c"
@@ -425,6 +431,8 @@ if(NOT CMAKE_CROSSCOMPILING)
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rtt_sample.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_create.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_send_internal.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rx_window_open.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rx_window_advertised.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_state_ack_check.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_retransmit.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_transmit_configure.c"
@@ -456,6 +464,8 @@ if(NOT CMAKE_CROSSCOMPILING)
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rtt_sample.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_create.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_send_internal.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rx_window_open.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rx_window_advertised.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_state_ack_check.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_retransmit.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_transmit_configure.c"
@@ -489,6 +499,8 @@ if(NOT CMAKE_CROSSCOMPILING)
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rtt_sample.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_create.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_send_internal.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rx_window_open.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rx_window_advertised.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_state_ack_check.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_state_syn_sent.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_state_syn_received.c"
@@ -521,6 +533,8 @@ if(NOT CMAKE_CROSSCOMPILING)
     add_executable(test_tcp_rxflood
         host/test_tcp_rxflood_host.c
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_packet_process.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rx_window_open.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rx_window_advertised.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_state_data_check.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_create.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_timestamp_option_get.c")
@@ -540,6 +554,31 @@ if(NOT CMAKE_CROSSCOMPILING)
 
     add_test(NAME tcp_rxflood COMMAND test_tcp_rxflood)
 
+    add_executable(test_tcp_rxpass
+        host/test_tcp_rxpass_host.c
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rx_window_open.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rx_window_advertised.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_state_data_check.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_receive_pass_begin.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_receive_pass_complete.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_create.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_timestamp_option_get.c")
+
+    target_compile_options(test_tcp_rxpass PRIVATE -UAMINETXDUO_IPV6)
+
+    target_include_directories(test_tcp_rxpass PRIVATE
+        "${CMAKE_SOURCE_DIR}/tests/perf/host/shim"      # tx_port.h, first
+        "${AMINETXDUO_NETXDUO}/ports/linux/gnu/inc"     # nx_port.h
+        "${CMAKE_SOURCE_DIR}/port/netxduo-amiga/inc"    # nx_user.h, ours
+        "${AMINETXDUO_NETXDUO}/common/inc"
+        "${AMINETXDUO_THREADX}/common/inc")
+
+    target_compile_definitions(test_tcp_rxpass PRIVATE
+        NX_INCLUDE_USER_DEFINE_FILE
+        AMINETXDUO_HOST_VENDORED_TX_PORT="${AMINETXDUO_THREADX}/ports/linux/gnu/inc/tx_port.h")
+
+    add_test(NAME tcp_rxpass COMMAND test_tcp_rxpass)
+
     # RFC 1122 4.2.3.4 sender silly-window avoidance: what leaves when the peer
     # hands its window back in slivers, and -- the half that matters more --
     # that a one-byte write into an open window is still not delayed, because
@@ -550,6 +589,8 @@ if(NOT CMAKE_CROSSCOMPILING)
     add_executable(test_tcp_sws
         host/test_tcp_sws_host.c
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_packet_send_control.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rx_window_open.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rx_window_advertised.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rtt_sample.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_send_internal.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_state_transmit_check.c"
@@ -583,6 +624,8 @@ if(NOT CMAKE_CROSSCOMPILING)
     add_executable(test_tcp_cork_send
         host/test_tcp_cork_send_host.c
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_packet_send_control.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rx_window_open.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rx_window_advertised.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rtt_sample.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_send_internal.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_state_transmit_check.c"
@@ -619,6 +662,8 @@ if(NOT CMAKE_CROSSCOMPILING)
     add_executable(test_tcp_persist
         host/test_tcp_persist_host.c
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_state_data_check.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rx_window_open.c"
+        "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rx_window_advertised.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_fast_periodic_processing.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_packet_send_ack.c"
         "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_packet_send_control.c"

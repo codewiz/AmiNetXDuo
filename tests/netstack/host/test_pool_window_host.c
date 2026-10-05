@@ -554,6 +554,57 @@ static void i_the_window_settles_for_the_path_and_the_link(void)
             "a one-frame ring did not floor the window at two segments");
     h_check(ami_bsd_tcp_window_fit(lan, 52UL * 256UL, 0UL) == lan,
             "a zero MSS was not left alone");
+
+    /* TCPWANWINDOW: an X-Surf 100 (13 KB ring, 100 Mbit) on a long path may
+       use the interface's opt-in window instead of the eight-segment fit;
+       a LAN round trip keeps the fit, an unset value keeps it everywhere,
+       the window settled for the socket still caps it, and the fit is the
+       floor.  TF4060 A3000, 2026-10-05, main 97697d70 without flow control:
+       RXBUFFER=49152 (32 frames) gave an AmiSpeedTest download of 12.9 Mbit/s
+       over a ~24 ms Internet path against 5.7 with the fit, while the same
+       boot's LAN runs overran the ring 410 times. */
+    h_check(ami_bsd_tcp_window_receive_bound(max, 52UL * 256UL, 1460UL,
+                                             hundm, rtt, 0UL, 0UL)
+                == 8UL * 1460UL,
+            "an unset TCPWANWINDOW left a long-path X-Surf unfitted");
+    h_check(ami_bsd_tcp_window_receive_bound(max, 52UL * 256UL, 1460UL,
+                                             hundm, rtt, 0UL, 46720UL)
+                == 46720UL,
+            "TCPWANWINDOW did not replace the fit on a long path");
+    h_check(ami_bsd_tcp_window_receive_bound(lan, 52UL * 256UL, 1460UL,
+                                             hundm, rtt - 1UL, 0UL, 46720UL)
+                == 8UL * 1460UL,
+            "TCPWANWINDOW lifted the fit on a LAN round trip");
+    h_check(ami_bsd_tcp_window_receive_bound(20000UL, 52UL * 256UL, 1460UL,
+                                             hundm, rtt, 0UL, 46720UL)
+                == 20000UL,
+            "TCPWANWINDOW advertised more than the settled window");
+    h_check(ami_bsd_tcp_window_receive_bound(max, 52UL * 256UL, 1460UL,
+                                             hundm, rtt, 0UL, 4096UL)
+                == 8UL * 1460UL,
+            "a TCPWANWINDOW under the fit took the window below it");
+    h_check(ami_bsd_tcp_window_receive_bound(max, 52UL * 256UL, 1460UL,
+                                             hundm, 22UL, 50UL, 46720UL)
+                == 8UL * 1460UL,
+            "TCPWANWINDOW ignored a raised TCPGROWRTT line");
+    h_check(ami_bsd_tcp_window_receive_bound(max, 52UL * 256UL, 1460UL,
+                                             gbit, rtt, 0UL, 46720UL) == max,
+            "TCPWANWINDOW capped a path that was never burst-bound");
+
+    /* The buffer behind a cut window: twice the cut, so the acknowledgment
+       of a whole burst still offers a window; never more than the window
+       the socket settled for; the window itself when nothing was cut. */
+    h_check(ami_bsd_tcp_window_buffer(lan, 8UL * 1460UL) == 16UL * 1460UL,
+            "the X-Surf's cut window was not given twice its room");
+    h_check(ami_bsd_tcp_window_buffer(20000UL, 8UL * 1460UL) == 20000UL,
+            "the room behind a cut passed the settled window");
+    h_check(ami_bsd_tcp_window_buffer(lan, lan) == lan,
+            "an uncut window was given a different buffer");
+    h_check(ami_bsd_tcp_window_buffer(max, max) == max,
+            "an uncut long-path window was given a different buffer");
+    h_check(ami_bsd_tcp_window_buffer(2UL * 1460UL * 2UL, 2UL * 1460UL)
+                == 4UL * 1460UL,
+            "a 3c589's two-segment cut was not doubled");
 }
 
 

@@ -21,6 +21,7 @@
 
 #include <exec/types.h>
 #include "aminetxduo/config.h"
+#include "aminetxduo/asm_abi.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -121,6 +122,9 @@ ULONG       ami_sana2_get_hw_rx_bytes(const AmiSana2If *iface);
 /* The interface file's TCPGROWRTT in ms, 0 = not set (bsdsocket_window.h,
    BSD_TCP_WINDOW_GROW_RTT_MS). */
 ULONG       ami_sana2_get_tcp_grow_rtt(const AmiSana2If *iface);
+/* The interface file's TCPWANWINDOW in bytes, 0 = not set
+   (bsdsocket_window.h, ami_bsd_tcp_window_receive_bound). */
+ULONG       ami_sana2_get_tcp_wan_window(const AmiSana2If *iface);
 BOOL        ami_sana2_is_online(const AmiSana2If *iface);
 
 /*
@@ -264,6 +268,18 @@ VOID ami_sana2_set_raw_allowed(BOOL allowed);
 typedef VOID (*AmiSana2BlockHook)(VOID);
 VOID ami_sana2_set_block_hooks(AmiSana2BlockHook before_wait,
                                AmiSana2BlockHook after_wait);
+
+/*
+ * The device's answer to ANXD_CMD_RX_CAPACITY changed while the unit was
+ * online -- a link renegotiated with or without PAUSE.  Called by the
+ * interface's SANA-II reader with nx_ip_protection held, so the TCP layer
+ * can re-apply the receive window of the sockets already established on it
+ * (bsdsocket socket.c, bsd_tcp_window_recap).  NULL does nothing.  Pinned
+ * to the stack convention, as a type in this public header must be: the
+ * pointer and the function it holds are declared AMIGA_ASM_ARGS together.
+ */
+typedef AMIGA_ASM_ARGS VOID (*AmiSana2CapacityHook)(NX_IP *ip, AmiSana2If *iface);
+VOID ami_sana2_set_capacity_hook(AmiSana2CapacityHook hook);
 
 #ifdef __cplusplus
 }

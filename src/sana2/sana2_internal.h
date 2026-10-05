@@ -861,8 +861,19 @@ struct AmiSana2If
        nobody draining it, 0 = not stated.  The TCP window a socket on this
        interface settles at stays inside it (bsdsocket_window.h). */
     ULONG               hw_rx_bytes;
+    /* hw_rx_bytes is the device's answer, which can change while the unit
+       is online (anxs2ext.h): the reader asks again at most once a second,
+       rx_capacity_at being the ThreadX tick of its last asking (0 at
+       attach, so its first pass asks). */
+    BOOL                rx_capacity_live;
+    ULONG               rx_capacity_at;
+    /* Set when an asking found a different answer; the reader's next drain
+       clears it and calls the capacity hook with the IP mutex held. */
+    BOOL                rx_capacity_changed;
     /* TCPGROWRTT in ms, 0 = BSD_TCP_WINDOW_GROW_RTT_MS (bsdsocket_window.h). */
     UWORD               tcp_grow_rtt;
+    /* TCPWANWINDOW in bytes, 0 = not set (bsdsocket_window.h). */
+    ULONG               tcp_wan_window;
 
     /* The interface file's IPREQUESTS, ARPREQUESTS (0 = the plan decides)
        and WRITEREQUESTS (1..AMI_SANA2_TX_SLOTS: how many of tx[] are
@@ -1024,6 +1035,8 @@ LONG ami_sana2_offline(AmiSana2If *iface);
 LONG ami_sana2_multicast(AmiSana2If *iface, UWORD command,
                          ULONG addr_msw, ULONG addr_lsw);
 VOID ami_sana2_refresh_stats(AmiSana2If *iface);
+VOID ami_sana2_refresh_rx_capacity(AmiSana2If *iface);
+VOID ami_sana2_capacity_changed(AmiSana2If *iface);
 
 /* sana2_driver.c */
 VOID ami_sana2_unbind(AmiSana2If *iface);

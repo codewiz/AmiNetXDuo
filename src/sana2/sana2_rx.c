@@ -20,6 +20,7 @@
 #endif
 
 #include "nx_ip.h"
+#include "nx_tcp.h"         /* the receive pass, IPv4 or not */
 #ifndef NX_DISABLE_IPV4
 #include "nx_arp.h"
 #include "nx_rarp.h"
@@ -1838,6 +1839,22 @@ static UWORD ami_sana2_rx_drain(AmiSana2Reader *rd, UWORD budget)
     outer = _nx_ip_input_thread;
     _nx_ip_input_thread = tx_thread_identify();
 
+    /* The device's capacity changed since the last run (the asking at the
+       top of the reader's loop): the TCP layer re-applies the windows of the
+       sockets on this interface, under the mutex this run holds, before any
+       more of their data is taken in. */
+    if (iface->rx_capacity_changed)
+    {
+        iface->rx_capacity_changed = FALSE;
+        ami_sana2_capacity_changed(iface);
+    }
+
+    /* Everything this run takes in is one receive pass: at its end TCP
+       acknowledges what a burst left below its threshold, rather than
+       holding it for a sender that is waiting on exactly that ACK
+       (nx_tcp_receive_pass_complete.c). */
+    _nx_tcp_receive_pass_begin(ip);
+
     /* Use Exec's public message API.  GetMsg() is non-blocking; the budget
        leaves any remainder on the port for the next pass without touching
        MsgPort internals. */
@@ -1926,6 +1943,10 @@ static UWORD ami_sana2_rx_drain(AmiSana2Reader *rd, UWORD budget)
 #else
     (VOID)r;
 #endif
+
+    /* After the last held run has gone up, before the seat and the mutex
+       are given back. */
+    _nx_tcp_receive_pass_complete(ip);
 
     _nx_ip_input_thread = outer;
     tx_mutex_put(&ip->nx_ip_protection);
@@ -2377,6 +2398,21 @@ static VOID ami_sana2_rx_thread(ULONG argument)
             iface->stats_want = FALSE;
             ami_sana2_refresh_stats(iface);
             iface->stats_epoch++;
+        }
+
+        /*
+         * The device's capacity can change while it is online (anxs2ext.h,
+         * ANXD_CMD_RX_CAPACITY).  Asked again here, at most once a second
+         * and only while this thread is being woken, so what a socket's
+         * window settles against is from the last second the interface
+         * carried traffic.  One quick command.
+         */
+        if (iface->rx_capacity_live &&
+            (ULONG)tx_time_get() - iface->rx_capacity_at >=
+                (ULONG)TX_TIMER_TICKS_PER_SECOND)
+        {
+            iface->rx_capacity_at = (ULONG)tx_time_get();
+            ami_sana2_refresh_rx_capacity(iface);
         }
 
         for (r = 0; r < (UWORD)AMI_SANA2_RX_READERS; r++)

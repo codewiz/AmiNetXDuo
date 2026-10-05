@@ -369,6 +369,16 @@ LONG ami_sana2_offline(AmiSana2If *iface) { (VOID)iface; return 0; }
 /* The device-derived counters a status query asks the reader for
    (sana2_device.c): no device here, only a link. */
 VOID ami_sana2_refresh_stats(AmiSana2If *iface) { (VOID)iface; }
+/* The capacity the reader asks again for once a second (sana2_device.c),
+   and the ThreadX clock that paces it: the reader's loop is not driven
+   here. */
+VOID ami_sana2_refresh_rx_capacity(AmiSana2If *iface) { (VOID)iface; }
+VOID ami_sana2_capacity_changed(AmiSana2If *iface) { (VOID)iface; }
+/* The receive pass the drain brackets (nx_tcp_receive_pass_*.c), which this
+   target does not link: no TCP here. */
+VOID _nx_tcp_receive_pass_begin(NX_IP *ip_ptr) { (VOID)ip_ptr; }
+VOID _nx_tcp_receive_pass_complete(NX_IP *ip_ptr) { (VOID)ip_ptr; }
+ULONG _tx_time_get(VOID) { return 0; }
 UWORD ami_sana2_bound_count(VOID) { return 1; }
 VOID ami_sana2_block_enter(VOID) { }
 VOID ami_sana2_block_leave(VOID) { }

@@ -32,6 +32,8 @@
 #include <utility/tagitem.h>
 #include <utility/hooks.h>
 
+#include "aminetxduo/asm_abi.h"   /* AMIGA_ASM_ARGS: the SANA-II capacity hook */
+
 /*
  * <sys/socket.h> uses size_t/ssize_t but does not pull them in itself, and the
  * ThreadX port header does not always include <stdlib.h> first.
@@ -511,6 +513,12 @@ typedef struct AmiSocket
     ULONG                   as_EventMask;   /* SO_EVENTMASK                  */
     LONG                    as_SoError;     /* SO_ERROR, cleared when read   */
     ULONG                   as_ConnectMillis; /* ami_millis() at the SYN     */
+    /* What the window settle chose before the card bounded it, and the
+       round trip it chose for: kept so a change in what the card holds can
+       be applied to the live connection (socket.c, bsd_tcp_window_recap).
+       as_SettleWant 0 = not settled. */
+    ULONG                   as_SettleWant;
+    ULONG                   as_SettleRtt;
 
     NXD_ADDRESS             as_LocalAddr;
     UINT                    as_LocalPort;
@@ -1014,6 +1022,8 @@ VOID       bsd_bpf_zone_read(VOID);
 /* socket.c, the receive window this machine can afford right now. */
 ULONG      ami_bsd_tcp_window(struct AmiSocketBase *base);
 VOID       bsd_tcp_window_settle(NX_TCP_SOCKET *tcp, ULONG rtt_ms);
+struct AmiSana2If;
+AMIGA_ASM_ARGS VOID bsd_tcp_window_recap(NX_IP *ip, struct AmiSana2If *sana);
 
 /* handoff.c, cross-base descriptor transfer. The registry lives in the master
  * base. When the last opener goes, bsd_stack_close_gate() takes the registry

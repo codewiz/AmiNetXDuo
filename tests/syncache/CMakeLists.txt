@@ -19,7 +19,8 @@ endif()
 
 add_executable(test_syncache
     host/test_syncache_host.c
-    "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_syncache.c")
+    "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_syncache.c"
+    "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rx_window_open.c")
 
 target_include_directories(test_syncache PRIVATE
     "${CMAKE_SOURCE_DIR}/tests/perf/host/shim"          # tx_port.h, first
@@ -60,7 +61,8 @@ add_test(NAME syncache_cache  COMMAND test_syncache cache)
 # vectors, the counter wrap and the carry, and the cache, on the same file.
 add_executable(test_syncache_ulong64
     host/test_syncache_host.c
-    "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_syncache.c")
+    "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_syncache.c"
+    "${AMINETXDUO_NETXDUO}/common/src/nx_tcp_socket_rx_window_open.c")
 target_include_directories(test_syncache_ulong64 PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/host/ulong64"          # tx_port.h, first
     "${AMINETXDUO_NETXDUO}/ports/linux/gnu/inc"
@@ -98,6 +100,8 @@ add_executable(test_syncache_detach
     "${_nxs}/nx_tcp_packet_send_syn.c"
     "${_nxs}/nx_tcp_packet_send_rst.c"
     "${_nxs}/nx_tcp_packet_send_control.c"
+    "${_nxs}/nx_tcp_socket_rx_window_open.c"
+    "${_nxs}/nx_tcp_socket_rx_window_advertised.c"
     "${_nxs}/nx_tcp_timestamp_option_get.c")
 if(AMINETXDUO_IPV6)
     target_sources(test_syncache_detach PRIVATE

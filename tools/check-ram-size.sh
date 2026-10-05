@@ -58,11 +58,14 @@ ARM="${AMINETXDUO_RAM_ARM:-$(basename "$BUILD")}"
 # the same listener and pointer costs, with no mDNS.  DHCP/DNS packet storage
 # remains dynamic and is therefore not hidden in this resident allocation.
 BUDGETS=(
-    "default:68836"
-    "minimal:17928"
+    # +32 default / +24 minimal / +20 micro on 2026-10-05 (NetX 02604196):
+    # 12 bytes of receive-pass state in NX_IP and a 4-byte window cap per
+    # interface (five interfaces in default, three in minimal, two in micro).
+    "default:68868"
+    "minimal:17952"
     # First budgeted as a shipping profile at 0.28.9: 15,716 bytes, with
     # headroom to the next KiB boundary.
-    "micro:16388"
+    "micro:16408"
 )
 
 budget=""

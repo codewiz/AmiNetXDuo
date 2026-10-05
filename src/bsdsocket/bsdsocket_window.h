@@ -182,6 +182,30 @@ ULONG ami_bsd_tcp_window_fit(ULONG window, ULONG hw_bytes, ULONG mss);
 BOOL ami_bsd_tcp_window_burst_bound(ULONG bps, ULONG rtt_ms,
                                     ULONG grow_rtt_ms);
 
+/*
+ * The window a socket may advertise given the card behind it: `want` when
+ * the path is not burst-bound, else the ring fit (ami_bsd_tcp_window_fit) --
+ * except on a long path (rtt_ms at or above the grow line) on an interface
+ * that sets TCPWANWINDOW, which then gets min(want, wan_window), never below
+ * the fit.  The opt-in exists because a long RTT does not prove the data
+ * arrives spaced: behind a store-and-forward switch the whole window can
+ * still land back to back, which only the interface's owner can judge.
+ * `wan_window` 0 = not set.  Pure arithmetic, host-tested.
+ */
+ULONG ami_bsd_tcp_window_receive_bound(ULONG want, ULONG hw_bytes, ULONG mss,
+                                       ULONG bps, ULONG rtt_ms,
+                                       ULONG grow_rtt_ms, ULONG wan_window);
+
+/*
+ * The receive buffer behind a window the receive bound cut (`bound` below
+ * `want`): twice the cut, never more than `want`.  The cut is what the
+ * sender is offered (NetX Duo's nx_tcp_socket_rx_window_cap); the room
+ * behind it is what lets the acknowledgment of a whole burst still offer a
+ * window while the application has not yet read it.  `bound` itself when
+ * nothing was cut.  Pure arithmetic, host-tested.
+ */
+ULONG ami_bsd_tcp_window_buffer(ULONG want, ULONG bound);
+
 #ifndef BSD_TCP_WINDOW_CEILING
 #ifdef AMINETXDUO_TCP_WINDOW_SCALING
 #define BSD_TCP_WINDOW_CEILING  BSD_TCP_WINDOW_MAX

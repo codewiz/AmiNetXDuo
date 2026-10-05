@@ -5,6 +5,37 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ## Unreleased
 
+- The X-Surf 100 (and any AX88796B card) offers IEEE 802.3x flow control to
+  the switch, and while the switch agrees the TCP receive window grows from 8
+  to 32 frames.  On an A3000 with a 68060 at 50 MHz and a switch port with
+  flow control on: 16.5 -> 21.9 Mbit/s on the local network, 3.3 -> 10.4
+  Mbit/s over a 25 ms path, AmiSpeedTest download 6.0 -> 14.0 Mbit/s.  Without
+  flow control the window stays what the card's memory holds, and a
+  connection already running follows within a second when the switch stops
+  or starts agreeing to it.
+- A card whose memory limits the TCP receive window no longer advertises a
+  zero window at the end of every burst: the window offered stays at what the
+  card holds, from a connection's first segment on, while the buffer behind
+  it is twice that.  10% faster receiving on an X-Surf 100 without flow
+  control.
+- Receiving through a 32-bit card window (X-Surf 100) reads the card four
+  longwords at a time while summing; 1.5% faster receiving on an A3000 with
+  a 68060.
+- The NE2000-family cards (X-Surf 100 among them) answer each receive
+  interrupt's frames with one reply to the stack instead of one per frame
+  (receive batches).  On an A3000 with a 68060 and an X-Surf 100: 2.5% more
+  receive and 4% more transmit.  NetDevStats counts the replies as "Receive
+  batches answered".
+- What a burst leaves below the TCP acknowledgment threshold is acknowledged
+  when the receive pass ends, not a round trip later.  On an X-Surf 100 over
+  a 25 ms path with flow control the split burst held each window's tail
+  for a whole round trip: 8.4 -> 10.3 Mbit/s.
+- New interface option TCPWANWINDOW: the TCP receive window on a long path,
+  for a card whose memory limits it.
+
+- TLS accepts a handshake record that ends one fragmented message and goes
+  on with the next ones: the messages after the last fragment are processed
+  instead of the record being refused as invalid.
 - TLS refuses RSA keys with an even modulus (N-171).
 - TLS no longer clears a record's packets after TCP has taken them (GHSA-8w5x-ff58-2fr2).
 - HKDF-Extract rejects invalid buffer arguments (N-160).

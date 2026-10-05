@@ -226,6 +226,7 @@ typedef struct NetdevUnit
     ULONG                       nu_RxPollsHeld; /* of those, with frames held   */
     UWORD                       nu_IntSilent; /* blanks since a claimed one    */
     ULONG                       nu_RxDirect;  /* completed direct RX fills      */
+    ULONG                       nu_RxBatches; /* ANXD_CMD_RX_BATCH replies       */
     UWORD                       nu_RxKickWait;/* blanks toward an RX re-roll   */
     UWORD                       nu_RxKicks;   /* deaf-boot resets performed    */
     volatile UBYTE              nu_InIsr;     /* interrupt server on the chip  */

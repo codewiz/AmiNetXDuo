@@ -217,6 +217,148 @@ static ULONG note_last(UWORD code)
 
 /* ------------------------------------------------------- the accessors --- */
 
+/*
+ * The AX88796B's PHY behind MEMR (0x14): a clause 22 slave clocked by the
+ * writes, at MII address 0x10.  It answers only when mock_phy is set;
+ * otherwise MDIO floats high and a read's turnaround finds nobody.  BMCR's
+ * restart bit self-clears and is counted.
+ */
+#define MEMR_MDC    0x01u
+#define MEMR_MDIR   0x02u
+#define MEMR_MDI    0x04u
+#define MEMR_MDO    0x08u
+
+static int            mock_phy;
+static unsigned short mock_mii[32];
+static int            mock_mii_restarts;
+static int            mock_mii_anar_ro;  /* writes to ANAR do not stick */
+static int            mock_memr_writes;
+static int            mock_mdc;
+static int            mock_mii_state;    /* 0 preamble, 1 header, 2 read, 3 write */
+static int            mock_mii_ones;
+static int            mock_mii_bits;
+static unsigned long  mock_mii_shift;
+static unsigned       mock_mii_reg;
+static unsigned       mock_mii_out = 1;  /* what MDI reads: pulled up */
+
+static void mock_phy_begin(int present, unsigned short anlpar,
+                           unsigned short bmsr)
+{
+    memset(mock_mii, 0, sizeof(mock_mii));
+    mock_phy          = present;
+    mock_mii[0]       = 0x3100;          /* AN enabled, 100, full */
+    mock_mii[1]       = bmsr;
+    mock_mii[2]       = 0x003b;
+    mock_mii[3]       = 0x1841;
+    mock_mii[4]       = 0x01e1;          /* the reset advertisement */
+    mock_mii[5]       = anlpar;
+    mock_mii_restarts = 0;
+    mock_mii_anar_ro  = 0;
+    mock_memr_writes  = 0;
+    mock_mdc          = 0;
+    mock_mii_state    = 0;
+    mock_mii_ones     = 0;
+    mock_mii_out      = 1;
+}
+
+/* One rising edge of MDC. */
+static void mock_mii_clock(unsigned char memr)
+{
+    unsigned bit = (memr & MEMR_MDO) != 0;
+
+    if ((memr & MEMR_MDIR) != 0)
+    {
+        /* The PHY drives: turnaround zero, then the register MSB first. */
+        if (mock_mii_state != 2)
+        {
+            mock_mii_out = 1;
+            return;
+        }
+        if (mock_mii_bits == 0)
+            mock_mii_out = 0;
+        else if (mock_mii_bits <= 16)
+            mock_mii_out = (mock_mii[mock_mii_reg] >> (16 - mock_mii_bits)) & 1u;
+        else
+        {
+            mock_mii_out   = 1;
+            mock_mii_state = 0;
+            mock_mii_ones  = 0;
+            return;
+        }
+        mock_mii_bits++;
+        return;
+    }
+
+    switch (mock_mii_state)
+    {
+    case 0:
+        if (bit)
+            mock_mii_ones++;
+        else
+        {
+            if (mock_mii_ones >= 32)
+            {
+                mock_mii_state = 1;
+                mock_mii_bits  = 0;
+                mock_mii_shift = 0;
+            }
+            mock_mii_ones = 0;
+        }
+        break;
+
+    case 1:                     /* ST1, OP, PHYAD, REGAD: thirteen bits */
+        mock_mii_shift = (mock_mii_shift << 1) | bit;
+        if (++mock_mii_bits < 13)
+            break;
+        {
+            unsigned st1 = (unsigned)(mock_mii_shift >> 12) & 1u;
+            unsigned op  = (unsigned)(mock_mii_shift >> 10) & 3u;
+            unsigned phy = (unsigned)(mock_mii_shift >> 5) & 31u;
+
+            mock_mii_reg   = (unsigned)mock_mii_shift & 31u;
+            mock_mii_bits  = 0;
+            mock_mii_shift = 0;
+            if (!mock_phy || st1 != 1u || phy != 0x10u)
+                mock_mii_state = 0;
+            else
+                mock_mii_state = (op == 2u) ? 2 : (op == 1u) ? 3 : 0;
+        }
+        break;
+
+    case 3:                     /* TA "10", then sixteen bits */
+        mock_mii_shift = (mock_mii_shift << 1) | bit;
+        if (++mock_mii_bits < 18)
+            break;
+        {
+            unsigned short v = (unsigned short)(mock_mii_shift & 0xffffu);
+
+            if (mock_mii_reg == 0u && (v & 0x0200u) != 0)
+            {
+                mock_mii_restarts++;
+                v &= (unsigned short)~0x0200u;
+            }
+            if (!(mock_mii_reg == 4u && mock_mii_anar_ro))
+                mock_mii[mock_mii_reg] = v;
+        }
+        mock_mii_state = 0;
+        mock_mii_ones  = 0;
+        break;
+
+    default:
+        break;
+    }
+}
+
+static void mock_memr_put(unsigned char val)
+{
+    int mdc = (val & MEMR_MDC) != 0;
+
+    mock_memr_writes++;
+    if (mdc && !mock_mdc)
+        mock_mii_clock(val);
+    mock_mdc = mdc;
+}
+
 static unsigned char mock_get(struct NetdevNic *nic, unsigned reg)
 {
     int word = (nic->bus.getodd != 0);
@@ -251,6 +393,10 @@ static unsigned char mock_get(struct NetdevNic *nic, unsigned reg)
         mock_reset_armed = 1;
         return mock_reg[31];
     }
+
+    if (reg == 0x14u)                   /* MEMR: MDI is the PHY's */
+        return (unsigned char)((mock_reg[0x14] & ~MEMR_MDI) |
+                               (mock_mii_out ? MEMR_MDI : 0u));
 
     /*
      * THE CONDITION THE FIX EXISTS FOR.  Until the chip has been reset the
@@ -294,6 +440,9 @@ static void mock_put(struct NetdevNic *nic, unsigned reg, unsigned char val)
     }
 
     mock_reg[reg] = val;
+
+    if (reg == 0x14u)
+        mock_memr_put(val);
 
     if (reg == 0x00u && (val & (0x08u | 0x10u)) != 0)    /* RD0 or RD1 */
     {
@@ -802,6 +951,9 @@ static void test_attach_installs_the_hooks(void)
        non-NULL frame_at would have the receive path hand up a pointer into a
        card that cannot be addressed. */
     ok("frame_at stays NULL for a port-driven core", nic.frame_at == NULL);
+    /* A pass drains the whole ring, so it answers its frames in one reply
+       (ANXD_CMD_RX_BATCH) rather than one each. */
+    ok("the core offers receive batches", nic.rx_batches == 1);
 
     ok("the ring starts above the transmit buffers", nic.mem_start == 16384);
     ok("and is 16 KB", nic.mem_size == 16384);
@@ -855,6 +1007,138 @@ static void test_attach_flow_control(void)
     expect_u32("by the coherence check too", mock_reg[0x1a], 0u);
 }
 
+/*
+ * PAUSE: the AX88796B's PHY comes out of reset not offering it, so FLWC
+ * alone never takes effect.  Attach offers it and renegotiates; the blank
+ * looks at the negotiation once a second and says what the card holds
+ * while the partner pauses for it.
+ */
+static void tick_n(NetdevNic *nic, int n)
+{
+    while (n-- > 0)
+        (VOID)netdev_nic_ne2000.tick(nic);
+}
+
+static void attach_xsurf(NetdevNic *nic, int phy, unsigned short anlpar,
+                         unsigned short bmsr)
+{
+    static const unsigned char mac[6] = { 0x00, 0x40, 0x95, 0xaa, 0xbb, 0xcc };
+
+    board_contiguous(nic, &netdev_cards[0]);
+    chip_begin(0, 0);
+    mock_wide_fault = WIDE_OK;
+    prom_stage(mac, 1);
+    mock_phy_begin(phy, anlpar, bmsr);
+    ok("attaches", ne2000_attach(nic) == 0);
+}
+
+static void test_pause_phy(void)
+{
+    static const unsigned char mac[6] = { 0x00, 0x40, 0x95, 0xaa, 0xbb, 0xcc };
+    const NetdevCard *plain = netdev_card_by_name("ariadne2");
+    NetdevNic nic;
+    int       before;
+
+    printf("\n-- the AX88796B PHY: PAUSE offered and resolved\n");
+
+    ok("the core polls a link", netdev_nic_ne2000.tick != NULL);
+
+    /* Link still negotiating at attach, as after a reset. */
+    attach_xsurf(&nic, 1, 0x0000, 0x7809);
+    ok("the PHY is found by its identifier", nic.ax_phy != 0);
+    expect_u32("ANAR offers PAUSE", mock_mii[4], 0x05e1u);
+    expect_u32("and negotiation restarted once", (unsigned long)mock_mii_restarts, 1u);
+    expect_u32("nothing claimed before the link is up", nic.rx_pause_capacity, 0u);
+
+    /* The partner answers with PAUSE, 100 full. */
+    mock_mii[1] = 0x782d;
+    mock_mii[5] = 0xcde1;
+    before = mock_memr_writes;
+    tick_n(&nic, 49);
+    ok("no PHY traffic between looks", mock_memr_writes == before);
+    expect_u32("and nothing claimed yet", nic.rx_pause_capacity, 0u);
+    tick_n(&nic, 1);
+    expect_u32("PAUSE agreed: 32 frames", nic.rx_pause_capacity, 49152u);
+    expect_u32("and the advertisement is not touched again",
+               (unsigned long)mock_mii_restarts, 1u);
+
+    /* A renegotiation the partner answers without PAUSE. */
+    mock_mii[5] = 0x41e1;
+    tick_n(&nic, 50);
+    expect_u32("partner without PAUSE: the ring again", nic.rx_pause_capacity, 0u);
+
+    /* PAUSE, but only half duplex in common. */
+    mock_mii[5] = 0x44a1;               /* PAUSE, 100 half, 10 half */
+    tick_n(&nic, 50);
+    expect_u32("half duplex: no PAUSE", nic.rx_pause_capacity, 0u);
+
+    /* PAUSE and 10 full only. */
+    mock_mii[4] = 0x0461;               /* ours: PAUSE, 10 full, 10 half */
+    mock_mii[5] = 0x4461;
+    tick_n(&nic, 50);
+    expect_u32("10 full with PAUSE counts", nic.rx_pause_capacity, 49152u);
+    mock_mii[4] = 0x05e1;
+
+    /* The link drops. */
+    mock_mii[5] = 0xcde1;
+    mock_mii[1] = 0x7809;
+    tick_n(&nic, 50);
+    expect_u32("link down: the ring again", nic.rx_pause_capacity, 0u);
+
+    /* Something reset the PHY: it offers PAUSE again on the next look. */
+    mock_mii[1] = 0x782d;
+    mock_mii[4] = 0x01e1;
+    before = mock_mii_restarts;
+    tick_n(&nic, 50);
+    expect_u32("a reset PHY is told again", mock_mii[4], 0x05e1u);
+    expect_u32("with one renegotiation", (unsigned long)(mock_mii_restarts - before), 1u);
+    expect_u32("and claims nothing until it has agreed", nic.rx_pause_capacity, 0u);
+    tick_n(&nic, 50);
+    expect_u32("then claims", nic.rx_pause_capacity, 49152u);
+
+    /* A PHY that will not keep the bit: three tries, then quiet. */
+    mock_mii[4] = 0x01e1;
+    mock_mii_anar_ro = 1;
+    before = mock_mii_restarts;
+    tick_n(&nic, 50 * 6);
+    expect_u32("three renegotiations and no more",
+               (unsigned long)(mock_mii_restarts - before), 3u);
+    expect_u32("and nothing claimed", nic.rx_pause_capacity, 0u);
+
+    /* Negotiation turned off: nothing to offer PAUSE in. */
+    attach_xsurf(&nic, 1, 0xcde1, 0x782d);
+    expect_u32("a negotiating PHY is restarted", (unsigned long)mock_mii_restarts, 1u);
+    board_contiguous(&nic, &netdev_cards[0]);
+    chip_begin(0, 0);
+    mock_wide_fault = WIDE_OK;
+    prom_stage(mac, 1);
+    mock_phy_begin(1, 0xcde1, 0x782d);
+    mock_mii[0] = 0x2100;               /* forced 100 full */
+    ok("attaches", ne2000_attach(&nic) == 0);
+    expect_u32("forced speed: ANAR left alone", mock_mii[4], 0x01e1u);
+    expect_u32("and no renegotiation", (unsigned long)mock_mii_restarts, 0u);
+
+    /* No PHY answering: nothing is assumed and the blank does nothing. */
+    attach_xsurf(&nic, 0, 0, 0);
+    ok("no PHY, none found", nic.ax_phy == 0);
+    before = mock_memr_writes;
+    tick_n(&nic, 200);
+    ok("and the blank leaves MEMR alone", mock_memr_writes == before);
+    expect_u32("and claims nothing", nic.rx_pause_capacity, 0u);
+
+    /* Not an AX88796B: MEMR is not this register and is never written. */
+    board_contiguous(&nic, plain);
+    chip_begin(0, 0);
+    mock_wide_fault = WIDE_OK;
+    prom_stage(mac, 1);
+    mock_phy_begin(1, 0xcde1, 0x782d);
+    ok("attaches", ne2000_attach(&nic) == 0);
+    tick_n(&nic, 200);
+    expect_u32("an RTL8019 never sees a MEMR write",
+               (unsigned long)mock_memr_writes, 0u);
+    ok("and no PHY is claimed", nic.ax_phy == 0 && nic.rx_pause_capacity == 0);
+}
+
 int main(void)
 {
     test_clone_warm();
@@ -866,6 +1150,7 @@ int main(void)
     test_attach_station_address();
     test_attach_installs_the_hooks();
     test_attach_flow_control();
+    test_pause_phy();
 
     printf("%s\n", failures == 0 ? "PASS" : "FAIL");
 

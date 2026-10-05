@@ -224,6 +224,13 @@ struct NetdevNic
      * ANXD_CMD_RX_CAPACITY; 0 when the core cannot say.
      */
     ULONG               rx_capacity;
+    /*
+     * What ANXD_CMD_RX_CAPACITY answers instead, while the link has IEEE
+     * 802.3x PAUSE agreed in both directions and the partner holds a burst
+     * the card cannot take; 0 otherwise.  Kept by a core that can see its
+     * PHY's negotiation (ne2000.c, the AX88796B's), never set by the others.
+     */
+    ULONG               rx_pause_capacity;
     UBYTE               rx_holds;
     /* The core delivers bursts -- many frames in one service pass -- so
        ANXD_CMD_RX_BATCH is worth offering: one reply per pass instead of
@@ -268,6 +275,18 @@ struct NetdevNic
      */
     LONG                dma_pos;
     UWORD               dma_left;
+
+    /*
+     * The AX88796B's internal PHY, reached by bit-banging MII through MEMR
+     * (ne2000.c).  ax_phy is set at attach when the PHY answers with its
+     * identifier; ax_phy_tick counts blanks to the next look at the
+     * negotiation; ax_phy_tries bounds advertising PAUSE again after
+     * something reset the PHY.
+     */
+    UBYTE               ax_phy;
+    UBYTE               ax_phy_tick;
+    UBYTE               ax_phy_tries;
+    UBYTE               ax_phy_pad;
 
     LONG                mem_start;
     LONG                mem_end;
