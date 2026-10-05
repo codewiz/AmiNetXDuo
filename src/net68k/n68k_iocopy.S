@@ -315,48 +315,57 @@ _n68k_port_in_w_sum:
 | be longword aligned, which is the same requirement the plain long drain
 | already carries.
 |
-| No movem here, unlike n68k_port_in.  Every longword has to reach a data
-| register to be added, and movem's saving is that it does not put them in
-| named registers one at a time.  What is left of it is the instruction pair
-| below: ADD sets X to the carry and ADDX with a zero source folds it back
-| without a branch, which is the same trick the word form uses.
+| Four longwords per movem.l from the mirrored window -- the same back-to-back
+| reads n68k_port_in already makes -- then four ADD/ADDX pairs on the data
+| registers they land in.  ADD sets X to the carry and ADDX with a zero source
+| folds it back without a branch, the word form's trick; movem and lea leave X
+| alone, and every ADD has its ADDX before the loop's SUBQ touches X.  The
+| remainder, up to three longwords, takes the single-read loop.
+|
+| Against one move.l per longword this drops the per-longword move and three
+| quarters of the loop overhead.  On a 68060 driving an X-Surf 100 in Zorro
+| III a longword read is about 400 ns and the drain was averaging 590, so the
+| instructions around the read are a measurable part of it.
         .globl  _n68k_port_in_l_sum
 _n68k_port_in_l_sum:
-        movem.l d2-d5,sp@-
-        movea.l sp@(20),a0              | to
-        movea.l sp@(24),a1              | port
-        move.l  sp@(28),d0              | longwords
+        movem.l d2-d7,sp@-
+        movea.l sp@(28),a0              | to
+        movea.l sp@(32),a1              | port
+        move.l  sp@(36),d0              | longwords
         moveq   #0,d1                   | sum
-        moveq   #0,d5                   | ADDX source: add carry only
+        moveq   #0,d6                   | ADDX source: add carry only
 
-        move.l  d0,d3
-        lsr.l   #2,d3                   | four-longword blocks
-        move.l  d0,d4
-        and.l   #3,d4                   | longwords after them
-        tst.l   d3
+        move.l  d0,d7
+        and.l   #3,d7                   | longwords after the blocks
+        lsr.l   #2,d0                   | four-longword blocks
         beq     .Lpls_rest
 .Lpls_block:
-        .rept   4
-        move.l  a1@,d2
-        move.l  d2,a0@+
+        movem.l a1@,d2-d5               | four reads of the mirrored window
+        movem.l d2-d5,a0@
+        lea     a0@(16),a0
         add.l   d2,d1
-        addx.l  d5,d1                   | end-around carry, per add
-        .endr
-        subq.l  #1,d3
+        addx.l  d6,d1
+        add.l   d3,d1
+        addx.l  d6,d1
+        add.l   d4,d1
+        addx.l  d6,d1
+        add.l   d5,d1
+        addx.l  d6,d1
+        subq.l  #1,d0
         bne     .Lpls_block
 .Lpls_rest:
-        tst.l   d4
+        tst.l   d7
         beq     .Lpls_done
 .Lpls_one:
         move.l  a1@,d2
         move.l  d2,a0@+
         add.l   d2,d1
-        addx.l  d5,d1
-        subq.l  #1,d4
+        addx.l  d6,d1
+        subq.l  #1,d7
         bne     .Lpls_one
 .Lpls_done:
         move.l  d1,d0
-        movem.l sp@+,d2-d5
+        movem.l sp@+,d2-d7
         rts
 
 | ULONG n68k_copy_longs_sum(void *to, const volatile void *from, ULONG longs)

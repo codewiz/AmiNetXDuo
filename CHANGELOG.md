@@ -18,6 +18,9 @@ Add new entries under `Unreleased`; published release sections are history.
   card holds, from a connection's first segment on, while the buffer behind
   it is twice that.  10% faster receiving on an X-Surf 100 without flow
   control.
+- Receiving through a 32-bit card window (X-Surf 100) reads the card four
+  longwords at a time while summing; 1.5% faster receiving on an A3000 with
+  a 68060.
 - The NE2000-family cards (X-Surf 100 among them) answer each receive
   interrupt's frames with one reply to the stack instead of one per frame
   (receive batches).  On an A3000 with a 68060 and an X-Surf 100: 2.5% more
