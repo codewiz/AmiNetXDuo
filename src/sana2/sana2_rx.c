@@ -20,9 +20,9 @@
 #endif
 
 #include "nx_ip.h"
+#include "nx_tcp.h"         /* the receive pass, IPv4 or not */
 #ifndef NX_DISABLE_IPV4
 #include "nx_arp.h"
-#include "nx_tcp.h"         /* the receive pass */
 #include "nx_rarp.h"
 #endif
 

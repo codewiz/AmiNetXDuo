@@ -466,6 +466,41 @@ static void h_only_receiving_states_nesting_and_order(void)
             "out-of-order data marked the pass");
 }
 
+/* K: the pass counter wrapping back onto a number a socket was once marked
+   with.  The completion clears every mark it visits, so no socket still
+   holds an old pass's number; without that, A -- touched by a pass long
+   ago, carrying a tail since -- would be acknowledged by a pass that only
+   took data on B. */
+static void k_a_wrapped_pass_number_finds_no_old_mark(void)
+{
+    ULONG old;
+
+    h_fixture();
+
+    _nx_tcp_receive_pass_begin(&h_ip);
+    old = h_ip.nx_ip_tcp_rx_pass;
+    h_run(&h_a, 16);
+    _nx_tcp_receive_pass_complete(&h_ip);
+    h_check(h_a.nx_tcp_socket_rx_pass == 0, "the pass end left its mark on a socket");
+
+    h_run(&h_a, 14);                /* A's tail, outside any pass: the timer's */
+    h_acks = 0;
+
+    h_ip.nx_ip_tcp_rx_pass = old - 1UL;     /* the counter comes round to it */
+    _nx_tcp_receive_pass_begin(&h_ip);
+    h_check(h_ip.nx_ip_tcp_rx_pass == old, "the test did not reuse the pass number");
+    h_run(&h_b, 14);
+    _nx_tcp_receive_pass_complete(&h_ip);
+    h_check(h_acks == 1 && h_ack_sock == &h_b, "the reused pass did not acknowledge only B");
+    h_check(h_unacked(&h_a) == 14UL * H_MSS, "a reused pass number acknowledged a socket it never touched");
+
+    /* And the counter skips zero, which a socket reads as "never". */
+    h_ip.nx_ip_tcp_rx_pass = 0xFFFFFFFFUL;
+    _nx_tcp_receive_pass_begin(&h_ip);
+    h_check(h_ip.nx_ip_tcp_rx_pass == 1UL, "the pass counter wrapped onto zero");
+    _nx_tcp_receive_pass_complete(&h_ip);
+}
+
 int main(void)
 {
     _nx_tcp_fast_timer_rate     = (NX_IP_PERIODIC_RATE + (NX_TCP_FAST_TIMER_RATE - 1)) / NX_TCP_FAST_TIMER_RATE;
@@ -482,6 +517,7 @@ int main(void)
     f_flows_the_pass_did_not_touch_are_left_alone();
     g_a_failed_ack_is_tried_once();
     h_only_receiving_states_nesting_and_order();
+    k_a_wrapped_pass_number_finds_no_old_mark();
 
     printf("%lu checks, %lu failures, %s\n",
            h_checks, h_failures, (h_failures == 0UL) ? "PASS" : "FAIL");
