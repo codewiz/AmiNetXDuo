@@ -98,6 +98,8 @@ add_executable(test_syncache_detach
     "${_nxs}/nx_tcp_packet_send_syn.c"
     "${_nxs}/nx_tcp_packet_send_rst.c"
     "${_nxs}/nx_tcp_packet_send_control.c"
+    "${_nxs}/nx_tcp_socket_rx_window_open.c"
+    "${_nxs}/nx_tcp_socket_rx_window_advertised.c"
     "${_nxs}/nx_tcp_timestamp_option_get.c")
 if(AMINETXDUO_IPV6)
     target_sources(test_syncache_detach PRIVATE

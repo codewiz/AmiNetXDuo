@@ -133,6 +133,8 @@ static const char *const ami_cfg_advice_text[] =
     "TCPGROWRTT is milliseconds, 1 to 65535. Leave it out for 10.",
     "there was not enough memory to read the interface drawer",
     "numeric IPTYPE is accepted for compatibility but ignored",
+    "TCPWANWINDOW is bytes, 1 to 1048576: the receive window on a long "
+    "path in place of the RXBUFFER fit. Leave it out to keep the fit.",
 };
 
 const char *ami_cfg_advice(UWORD code)

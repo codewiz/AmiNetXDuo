@@ -918,13 +918,16 @@ VOID netdev_perform(NetdevOpener *op, struct IOSana2Req *io)
 
     case ANXD_CMD_RX_CAPACITY:
         /* What the card holds from the wire with nobody draining it
-           (aminetxduo/anxs2ext.h): the core said at attach. */
+           (aminetxduo/anxs2ext.h): the core said at attach, or more while
+           its link partner pauses for it. */
         if ((op->op_Extensions & ANXD_S2F_RX_CAPACITY) == 0)
         {
             netdev_reply(io, S2ERR_NOT_SUPPORTED, S2WERR_GENERIC_ERROR);
             return;
         }
-        io->ios2_DataLength = unit->nu_Nic.rx_capacity;
+        io->ios2_DataLength = (unit->nu_Nic.rx_pause_capacity != 0)
+                            ? unit->nu_Nic.rx_pause_capacity
+                            : unit->nu_Nic.rx_capacity;
         netdev_reply(io, 0, 0);
         return;
 

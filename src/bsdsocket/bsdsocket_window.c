@@ -113,3 +113,36 @@ BOOL ami_bsd_tcp_window_burst_bound(ULONG bps, ULONG rtt_ms,
 
     return TRUE;
 }
+
+ULONG ami_bsd_tcp_window_receive_bound(ULONG want, ULONG hw_bytes, ULONG mss,
+                                       ULONG bps, ULONG rtt_ms,
+                                       ULONG grow_rtt_ms, ULONG wan_window)
+{
+    ULONG fit;
+
+    if (!ami_bsd_tcp_window_burst_bound(bps, rtt_ms, grow_rtt_ms))
+        return want;
+
+    fit = ami_bsd_tcp_window_fit(want, hw_bytes, mss);
+
+    /* Opt-in: a long path, where an upstream link spaces the data, may use
+       the interface's TCPWANWINDOW instead of the ring fit -- never less
+       than the fit, never more than the window settled for the socket. */
+    if (wan_window != 0UL && rtt_ms >= bsd_grow_rtt(grow_rtt_ms))
+    {
+        ULONG wan = (wan_window < want) ? wan_window : want;
+        return (wan > fit) ? wan : fit;
+    }
+
+    return fit;
+}
+
+ULONG ami_bsd_tcp_window_buffer(ULONG want, ULONG bound)
+{
+    if (bound >= want)
+        return bound;           /* nothing was cut */
+    if (bound > (want >> 1))
+        return want;            /* twice the cut would pass the window */
+
+    return bound << 1;
+}

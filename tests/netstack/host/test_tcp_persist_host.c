@@ -569,6 +569,20 @@ static void i_a_ring_sized_window_steps_by_two_segments(void)
     step = _nx_tcp_socket_window_update_step(&h_sock);
     h_check_eq(step, 50176UL, "the LAN window's half-buffer step moved");
 
+    /* A capped socket steps at the window it offers, not the buffer behind
+       it: sixteen segments held, eight offered, steps like eight. */
+    h_sock.nx_tcp_socket_rx_window_default = H_MSS * 16UL;
+    h_sock.nx_tcp_socket_rx_window_cap     = H_MSS * 8UL;
+    step = _nx_tcp_socket_window_update_step(&h_sock);
+    h_check_eq(step, H_MSS * 2UL,
+               "a capped window did not step at the window it offers");
+
+    h_sock.nx_tcp_socket_rx_window_default = 100352UL;
+    h_sock.nx_tcp_socket_rx_window_cap     = 100352UL * 2UL;
+    step = _nx_tcp_socket_window_update_step(&h_sock);
+    h_check_eq(step, 50176UL, "a cap above the buffer changed its step");
+    h_sock.nx_tcp_socket_rx_window_cap     = 0;
+
     printf("  ring-sized window   steps %lu at 8 segments\n",
            (unsigned long)(H_MSS * 2UL));
 }

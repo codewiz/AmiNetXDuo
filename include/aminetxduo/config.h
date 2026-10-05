@@ -56,6 +56,7 @@ extern "C" {
 #define AMI_CFG_WRITEREQUESTS_MAX   AMINETXDUO_TX_SLOTS
 #define AMI_CFG_TCP_ACK_MAX         65535UL
 #define AMI_CFG_TCP_GROW_RTT_MAX    65535UL
+#define AMI_CFG_TCP_WAN_WINDOW_MAX  1048576UL
 #define AMI_CFG_PATH_LEN            128
 
 /* The default domain gets its own cap: SetDefaultDomainName()'s autodoc says
@@ -207,6 +208,13 @@ typedef struct AmiIfConfig {
     /* TCPGROWRTT: handshake round trip in ms at or above which a socket on
        this interface grows its receive window.  0 = BSD_TCP_WINDOW_GROW_RTT_MS. */
     UWORD       tcp_grow_rtt;
+    /* TCPWANWINDOW: bytes a socket on this interface may advertise on a long
+       path -- handshake round trip at or above the TCPGROWRTT line -- in
+       place of the RXBUFFER fit, which still holds on a short one.  0 = not
+       set: the fit applies on every path.  Opt-in, for a card whose ring is
+       smaller than the path's bandwidth-delay product behind an upstream that
+       spaces the data (bsdsocket_window.h, ami_bsd_tcp_window_receive_bound). */
+    ULONG       tcp_wan_window;
     BYTE        priority;                    /* PRIORITY=, -128..127, 0 unset: the
                                                 highest wins a route two
                                                 interfaces could carry        */

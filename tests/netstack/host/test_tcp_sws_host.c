@@ -739,6 +739,77 @@ ULONG w;
                          "edge");
 }
 
+/* A capped socket (nx_tcp_socket_rx_window_cap): the sender is offered the
+   cap, not the buffer behind it, so the acknowledgment of a whole burst the
+   application has not read yet still offers a window.  The cap never pulls
+   back an edge already on the wire, and 0 is upstream's behaviour. */
+static ULONG h_advertise_cap(ULONG current, ULONG last_sent, ULONG dflt,
+                             ULONG cap)
+{
+    h_fixture();
+
+    h_sock.nx_tcp_socket_rx_window_default   = dflt;
+    h_sock.nx_tcp_socket_rx_window_current   = current;
+    h_sock.nx_tcp_socket_rx_window_last_sent = last_sent;
+    h_sock.nx_tcp_socket_rx_window_cap       = cap;
+
+    h_last_window = 0xFFFFFFFFUL;
+    h_acks        = 0;
+    h_alloc_ok    = 1;
+
+    _nx_tcp_packet_send_control(&h_sock, NX_TCP_ACK_BIT,
+                                h_sock.nx_tcp_socket_tx_sequence,
+                                h_sock.nx_tcp_socket_rx_sequence,
+                                0, 0, NX_NULL, 0, NX_NULL);
+
+    h_alloc_ok = 0;
+
+    h_check(h_acks == 1, "the control path sent no acknowledgment");
+    h_check_eq(h_sock.nx_tcp_socket_rx_window_last_sent, h_last_window,
+               "rx_window_last_sent is not the window that went on the wire");
+
+    return h_last_window;
+}
+
+static void p_a_cap_offers_less_than_the_buffer(void)
+{
+ULONG w;
+
+    /* An X-Surf 100's socket: eight segments offered over sixteen held. */
+    w = h_advertise_cap(16UL * H_MSS, 8UL * H_MSS, 16UL * H_MSS, 8UL * H_MSS);
+    h_check_eq(w, 8UL * H_MSS, "an empty capped buffer offered more than "
+                               "the cap");
+
+    /* The burst arrived and is acknowledged before the application reads
+       it: half the buffer free, nothing left of the edge last sent. */
+    w = h_advertise_cap(8UL * H_MSS, 0UL, 16UL * H_MSS, 8UL * H_MSS);
+    h_check_eq(w, 8UL * H_MSS, "the acknowledgment of an unread burst did "
+                               "not offer the cap");
+
+    /* Less free than the cap: the free space, as without one. */
+    w = h_advertise_cap(5UL * H_MSS, 0UL, 16UL * H_MSS, 8UL * H_MSS);
+    h_check_eq(w, 5UL * H_MSS, "a capped socket offered more than its free "
+                               "space");
+
+    /* A cap set under an edge already on the wire holds the edge. */
+    w = h_advertise_cap(16UL * H_MSS, 12UL * H_MSS, 16UL * H_MSS,
+                        8UL * H_MSS);
+    h_check_eq(w, 12UL * H_MSS, "a cap pulled back the right edge already "
+                                "advertised");
+
+    /* No cap: the free space, as upstream. */
+    w = h_advertise_cap(16UL * H_MSS, 8UL * H_MSS, 16UL * H_MSS, 0UL);
+    h_check_eq(w, 16UL * H_MSS, "an uncapped socket did not offer its free "
+                                "space");
+
+    /* Below the floor the SWS rule still holds the edge under a cap. */
+    w = h_advertise_cap(1000UL, 200UL, 16UL * H_MSS, 8UL * H_MSS);
+    h_check_eq(w, 200UL, "a cap reopened a sliver below the floor");
+
+    printf("  capped window       the cap offered over a larger buffer, "
+           "edge never pulled back\n");
+}
+
 /* A window that is genuinely zero is still zero, and is not confused with one
    the rule closed. */
 static void n_zero_stays_zero(void)
@@ -775,6 +846,7 @@ int main(void)
     m_a_buffer_below_one_mss_still_opens();
     n_zero_stays_zero();
     o_below_the_floor_the_edge_holds();
+    p_a_cap_offers_less_than_the_buffer();
 
     printf("%lu checks, %lu failures, %s\n",
            h_checks, h_failures, (h_failures == 0UL) ? "PASS" : "FAIL");

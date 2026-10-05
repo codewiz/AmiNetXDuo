@@ -1333,15 +1333,15 @@ AmiSana2If *ami_sana2_open(const AmiIfConfig *cfg, LONG *err)
      * by name.  0 is no cap.
      */
     iface->tcp_grow_rtt = cfg->tcp_grow_rtt;
+    iface->tcp_wan_window = cfg->tcp_wan_window;
+    iface->rx_capacity_live = FALSE;
+    iface->rx_capacity_at   = 0;
     if (cfg->rx_buffer != 0)
         iface->hw_rx_bytes = cfg->rx_buffer;
     else if ((iface->extension.Accepted & ANXD_S2F_RX_CAPACITY) != 0)
     {
-        struct IOSana2Req req = iface->templ;
-
-        req.ios2_DataLength = 0;
-        if (ami_sana2_command(iface, &req, ANXD_CMD_RX_CAPACITY) == 0)
-            iface->hw_rx_bytes = req.ios2_DataLength;
+        iface->rx_capacity_live = TRUE;
+        ami_sana2_refresh_rx_capacity(iface);
     }
     else
         iface->hw_rx_bytes = ami_sana2_known_rx_bytes(iface->device);
@@ -1620,6 +1620,23 @@ ULONG ami_sana2_get_bps(const AmiSana2If *iface)
     return (iface != NULL) ? iface->bps : 0;
 }
 
+/*
+ * Ask the device again how much it holds from the wire.  The answer can
+ * change while the unit is online -- a link renegotiated with or without
+ * PAUSE (anxs2ext.h, ANXD_CMD_RX_CAPACITY) -- and a socket settles its
+ * window against the latest one.  Attach, then the reader thread, which
+ * keeps the time of asking (rx_capacity_at).  The last answer stays when
+ * the command fails.
+ */
+VOID ami_sana2_refresh_rx_capacity(AmiSana2If *iface)
+{
+    struct IOSana2Req req = iface->templ;
+
+    req.ios2_DataLength = 0;
+    if (ami_sana2_command(iface, &req, ANXD_CMD_RX_CAPACITY) == 0)
+        iface->hw_rx_bytes = req.ios2_DataLength;
+}
+
 ULONG ami_sana2_get_hw_rx_bytes(const AmiSana2If *iface)
 {
     return (iface != NULL) ? iface->hw_rx_bytes : 0;
@@ -1628,6 +1645,11 @@ ULONG ami_sana2_get_hw_rx_bytes(const AmiSana2If *iface)
 ULONG ami_sana2_get_tcp_grow_rtt(const AmiSana2If *iface)
 {
     return (iface != NULL) ? iface->tcp_grow_rtt : 0;
+}
+
+ULONG ami_sana2_get_tcp_wan_window(const AmiSana2If *iface)
+{
+    return (iface != NULL) ? iface->tcp_wan_window : 0;
 }
 
 /*

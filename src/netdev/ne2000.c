@@ -78,6 +78,68 @@
 #define AX88796_FCR_FLWC        0x80
 #define AX88796_FCR_HWPC_RESET  0x07
 
+/*
+ * FLWC above makes the MAC send PAUSE and honour it only on a link where
+ * PAUSE was negotiated, and the AX88796B's PHY comes out of reset
+ * advertising 10/100 half and full and no PAUSE (MR4 01e1).  So no link
+ * partner ever agreed, whatever its port was set to, and the ring overran
+ * instead.  Measured on an A3000 (68060 at 50 MHz, Zorro III) against a
+ * TL-SG1016PE port with flow control on, 2026-10-05:
+ *
+ *     window                 PAUSE agreed   LAN Mbit/s   overruns
+ *     8 frames (ring fit)    no             16.6         0
+ *     32 frames              no              5.3         410
+ *     32 frames              yes            21.9         0
+ *     64 frames              yes            16.0-21.3    0
+ *
+ * So the PHY is told to advertise PAUSE, and while the partner agrees the
+ * card answers ANXD_CMD_RX_CAPACITY with the 32 frames that measured best
+ * rather than its ring (netdev_nic.h, rx_pause_capacity).
+ *
+ * The PHY is internal, at MII address 0x10, reached by bit-banging clause 22
+ * frames through MEMR: whole-file register 0x14, unpaged like FCR.  MDC is
+ * bit 0, MDIR bit 1 (set: the PHY drives MDIO), MDI bit 2 (what it drives),
+ * MDO bit 3 (what we drive).  The framing and the edge each bit is set up
+ * and sampled on are Linux's mdio-bitbang.c.  No delays: the PHY wants at
+ * most 2.5 MHz on MDC, a bit is three bus writes, and a Zorro access is
+ * several hundred nanoseconds.  Nothing else in the driver touches MEMR.
+ */
+#define AX88796_MEMR            0x14
+#define AX88796_MEMR_MDC        0x01
+#define AX88796_MEMR_MDIR       0x02
+#define AX88796_MEMR_MDI        0x04
+#define AX88796_MEMR_MDO        0x08
+#define AX88796_PHY_ADDR        0x10
+#define AX88796_PHYID1          0x003bL
+#define AX88796_PHYID2          0x1841L
+
+#define MII_BMCR                0
+#define  MII_BMCR_ANENABLE      0x1000
+#define  MII_BMCR_ANRESTART     0x0200
+#define MII_BMSR                1
+#define  MII_BMSR_LINK          0x0004
+#define  MII_BMSR_ANDONE        0x0020
+#define MII_PHYID1              2
+#define MII_PHYID2              3
+#define MII_ANAR                4
+#define  MII_ANAR_10FD          0x0040
+#define  MII_ANAR_100HD         0x0080
+#define  MII_ANAR_100FD         0x0100
+#define  MII_ANAR_PAUSE         0x0400
+#define MII_ANLPAR              5
+
+/* 32 frames of the 1536 bytes the ring stores a full one in: what the
+   table above measured best, and what ami_bsd_tcp_window_fit() turns into
+   a 46,720-byte window at an MSS of 1460. */
+#define AX88796_PAUSE_RX_CAPACITY   (32UL * 1536UL)
+
+/* Blanks between looks at the negotiation: a second at 50 Hz. */
+#define AX88796_PHY_TICKS       50u
+
+/* Advertisements in a row that did not stick before giving up: a PHY that
+   will not keep the bit is not one this code knows. */
+#define AX88796_PHY_TRIES       3u
+
 #ifdef NETDEV_TRACE
 #define NE_TRACE(t, v)  netdev_trace_val((t), (ULONG)(v))
 #else
@@ -708,6 +770,172 @@ static VOID ne2000_ax88796_flow(NetdevNic *nic)
         NIC_PUT(nic, AX88796_FCR, AX88796_FCR_FLWC | AX88796_FCR_HWPC_RESET);
 }
 
+/* One bit to the PHY: set up with MDC low, taken on the rising edge. */
+static VOID ax_mii_out(NetdevNic *nic, UWORD bit)
+{
+    UBYTE v = (UBYTE)(bit != 0 ? AX88796_MEMR_MDO : 0);
+
+    NIC_PUT(nic, AX88796_MEMR, v);
+    NIC_PUT(nic, AX88796_MEMR, v | AX88796_MEMR_MDC);
+    NIC_PUT(nic, AX88796_MEMR, v);
+}
+
+/* One bit from the PHY: it drives after the rising edge, read after the
+   falling one. */
+static UWORD ax_mii_in(NetdevNic *nic)
+{
+    NIC_PUT(nic, AX88796_MEMR, AX88796_MEMR_MDIR | AX88796_MEMR_MDC);
+    NIC_PUT(nic, AX88796_MEMR, AX88796_MEMR_MDIR);
+
+    return (UWORD)((NIC_GET(nic, AX88796_MEMR) & AX88796_MEMR_MDI) != 0);
+}
+
+/* Preamble, start, opcode (2 read, 1 write), PHY address, register. */
+static VOID ax_mii_head(NetdevNic *nic, UWORD op, UWORD reg)
+{
+    UWORD i;
+
+    NIC_PUT(nic, AX88796_MEMR, 0);
+    for (i = 0; i < 32; i++)
+        ax_mii_out(nic, 1);
+    ax_mii_out(nic, 0);
+    ax_mii_out(nic, 1);
+    ax_mii_out(nic, op & 2u);
+    ax_mii_out(nic, op & 1u);
+    for (i = 5; i-- != 0; )
+        ax_mii_out(nic, (AX88796_PHY_ADDR >> i) & 1u);
+    for (i = 5; i-- != 0; )
+        ax_mii_out(nic, (reg >> i) & 1u);
+}
+
+/* A PHY register, or -1 when nothing drove the turnaround low: no PHY. */
+static LONG ax_mii_read(NetdevNic *nic, UWORD reg)
+{
+    ULONG v = 0;
+    UWORD ta;
+    UWORD i;
+
+    ax_mii_head(nic, 2u, reg);
+    NIC_PUT(nic, AX88796_MEMR, AX88796_MEMR_MDIR);
+    ta = ax_mii_in(nic);
+    for (i = 0; i < 16; i++)
+        v = (v << 1) | ax_mii_in(nic);
+    (VOID)ax_mii_in(nic);
+
+    return (ta != 0) ? -1L : (LONG)v;
+}
+
+static VOID ax_mii_write(NetdevNic *nic, UWORD reg, UWORD val)
+{
+    UWORD i;
+
+    ax_mii_head(nic, 1u, reg);
+    ax_mii_out(nic, 1);
+    ax_mii_out(nic, 0);
+    for (i = 16; i-- != 0; )
+        ax_mii_out(nic, (val >> i) & 1u);
+    NIC_PUT(nic, AX88796_MEMR, AX88796_MEMR_MDIR);
+}
+
+/*
+ * What a paused link lets the card hold, from the three registers: link up
+ * and negotiation done, full duplex resolved (IEEE 802.3 Annex 28B: the best
+ * mode both offer), and PAUSE offered by both.  The AX88796B advertises
+ * symmetric PAUSE only, so the asymmetric bit plays no part.  0 otherwise,
+ * and on any read that failed.
+ */
+static ULONG ax88796_pause_capacity(LONG bmsr, LONG anar, LONG anlpar)
+{
+    LONG both;
+
+    if (bmsr < 0 || anar < 0 || anlpar < 0)
+        return 0;
+    if ((bmsr & (MII_BMSR_LINK | MII_BMSR_ANDONE)) !=
+        (MII_BMSR_LINK | MII_BMSR_ANDONE))
+        return 0;
+
+    both = anar & anlpar;
+    if ((both & MII_ANAR_PAUSE) == 0)
+        return 0;
+    if ((both & MII_ANAR_100FD) == 0 &&
+        ((both & MII_ANAR_100HD) != 0 || (both & MII_ANAR_10FD) == 0))
+        return 0;               /* half duplex: there is no PAUSE */
+
+    return AX88796_PAUSE_RX_CAPACITY;
+}
+
+/* Offer PAUSE and renegotiate, when the PHY is negotiating and does not
+   offer it already.  The link drops for the second or two that takes. */
+static VOID ax88796_advertise(NetdevNic *nic)
+{
+    LONG anar = ax_mii_read(nic, MII_ANAR);
+    LONG bmcr = ax_mii_read(nic, MII_BMCR);
+
+    if (anar < 0 || bmcr < 0 || (anar & MII_ANAR_PAUSE) != 0)
+        return;
+    if ((bmcr & MII_BMCR_ANENABLE) == 0)
+        return;                 /* forced speed: nothing is negotiated */
+
+    ax_mii_write(nic, MII_ANAR, (UWORD)(anar | MII_ANAR_PAUSE));
+    ax_mii_write(nic, MII_BMCR, (UWORD)(bmcr | MII_BMCR_ANRESTART));
+}
+
+/*
+ * At attach, at task level and before the interrupt server exists: find the
+ * PHY by its identifier -- on anything else MEMR is not this register -- and
+ * offer PAUSE.
+ */
+static VOID ne2000_ax88796_phy(NetdevNic *nic)
+{
+    nic->ax_phy            = 0;
+    nic->ax_phy_tick       = 0;
+    nic->ax_phy_tries      = 0;
+    nic->rx_pause_capacity = 0;
+
+    if (!nic->card->ax88796)
+        return;
+    if (ax_mii_read(nic, MII_PHYID1) != AX88796_PHYID1 ||
+        ax_mii_read(nic, MII_PHYID2) != AX88796_PHYID2)
+        return;
+
+    nic->ax_phy = 1;
+    ax88796_advertise(nic);
+}
+
+/*
+ * Once a blank under Disable(), with the interrupt server out
+ * (netdev_device.c): every AX88796_PHY_TICKS a look at the negotiation,
+ * three register reads.  The link bit latches low, so a link that dropped
+ * since the last look answers 0 for a second.  A PHY found no longer
+ * offering PAUSE -- something reset it -- is told again.
+ */
+static BOOL ne2000_tick(NetdevNic *nic)
+{
+    LONG bmsr;
+    LONG anar;
+    LONG anlpar;
+
+    if (!nic->ax_phy || ++nic->ax_phy_tick < AX88796_PHY_TICKS)
+        return FALSE;
+    nic->ax_phy_tick = 0;
+
+    bmsr   = ax_mii_read(nic, MII_BMSR);
+    anar   = ax_mii_read(nic, MII_ANAR);
+    anlpar = ax_mii_read(nic, MII_ANLPAR);
+
+    nic->rx_pause_capacity = ax88796_pause_capacity(bmsr, anar, anlpar);
+
+    if (anar >= 0 && (anar & MII_ANAR_PAUSE) != 0)
+        nic->ax_phy_tries = 0;
+    else if (anar >= 0 && nic->ax_phy_tries < AX88796_PHY_TRIES)
+    {
+        nic->ax_phy_tries++;
+        ax88796_advertise(nic);
+    }
+
+    return FALSE;
+}
+
 static BOOL ne2000_coherent(NetdevNic *nic)
 {
     ULONG  inbuf[2];
@@ -924,6 +1152,7 @@ static LONG ne2000_attach(NetdevNic *nic)
      * cache check, so it sets it again there (F-287).
      */
     ne2000_ax88796_flow(nic);
+    ne2000_ax88796_phy(nic);
 
     return 0;
 }
@@ -937,7 +1166,7 @@ const struct NetdevNicOps netdev_nic_ne2000 =
     dp8390_setfilter,
     dp8390_intr,
     dp8390_reset,
-    NULL,               /* no link to poll: the wire is the link */
+    ne2000_tick,        /* the AX88796B's PAUSE negotiation */
     ne2000_coherent,
     NULL                /* no task to end */
 };

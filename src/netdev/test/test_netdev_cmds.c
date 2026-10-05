@@ -1990,6 +1990,21 @@ static void v_rx_capacity(void)
     expect(io.ios2_DataLength == 52UL * 256UL,
            "ANXD_CMD_RX_CAPACITY reports the core's ring bytes");
 
+    /* While the link partner pauses for the card, what the core measured
+       it holding then; the ring again when that ends. */
+    unit.nu_Nic.rx_pause_capacity = 32UL * 1536UL;
+    req(&io, ANXD_CMD_RX_CAPACITY);
+    io.ios2_DataLength = 0;
+    netdev_perform(&opener, &io);
+    expect(io.ios2_DataLength == 32UL * 1536UL,
+           "a paused link reports the core's paused capacity");
+    unit.nu_Nic.rx_pause_capacity = 0;
+    req(&io, ANXD_CMD_RX_CAPACITY);
+    io.ios2_DataLength = 0;
+    netdev_perform(&opener, &io);
+    expect(io.ios2_DataLength == 52UL * 256UL,
+           "and the ring again when PAUSE is lost");
+
     unit.nu_Nic.rx_capacity = 0;
     req(&io, ANXD_CMD_RX_CAPACITY);
     io.ios2_DataLength = 1;

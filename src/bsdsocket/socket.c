@@ -216,9 +216,25 @@ VOID bsd_tcp_window_settle(NX_TCP_SOCKET *tcp, ULONG rtt_ms)
        the path (ami_bsd_tcp_window_burst_bound).  The segment size is the
        one the handshake settled: nx_tcp_socket_mss is what the application
        asked for and stays 0 on an accepted socket. */
-    if (sana != NULL && ami_bsd_tcp_window_burst_bound(bps, rtt_ms, grow))
-        want = ami_bsd_tcp_window_fit(want, ami_sana2_get_hw_rx_bytes(sana),
-                                      tcp->nx_tcp_socket_connect_mss);
+    tcp->nx_tcp_socket_rx_window_cap = 0;
+    if (sana != NULL)
+    {
+        ULONG bound = ami_bsd_tcp_window_receive_bound(
+                          want, ami_sana2_get_hw_rx_bytes(sana),
+                          tcp->nx_tcp_socket_connect_mss, bps, rtt_ms, grow,
+                          ami_sana2_get_tcp_wan_window(sana));
+
+        /* A window cut to the card is what the sender is offered, over a
+           buffer with room behind it (ami_bsd_tcp_window_buffer): with the
+           buffer the size of the burst, the acknowledgment of every burst
+           advertised zero and the sender waited for the application's read
+           and a window update -- 0.7 ms of every 5.75 ms on an A3000 with an
+           X-Surf 100.  The cap never pulls back a right edge already sent
+           (_nx_tcp_socket_rx_window_open). */
+        if (bound < want)
+            tcp->nx_tcp_socket_rx_window_cap = bound;
+        want = ami_bsd_tcp_window_buffer(want, bound);
+    }
 
     if (want == cur)
         return;

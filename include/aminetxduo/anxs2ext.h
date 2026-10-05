@@ -121,10 +121,17 @@ typedef struct AnxdS2Extension
  *
  * Answered in ios2_DataLength: the bytes of received frames the unit's own
  * receive memory holds, at line rate, while nobody drains it -- the ring
- * or FIFO after which the next frame is lost.  A card that can pause the
- * wire instead may answer 0, which means "no limit worth stating", and so
- * does a driver that cannot say.  Quick, no arguments, io_Error 0;
- * IOERR_NOCMD from a driver that does not know it.
+ * or FIFO after which the next frame is lost.  0 means "no limit worth
+ * stating", and is what a driver that cannot say answers.  Quick, no
+ * arguments, io_Error 0; IOERR_NOCMD from a driver that does not know it.
+ *
+ * The answer can change while the unit is online.  A card whose link has
+ * IEEE 802.3x PAUSE agreed is not limited by its ring: the partner holds
+ * what the ring cannot take.  It answers what it measured best with the
+ * partner pausing for it, NOT 0 -- a paused X-Surf 100 was slower at 64
+ * frames than at 32 -- and its ring again when a renegotiation loses PAUSE.
+ * An opener that keeps a window to the answer asks again while traffic
+ * flows (sana2_rx.c, at most once a second).
  *
  * What an opener does with it: keep the TCP window it advertises on that
  * interface inside the number, so a peer on the same LAN cannot put more

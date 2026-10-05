@@ -121,6 +121,9 @@ ULONG       ami_sana2_get_hw_rx_bytes(const AmiSana2If *iface);
 /* The interface file's TCPGROWRTT in ms, 0 = not set (bsdsocket_window.h,
    BSD_TCP_WINDOW_GROW_RTT_MS). */
 ULONG       ami_sana2_get_tcp_grow_rtt(const AmiSana2If *iface);
+/* The interface file's TCPWANWINDOW in bytes, 0 = not set
+   (bsdsocket_window.h, ami_bsd_tcp_window_receive_bound). */
+ULONG       ami_sana2_get_tcp_wan_window(const AmiSana2If *iface);
 BOOL        ami_sana2_is_online(const AmiSana2If *iface);
 
 /*
