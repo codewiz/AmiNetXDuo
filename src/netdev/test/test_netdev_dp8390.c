@@ -1305,6 +1305,27 @@ static void w_a_stale_txp_with_no_owned_buffer_is_not_resent(void)
                (unsigned long)txp, 0);
 }
 
+/* ========================================================= shared line === */
+
+/*
+ * INT2 is shared.  RDC, CNT and RST are not enabled in the IMR, so with only
+ * those set the chip is not asserting INT: the server must decline, and leave
+ * the status alone, so the server whose device is asserting the line runs.
+ */
+static void x_only_an_enabled_bit_claims_the_line(void)
+{
+    reset();
+    (VOID)dp8390_init(&nic);
+
+    chip[0][ED_P0_ISR] = (UBYTE)(ED_ISR_RDC | ED_ISR_CNT | ED_ISR_RST);
+    tr_n = 0;
+
+    expect(dp8390_intr(&nic) == FALSE, "a status with no enabled bit is declined");
+    expect(find_w(0, ED_P0_ISR, 0) < 0, "and is not acknowledged");
+    expect_hex("the status is left as it was", chip[0][ED_P0_ISR],
+               (UBYTE)(ED_ISR_RDC | ED_ISR_CNT | ED_ISR_RST));
+}
+
 int main(void)
 {
     a_init_follows_the_manual();
@@ -1332,6 +1353,7 @@ int main(void)
     u_completion_in_the_stop_window_is_not_resent();
     v_error_in_the_stop_window_is_not_resent();
     w_a_stale_txp_with_no_owned_buffer_is_not_resent();
+    x_only_an_enabled_bit_claims_the_line();
 
     if (failures != 0)
     {
