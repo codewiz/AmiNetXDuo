@@ -15,8 +15,9 @@ Add new entries under `Unreleased`; published release sections are history.
   or starts agreeing to it.
 - A card whose memory limits the TCP receive window no longer advertises a
   zero window at the end of every burst: the window offered stays at what the
-  card holds while the buffer behind it is twice that.  10% faster receiving
-  on an X-Surf 100 without flow control.
+  card holds, from a connection's first segment on, while the buffer behind
+  it is twice that.  10% faster receiving on an X-Surf 100 without flow
+  control.
 - New interface option TCPWANWINDOW: the TCP receive window on a long path,
   for a card whose memory limits it.
 

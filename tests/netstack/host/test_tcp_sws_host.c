@@ -810,6 +810,87 @@ ULONG w;
            "edge never pulled back\n");
 }
 
+/* The interface's cap (nx_interface_tcp_rx_window_cap) is what a connection
+   on it offers until its own is settled -- from the SYN or SYN-ACK on, which
+   go out before any settle and offer no more than it.  A settled socket
+   says NX_TCP_RX_WINDOW_CAP_NONE to offer the buffer whatever the
+   interface's. */
+static ULONG h_send_iface(UINT bits, ULONG current, ULONG last_sent,
+                          ULONG dflt, ULONG sock_cap, ULONG iface_cap)
+{
+    h_fixture();
+
+    h_iface.nx_interface_tcp_rx_window_cap   = iface_cap;
+    h_sock.nx_tcp_socket_rx_window_default   = dflt;
+    h_sock.nx_tcp_socket_rx_window_current   = current;
+    h_sock.nx_tcp_socket_rx_window_last_sent = last_sent;
+    h_sock.nx_tcp_socket_rx_window_cap       = sock_cap;
+
+    h_last_window = 0xFFFFFFFFUL;
+    h_acks        = 0;
+    h_alloc_ok    = 1;
+
+    _nx_tcp_packet_send_control(&h_sock, bits,
+                                h_sock.nx_tcp_socket_tx_sequence,
+                                h_sock.nx_tcp_socket_rx_sequence,
+                                0, 0, NX_NULL, 0, NX_NULL);
+
+    h_alloc_ok = 0;
+
+    h_check(h_acks == 1, "the control path sent nothing");
+    h_check_eq(h_sock.nx_tcp_socket_rx_window_last_sent, h_last_window,
+               "rx_window_last_sent is not the window that went on the wire");
+
+    return h_last_window;
+}
+
+static void q_the_interface_caps_a_connection_from_its_syn(void)
+{
+ULONG w;
+
+    /* A SYN from a socket whose buffer is sixteen segments, on an X-Surf's
+       interface (eight): eight go out, and are what it last sent. */
+    w = h_send_iface(NX_TCP_SYN_BIT, 16UL * H_MSS, 16UL * H_MSS, 16UL * H_MSS,
+                     0UL, 8UL * H_MSS);
+    h_check_eq(w, 8UL * H_MSS, "a SYN offered more than its interface's cap");
+
+    /* The SYN-ACK the same. */
+    w = h_send_iface(NX_TCP_SYN_BIT | NX_TCP_ACK_BIT, 16UL * H_MSS,
+                     16UL * H_MSS, 16UL * H_MSS, 0UL, 8UL * H_MSS);
+    h_check_eq(w, 8UL * H_MSS, "a SYN-ACK offered more than its "
+                               "interface's cap");
+
+    /* No cap on the interface: the free space, as upstream. */
+    w = h_send_iface(NX_TCP_SYN_BIT, 16UL * H_MSS, 16UL * H_MSS, 16UL * H_MSS,
+                     0UL, 0UL);
+    h_check_eq(w, 16UL * H_MSS, "an uncapped interface's SYN did not offer "
+                                "the buffer");
+
+    /* The handshake's own ACK on an active open, before the settle: the
+       interface's cap, no more than the SYN left. */
+    w = h_send_iface(NX_TCP_ACK_BIT, 16UL * H_MSS, 8UL * H_MSS, 16UL * H_MSS,
+                     0UL, 8UL * H_MSS);
+    h_check_eq(w, 8UL * H_MSS, "an unsettled connection's ACK offered more "
+                               "than its interface's cap");
+
+    /* Settled: its own cap rules, NONE lifts the interface's. */
+    w = h_send_iface(NX_TCP_ACK_BIT, 16UL * H_MSS, 16UL * H_MSS, 16UL * H_MSS,
+                     4UL * H_MSS, 8UL * H_MSS);
+    h_check_eq(w, 16UL * H_MSS, "a settled cap pulled back the edge it had "
+                                "already sent");
+    w = h_send_iface(NX_TCP_ACK_BIT, 16UL * H_MSS, 2UL * H_MSS, 16UL * H_MSS,
+                     4UL * H_MSS, 8UL * H_MSS);
+    h_check_eq(w, 4UL * H_MSS, "a socket's own cap did not override its "
+                               "interface's");
+    w = h_send_iface(NX_TCP_ACK_BIT, 16UL * H_MSS, 2UL * H_MSS, 16UL * H_MSS,
+                     NX_TCP_RX_WINDOW_CAP_NONE, 8UL * H_MSS);
+    h_check_eq(w, 16UL * H_MSS, "NX_TCP_RX_WINDOW_CAP_NONE did not lift the "
+                                "interface's cap");
+
+    printf("  interface cap       SYN, SYN-ACK and the unsettled ACK held to "
+           "it; a settled cap rules\n");
+}
+
 /* A window that is genuinely zero is still zero, and is not confused with one
    the rule closed. */
 static void n_zero_stays_zero(void)
@@ -847,6 +928,7 @@ int main(void)
     n_zero_stays_zero();
     o_below_the_floor_the_edge_holds();
     p_a_cap_offers_less_than_the_buffer();
+    q_the_interface_caps_a_connection_from_its_syn();
 
     printf("%lu checks, %lu failures, %s\n",
            h_checks, h_failures, (h_failures == 0UL) ? "PASS" : "FAIL");

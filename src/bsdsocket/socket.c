@@ -214,7 +214,9 @@ static VOID bsd_tcp_window_apply(NX_TCP_SOCKET *tcp, ULONG want, ULONG rtt_ms,
        the path (ami_bsd_tcp_window_burst_bound).  The segment size is the
        one the handshake settled: nx_tcp_socket_mss is what the application
        asked for and stays 0 on an accepted socket. */
-    tcp->nx_tcp_socket_rx_window_cap = 0;
+    /* Explicitly uncapped unless the card bounds it below: 0 would hand the
+       connection back to its interface's cap (nx_api.h). */
+    tcp->nx_tcp_socket_rx_window_cap = NX_TCP_RX_WINDOW_CAP_NONE;
     if (sana != NULL)
     {
         ULONG bound = ami_bsd_tcp_window_receive_bound(
@@ -232,7 +234,18 @@ static VOID bsd_tcp_window_apply(NX_TCP_SOCKET *tcp, ULONG want, ULONG rtt_ms,
            X-Surf 100.  The cap never pulls back a right edge already sent
            (_nx_tcp_socket_rx_window_open). */
         if (bound < want)
+        {
             tcp->nx_tcp_socket_rx_window_cap = bound;
+
+            /* A fresh connection takes the cap now even under an edge the
+               handshake already offered -- a SYN's unscaled 65535, or a
+               SYN-ACK sent before the interface's cap was known.  Shrinking
+               the buffer did the same before the cap existed, and nothing
+               has been sent into that edge yet; a live one keeps its edge
+               (_nx_tcp_socket_rx_window_open). */
+            if (fresh && tcp->nx_tcp_socket_rx_window_last_sent > bound)
+                tcp->nx_tcp_socket_rx_window_last_sent = bound;
+        }
         want = ami_bsd_tcp_window_buffer(want, bound);
     }
 
@@ -297,14 +310,38 @@ VOID bsd_tcp_window_settle(NX_TCP_SOCKET *tcp, ULONG rtt_ms)
  * would keep a window sized for the old answer: one sized for a paused link
  * overruns the ring when PAUSE goes.  Every settled connection on this
  * interface takes the window the new answer gives, from the inputs its
- * settle had.  The SANA-II reader calls this with nx_ip_protection held
- * (sana2.h, AmiSana2CapacityHook).
+ * settle had, and the interface's cap -- what a connection offers before it
+ * is settled -- follows the answer too.  The SANA-II reader calls this with
+ * nx_ip_protection held (sana2.h, AmiSana2CapacityHook): once when the unit
+ * is attached, then on every change.
  */
 VOID bsd_tcp_window_recap(NX_IP *ip, AmiSana2If *sana)
 {
     NX_TCP_SOCKET *tcp   = ip->nx_ip_tcp_created_sockets_ptr;
     ULONG          total = ip->nx_ip_tcp_created_sockets_count;
     ULONG          i;
+
+    /* The interface's own cap first: what a connection on it offers from
+       its SYN or SYN-ACK until its window is settled.  The round trip is not
+       known then, so it is the LAN answer -- the card's fit at this link's
+       segment size -- and the settle lifts it for a long path. */
+    for (i = 0; i < (ULONG)NX_MAX_PHYSICAL_INTERFACES; i++)
+    {
+        NX_INTERFACE *nxif = &ip->nx_ip_interface[i];
+
+        if (nxif->nx_interface_valid &&
+            (AmiSana2If *)nxif->nx_interface_additional_link_info == sana)
+        {
+            ULONG hw  = ami_sana2_get_hw_rx_bytes(sana);
+            ULONG mss = (nxif->nx_interface_ip_mtu_size > 40UL)
+                      ? nxif->nx_interface_ip_mtu_size - 40UL : 0UL;
+
+            nxif->nx_interface_tcp_rx_window_cap =
+                (hw != 0UL && mss != 0UL)
+                ? ami_bsd_tcp_window_fit(NX_TCP_RX_WINDOW_CAP_NONE - 1UL, hw, mss)
+                : 0UL;
+        }
+    }
 
     for (i = 0; i < total && tcp != NX_NULL; i++)
     {

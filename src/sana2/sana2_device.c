@@ -1358,10 +1358,12 @@ AmiSana2If *ami_sana2_open(const AmiIfConfig *cfg, LONG *err)
     {
         iface->rx_capacity_live = TRUE;
         ami_sana2_refresh_rx_capacity(iface);
-        iface->rx_capacity_changed = FALSE;     /* nothing settled on it yet */
     }
     else
         iface->hw_rx_bytes = ami_sana2_known_rx_bytes(iface->device);
+    /* The reader's first drain hands any answer to the TCP layer, which
+       gives the interface its cap before the first connection on it. */
+    iface->rx_capacity_changed = (iface->hw_rx_bytes != 0) ? TRUE : FALSE;
     AMI_INFO("sana2: %s unit %ld holds %lu bytes from the wire",
              iface->device, (long)iface->unit,
              (unsigned long)iface->hw_rx_bytes);
