@@ -164,8 +164,8 @@ extern ULONG prof_read_vbr(VOID);
 #define PROF_CCK_PAL    3546895UL
 #define PROF_CCK_NTSC   3579545UL
 #define PROF_ECLOCK_PAL 709379UL
-#define PROF_LINES_PAL  312UL
-#define PROF_LINES_NTSC 262UL
+#define PROF_LINES_PAL  313UL     /* lines 0..312 of a non-interlaced frame */
+#define PROF_LINES_NTSC 263UL     /* lines 0..262 */
 #define PROF_CCK_LINE   227UL
 
 /* One watchdog window per this many video frames: about half a second, and
@@ -802,10 +802,16 @@ static VOID prof_video_measure(VOID)
     if (prof_vblcount == frame)
         return;
 
-    prof_ntsc_video = (BOOL)(max_vpos < PROF_LINES_NTSC);
+    /* The frame is the lines the beam counted, 0..max_vpos.  The standard
+       is whichever it is nearer.  `max_vpos < 262` called an NTSC frame --
+       lines 0..262 -- PAL, and a 312-line clock on a 263-line display adds
+       49 lines that never happened to every frame: on an NTSC A3000, 15.8%
+       of a receive run reported as "interrupts masked", one 3.1 ms gap per
+       frame, against 0.2% with the frame the beam counts. */
+    prof_ntsc_video = (BOOL)(max_vpos <
+                             (PROF_LINES_NTSC + PROF_LINES_PAL) / 2UL);
     prof_vblank_hz  = prof_ntsc_video ? 60UL : 50UL;
-    prof_framecck   = (prof_ntsc_video ? PROF_LINES_NTSC : PROF_LINES_PAL) *
-                      PROF_CCK_LINE;
+    prof_framecck   = (max_vpos + 1UL) * PROF_CCK_LINE;
 }
 
 static VOID prof_watchdog_stop(VOID)

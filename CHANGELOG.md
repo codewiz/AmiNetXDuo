@@ -5,6 +5,10 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ## Unreleased
 
+- Profile measures the video frame from the lines the beam counts.  It
+  took an NTSC display for PAL, and on an NTSC Amiga reported about a sixth
+  of every run as time with interrupts masked that never happened.
+
 - TLS refuses RSA keys with an even modulus (N-171).
 - TLS no longer clears a record's packets after TCP has taken them (GHSA-8w5x-ff58-2fr2).
 - HKDF-Extract rejects invalid buffer arguments (N-160).
