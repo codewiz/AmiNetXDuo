@@ -93,7 +93,9 @@ static ULONG fb_kbs(ULONG bytes, ULONG ticks)
     if (ticks == 0UL)
         return 0UL;
 
-    return ((bytes / 1024UL) * fb_rate) / ticks;
+    /* In 64 bits: KB times the E-clock rate passes 2^32 above ~5.9 MB at
+       715,909 Hz, and an 8 MB run read 352 KB/s for 1,316. */
+    return (ULONG)(((unsigned long long)(bytes / 1024UL) * fb_rate) / ticks);
 }
 
 static UBYTE *fb_buf;
