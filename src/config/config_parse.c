@@ -47,6 +47,7 @@ typedef enum
     IF_KEY_TCPGROWRTT,
     IF_KEY_TCPWANWINDOW,
     IF_KEY_GROFRAMES,
+    IF_KEY_ACKPACE,
     IF_KEY_PRIORITY
 } IfKey;
 
@@ -84,6 +85,7 @@ ami_if_keywords[] =
     { "tcpgrowrtt",         IF_KEY_TCPGROWRTT        },
     { "tcpwanwindow",       IF_KEY_TCPWANWINDOW      },
     { "groframes",          IF_KEY_GROFRAMES         },
+    { "ackpace",            IF_KEY_ACKPACE           },
     { "priority",           IF_KEY_PRIORITY          },   /* Roadshow's, and PRI */
     { "pri",                IF_KEY_PRIORITY          },
 
@@ -828,6 +830,21 @@ LONG ami_cfg_parse_interface(const char *name, char *buf, AmiIfConfig *out)
                     report_bad_value(lineno, AMI_CFG_PROBLEM_WARN,
                                      "GROFRAMES", value,
                                      AMI_CFG_ADVICE_GROFRAMES_IS_FRAMES);
+                }
+                break;
+
+            case IF_KEY_ACKPACE:
+                if (ami_cfg_parse_ulong(value, &n) &&
+                    n != 0 && n <= AMI_CFG_ACK_PACE_MAX)
+                {
+                    out->ack_pace_kbps = n;
+                }
+                else
+                {
+                    AMI_WARN("config: %s: bad ACKPACE '%s'", out->name, value);
+                    report_bad_value(lineno, AMI_CFG_PROBLEM_WARN,
+                                     "ACKPACE", value,
+                                     AMI_CFG_ADVICE_ACKPACE_IS_KBPS);
                 }
                 break;
 

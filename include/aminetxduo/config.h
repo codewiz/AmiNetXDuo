@@ -60,6 +60,7 @@ extern "C" {
 /* GROFRAMES: the most frames one receive-offload run chains; sana2_internal.h
    sizes the run at this and checks it. */
 #define AMI_CFG_GRO_FRAMES_MAX      16UL
+#define AMI_CFG_ACK_PACE_MAX        1000000UL
 #define AMI_CFG_PATH_LEN            128
 
 /* The default domain gets its own cap: SetDefaultDomainName()'s autodoc says
@@ -223,6 +224,11 @@ typedef struct AmiIfConfig {
        TCP's acknowledgment test sooner, so a sender limited by the window
        is answered -- and releases -- in smaller steps.  0 = the maximum. */
     UBYTE       gro_frames;
+    /* ACKPACE: kbit/s.  The reader lets a pure TCP acknowledgment leave no
+       sooner than the bytes the one before it acknowledged take at this rate
+       (sana2_ackpace.c), so a sender limited by the window is clocked at it
+       instead of at the rate TCP processes segments.  0 = off. */
+    ULONG       ack_pace_kbps;
     BYTE        priority;                    /* PRIORITY=, -128..127, 0 unset: the
                                                 highest wins a route two
                                                 interfaces could carry        */

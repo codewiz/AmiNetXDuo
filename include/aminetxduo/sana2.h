@@ -220,6 +220,11 @@ typedef struct AmiSana2Stats {
        <= 1.16, plipbox, Warp WLAN); on those this stays at zero next to a
        membership list that says joined. */
     ULONG   rx_multicast;
+    /* Appended, after every field a tool from an older build reads.
+       ACKPACE (sana2_ackpace.c): pure acknowledgments held for their turn,
+       and ones that found the hold queue full and went out of turn. */
+    ULONG   ack_paced;
+    ULONG   ack_unpaced;
 } AmiSana2Stats;
 
 VOID ami_sana2_get_stats(const AmiSana2If *iface, AmiSana2Stats *out);

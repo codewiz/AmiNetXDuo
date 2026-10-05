@@ -133,6 +133,31 @@ target_compile_definitions(test_sana2_tx PRIVATE
 
 add_test(NAME sana2_tx COMMAND test_sana2_tx)
 
+# ACKPACE: which acknowledgments sana2_ackpace.c holds and when it lets them
+# go, against an E-clock the test owns.  The send itself is the test's.
+add_executable(test_sana2_ackpace
+    host/test_sana2_ackpace_host.c
+    "${CMAKE_SOURCE_DIR}/src/sana2/sana2_ackpace.c")
+target_compile_options(test_sana2_ackpace PRIVATE
+    -include "${CMAKE_CURRENT_SOURCE_DIR}/host/shim/host_regargs.h"
+    -UAMINETXDUO_IPV6 -UAMINETXDUO_BPF
+    -Wno-int-to-pointer-cast -Wno-pointer-to-int-cast)
+target_include_directories(test_sana2_ackpace PRIVATE
+    "${CMAKE_SOURCE_DIR}/tests/perf/host/shim"
+    "${CMAKE_CURRENT_SOURCE_DIR}/host/shim"
+    "${CMAKE_SOURCE_DIR}/src/config/test/shim"
+    "${CMAKE_SOURCE_DIR}/src/sana2"
+    "${CMAKE_SOURCE_DIR}/src/net68k"
+    "${CMAKE_SOURCE_DIR}/include"
+    "${AMINETXDUO_NETXDUO}/ports/linux/gnu/inc"
+    "${CMAKE_SOURCE_DIR}/port/netxduo-amiga/inc"
+    "${AMINETXDUO_NETXDUO}/common/inc"
+    "${AMINETXDUO_THREADX}/common/inc")
+target_compile_definitions(test_sana2_ackpace PRIVATE
+    NX_INCLUDE_USER_DEFINE_FILE
+    AMINETXDUO_HOST_VENDORED_TX_PORT="${AMINETXDUO_THREADX}/ports/linux/gnu/inc/tx_port.h")
+add_test(NAME sana2_ackpace COMMAND test_sana2_ackpace)
+
 # The receive path's delivery, sana2_rx.c compiled whole.
 #
 # ami_sana2_rx_deliver() is the extern; everything else in that file is the

@@ -34,6 +34,10 @@ Add new entries under `Unreleased`; published release sections are history.
   for a card whose memory limits it.
 - New interface option GROFRAMES: the most received TCP frames joined into
   one before TCP sees them (1 to 16, default 16).
+- New experimental interface option ACKPACE: TCP acknowledgments of a
+  long-path connection whose window exceeds the card's memory leave at a
+  set rate, so the sender is paced. On an A3000 X-Surf 100 without flow
+  control: 25 ms path 3.3 -> 11 Mbit/s. ShowNetStatus counts paced ACKs.
 
 - TLS accepts a handshake record that ends one fragmented message and goes
   on with the next ones: the messages after the last fragment are processed

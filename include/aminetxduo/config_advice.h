@@ -70,5 +70,6 @@
 #define AMI_CFG_SAYS_NUMERIC_IPTYPE_IGNORED              55
 #define AMI_CFG_ADVICE_TCPWANWINDOW_IS_BYTES             56
 #define AMI_CFG_ADVICE_GROFRAMES_IS_FRAMES               57
+#define AMI_CFG_ADVICE_ACKPACE_IS_KBPS                   58
 
 #endif /* AMINETXDUO_CONFIG_ADVICE_H */

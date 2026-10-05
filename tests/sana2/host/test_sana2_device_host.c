@@ -717,6 +717,12 @@ BOOL ami_sana2_rx_reclaim(AmiSana2If *iface, BOOL release_packets)
 }
 
 VOID ami_sana2_tx_init(AmiSana2If *iface) { (VOID)iface; }
+/* ACKPACE is sana2_ackpace.c's, tested on its own (test_sana2_ackpace). */
+VOID ami_sana2_ack_setup(AmiSana2If *iface, ULONG kbps)
+{
+    iface->ack_tpkb = 0;
+    (VOID)kbps;
+}
 VOID ami_sana2_unbind(AmiSana2If *iface) { (VOID)iface; }
 
 /* Addresses only: the tag list carries them and only a device calls one. */

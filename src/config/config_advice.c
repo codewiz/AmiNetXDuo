@@ -137,6 +137,8 @@ static const char *const ami_cfg_advice_text[] =
     "path in place of the RXBUFFER fit. Leave it out to keep the fit.",
     "GROFRAMES is frames, 1 to 16: the most received TCP frames joined "
     "into one before TCP sees them. Leave it out for 16.",
+    "ACKPACE is kbit/s, 1 to 1000000: the rate TCP acknowledgments clock "
+    "a sender at. Leave it out to send them at once.",
 };
 
 const char *ami_cfg_advice(UWORD code)

@@ -377,6 +377,17 @@ typedef struct AmiTxPending
     UWORD       ether_type;
 } AmiTxPending;
 
+/* ACKPACE (sana2_ackpace.c): a pure acknowledgment waiting for its turn,
+   and the E-clock ticks the bytes it acknowledges take at the rate. */
+#define AMI_SANA2_ACKQ  16
+typedef struct AmiAckHeld
+{
+    NX_PACKET  *packet;
+    ULONG       dst_msw;
+    ULONG       dst_lsw;
+    ULONG       gap;
+} AmiAckHeld;
+
 /* Ticks to spin on a full TX ring before dropping the frame: the queue above
    replaced the spin in ami_sana2_tx_send(); ami_sana2_tx_drain() still waits
    this long for the device to hand back what it holds. */
@@ -666,6 +677,14 @@ typedef struct AmiSana2Reader
        delivers them before the reader sleeps.  Replied on the port when a
        device does not honour IOF_QUICK, and taken back at once. */
     struct IOSana2Req   poll;
+
+    /* ACKPACE: the timer that wakes this reader when the next held
+       acknowledgment is due and nothing else would (sana2_ackpace.c). */
+    struct MsgPort     *ack_port;
+    struct timerequest  ack_tr;
+    BOOL                ack_tr_open;
+    BOOL                ack_tr_busy;
+    ULONG               ack_mask;
 } AmiSana2Reader;
 
 /* One ring of reads for one Ethernet type. */
@@ -880,6 +899,27 @@ struct AmiSana2If
     /* GROFRAMES: the most frames one held run chains, 1..AMI_SANA2_GRO_MAX
        (attach turns the file's 0 into the maximum). */
     UWORD               gro_frames;
+    /* ACKPACE (sana2_ackpace.c).  ack_tpkb is E-clock ticks per 1000 bytes
+       at the configured rate, 0 = off.  ack_next is the E-clock low word
+       before which no held acknowledgment leaves; ack_task/ack_wake are the
+       reader that releases them and the signal that wakes it. */
+    ULONG               ack_tpkb;
+    AmiAckHeld          ackq[AMI_SANA2_ACKQ];
+    UWORD               ackq_head;
+    UWORD               ackq_count;
+    BOOL                ack_clock;
+    ULONG               ack_next;
+    ULONG               ack_prev_ack;
+    ULONG               ack_prev_edge;  /* ack + window, unscaled bytes      */
+    ULONG               ack_prev_ports;
+    ULONG               ack_ws_ports;   /* the connection ack_ws was seen on */
+    UBYTE               ack_ws;         /* our window scale on it, from SYN  */
+    /* The connection being paced, as an arriving segment names it (source
+       port << 16 | destination port): with ACKPACE on, GROFRAMES applies
+       to its runs alone, and every other connection keeps the full run. */
+    ULONG               ack_gro_ports;
+    struct Task        *ack_task;
+    ULONG               ack_wake;
 
     /* The interface file's IPREQUESTS, ARPREQUESTS (0 = the plan decides)
        and WRITEREQUESTS (1..AMI_SANA2_TX_SLOTS: how many of tx[] are
@@ -1102,6 +1142,20 @@ VOID ami_sana2_tx_drain(AmiSana2If *iface);
 UWORD ami_sana2_tx_collect(AmiSana2If *iface);
 UINT ami_sana2_tx_send(AmiSana2If *iface, NX_PACKET *packet, UWORD ether_type,
                        ULONG dst_msw, ULONG dst_lsw);
+/* The send itself, without the ACKPACE hold: what a released
+   acknowledgment goes out through (sana2_tx.c). */
+UINT ami_sana2_tx_send_now(AmiSana2If *iface, NX_PACKET *packet,
+                           UWORD ether_type, ULONG dst_msw, ULONG dst_lsw);
+
+/* ACKPACE (sana2_ackpace.c). */
+VOID  ami_sana2_ack_setup(AmiSana2If *iface, ULONG kbps);
+BOOL  ami_sana2_ack_hold(AmiSana2If *iface, NX_PACKET *packet,
+                         ULONG dst_msw, ULONG dst_lsw);
+ULONG ami_sana2_ack_release(AmiSana2If *iface);
+VOID  ami_sana2_ack_flush(AmiSana2If *iface);
+VOID  ami_sana2_ack_reader_start(AmiSana2Reader *rd);
+VOID  ami_sana2_ack_reader_pass(AmiSana2Reader *rd);
+VOID  ami_sana2_ack_reader_stop(AmiSana2Reader *rd);
 
 /* <proto/exec.h> is forced FIRST: the NDK's inline wait macros must expand
    (once, behind their guard) BEFORE ours are defined, or a TU that includes it

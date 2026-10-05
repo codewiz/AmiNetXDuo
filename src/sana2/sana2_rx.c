@@ -1423,7 +1423,12 @@ BOOL ami_sana2_gro_take(AmiSana2Rx *rx, NX_PACKET *packet, AmiRxSum *sum)
         head->nx_packet_length      += key.data;
         rx->gro_next                 = key.seq + key.data;
 
-        if (++rx->gro_count >= rx->iface->gro_frames)
+        /* GROFRAMES: every connection's run, or with ACKPACE on only the
+           paced connection's (sana2_ackpace.c). */
+        if (++rx->gro_count >=
+            ((rx->iface->ack_tpkb == 0 ||
+              rx->gro_ports == rx->iface->ack_gro_ports)
+                 ? rx->iface->gro_frames : AMI_SANA2_GRO_MAX))
             ami_sana2_gro_flush(rx);
         return TRUE;
     }
@@ -2261,6 +2266,10 @@ static VOID ami_sana2_rx_thread(ULONG argument)
         }
     }
 
+    /* ACKPACE: this reader releases the interface's held acknowledgments
+       (sana2_ackpace.c); nothing is held without it. */
+    ami_sana2_ack_reader_start(rd);
+
     /*
      * Every request is a copy of the opened one, which carries io_Device,
      * io_Unit and the device's own ios2_BufferManagement cookie.  Every
@@ -2387,6 +2396,9 @@ static VOID ami_sana2_rx_thread(ULONG argument)
             ami_sana2_tx_reap(iface);
         }
 
+        /* ACKPACE: what is due goes, and the timer is armed for the next. */
+        ami_sana2_ack_reader_pass(rd);
+
         /*
          * A status query asked for the device's counters of now
          * (ami_sana2_stats_request()).  The two device commands run here, on
@@ -2455,7 +2467,7 @@ static VOID ami_sana2_rx_thread(ULONG argument)
         if (ami_sana2_rx_should_block(rd, AMI_SANA2_RX_RUN_MAX))
         {
             ami_sana2_block_enter();
-            Wait(rd->wake_mask | rd->reap_mask);
+            Wait(rd->wake_mask | rd->reap_mask | rd->ack_mask);
 #ifdef AMINETXDUO_RXPROBE
             {
                 AmiRxProbe *pr = &iface->rx[0].probe;
@@ -2511,6 +2523,9 @@ static VOID ami_sana2_rx_thread(ULONG argument)
             ami_sana2_refresh_stats(iface);
 #endif
     }
+
+    /* Held acknowledgments go before the transmit side is unbound. */
+    ami_sana2_ack_reader_stop(rd);
 
     /*
      * Hand the reply port back before anything else in the teardown: after this
