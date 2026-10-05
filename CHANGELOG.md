@@ -33,6 +33,9 @@ Add new entries under `Unreleased`; published release sections are history.
 - New interface option TCPWANWINDOW: the TCP receive window on a long path,
   for a card whose memory limits it.
 
+- TLS accepts a handshake record that ends one fragmented message and goes
+  on with the next ones: the messages after the last fragment are processed
+  instead of the record being refused as invalid.
 - TLS refuses RSA keys with an even modulus (N-171).
 - TLS no longer clears a record's packets after TCP has taken them (GHSA-8w5x-ff58-2fr2).
 - HKDF-Extract rejects invalid buffer arguments (N-160).
