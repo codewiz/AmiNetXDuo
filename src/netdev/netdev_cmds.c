@@ -133,6 +133,7 @@ static const char netdev_stat_ints[]  = "Interrupts claimed";
 static const char netdev_stat_poll[]  = "Opener polls";
 static const char netdev_stat_pollh[] = "Opener polls that found frames held";
 static const char netdev_stat_ver[]   = "Direct receive frames verified";
+static const char netdev_stat_batch[] = "Receive batches answered";
 
 static VOID cmd_special_stats(NetdevUnit *unit, struct IOSana2Req *io)
 {
@@ -247,6 +248,10 @@ static VOID cmd_special_stats(NetdevUnit *unit, struct IOSana2Req *io)
        an A3000 with an X-Surf 100 received 2.8 Mbit/s on the poll for
        exactly that reason. */
     STAT(netdev_stat_ints, unit->nu_IntSeen);
+    /* ANXD_CMD_RX_BATCH replies.  Frames received over replies is the batch
+       size the opener actually got; 0 here with frames received is an
+       opener that never negotiated the batch. */
+    STAT(netdev_stat_batch, unit->nu_RxBatches);
 
 #undef STAT
 

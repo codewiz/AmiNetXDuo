@@ -18,6 +18,11 @@ Add new entries under `Unreleased`; published release sections are history.
   card holds, from a connection's first segment on, while the buffer behind
   it is twice that.  10% faster receiving on an X-Surf 100 without flow
   control.
+- The NE2000-family cards (X-Surf 100 among them) answer each receive
+  interrupt's frames with one reply to the stack instead of one per frame
+  (receive batches).  On an A3000 with a 68060 and an X-Surf 100: 2.5% more
+  receive and 4% more transmit.  NetDevStats counts the replies as "Receive
+  batches answered".
 - What a burst leaves below the TCP acknowledgment threshold is acknowledged
   when the receive pass ends, not a round trip later.  On an X-Surf 100 over
   a 25 ms path with flow control the split burst held each window's tail

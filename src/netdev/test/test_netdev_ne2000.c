@@ -951,6 +951,9 @@ static void test_attach_installs_the_hooks(void)
        non-NULL frame_at would have the receive path hand up a pointer into a
        card that cannot be addressed. */
     ok("frame_at stays NULL for a port-driven core", nic.frame_at == NULL);
+    /* A pass drains the whole ring, so it answers its frames in one reply
+       (ANXD_CMD_RX_BATCH) rather than one each. */
+    ok("the core offers receive batches", nic.rx_batches == 1);
 
     ok("the ring starts above the transmit buffers", nic.mem_start == 16384);
     ok("and is 16 KB", nic.mem_size == 16384);

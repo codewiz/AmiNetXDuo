@@ -1025,6 +1025,19 @@ static LONG ne2000_attach(NetdevNic *nic)
         nic->bus.dmode != NETDEV_DMODE_BYTE ? ANXD_S2_RXF_VERIFIED : 0);
 
     /*
+     * ANXD_CMD_RX_BATCH: one reply for every frame a service pass takes,
+     * instead of one per frame.  dp8390_rint() walks the whole ring in a
+     * pass, and on a fast link it is not one frame an interrupt: a burst
+     * the sender put on the wire back to back is in the ring together, and
+     * more so with PAUSE holding the rest behind it.  Each frame otherwise
+     * costs a ReplyMsg(), a Signal(), a GetMsg() and a re-post across the
+     * driver and the reader.  The claim and the end-of-pass flush are the
+     * shell's (netdev_direct.c, netdev_interrupt_do), the same for every
+     * core; a pass that takes one frame answers one, as a read would.
+     */
+    nic->rx_batches = 1;
+
+    /*
      * Where the station address is depends on the part.  The AX88796 keeps it
      * at AX88190_NODEID_OFFSET; a board wired as a plain NE2000 images a serial
      * ROM into the first 32 buffer bytes with 0x57 0x57 at the end.  Read the

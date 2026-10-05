@@ -276,6 +276,7 @@ static VOID netdev_batch_filled(NetdevUnit *unit, NetdevOpener *op,
         nd_remove(&io->ios2_Req.io_Message.mn_Node);
         if (unit->nu_BatchPending != 0)
             unit->nu_BatchPending--;
+        unit->nu_RxBatches++;
         netdev_reply(io, 0, 0);
     }
 }
@@ -340,6 +341,7 @@ VOID netdev_batch_flush(NetdevUnit *unit)
                 ((AnxdS2RxBatch *)io->ios2_Data)->Filled != 0)
             {
                 nd_remove(r);
+                unit->nu_RxBatches++;
                 netdev_reply(io, 0, 0);
             }
             r = next;
