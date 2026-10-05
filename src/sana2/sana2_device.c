@@ -66,6 +66,21 @@ VOID ami_sana2_set_raw_allowed(BOOL allowed)
     ami_raw_allowed = allowed;
 }
 
+/* What re-applies TCP windows when a device's capacity changes (sana2.h).
+   The TCP layer registers it; NULL until it does. */
+static AmiSana2CapacityHook ami_capacity_hook;
+
+VOID ami_sana2_set_capacity_hook(AmiSana2CapacityHook hook)
+{
+    ami_capacity_hook = hook;
+}
+
+VOID ami_sana2_capacity_changed(AmiSana2If *iface)
+{
+    if (ami_capacity_hook != NULL && iface->ip != NULL)
+        ami_capacity_hook(iface->ip, iface);
+}
+
 /* -------------------------------------------------------------- utilities */
 
 static VOID ami_str_copy(char *dst, const char *src, ULONG size)
@@ -1334,14 +1349,16 @@ AmiSana2If *ami_sana2_open(const AmiIfConfig *cfg, LONG *err)
      */
     iface->tcp_grow_rtt = cfg->tcp_grow_rtt;
     iface->tcp_wan_window = cfg->tcp_wan_window;
-    iface->rx_capacity_live = FALSE;
-    iface->rx_capacity_at   = 0;
+    iface->rx_capacity_live    = FALSE;
+    iface->rx_capacity_at      = 0;
+    iface->rx_capacity_changed = FALSE;
     if (cfg->rx_buffer != 0)
         iface->hw_rx_bytes = cfg->rx_buffer;
     else if ((iface->extension.Accepted & ANXD_S2F_RX_CAPACITY) != 0)
     {
         iface->rx_capacity_live = TRUE;
         ami_sana2_refresh_rx_capacity(iface);
+        iface->rx_capacity_changed = FALSE;     /* nothing settled on it yet */
     }
     else
         iface->hw_rx_bytes = ami_sana2_known_rx_bytes(iface->device);
@@ -1633,8 +1650,12 @@ VOID ami_sana2_refresh_rx_capacity(AmiSana2If *iface)
     struct IOSana2Req req = iface->templ;
 
     req.ios2_DataLength = 0;
-    if (ami_sana2_command(iface, &req, ANXD_CMD_RX_CAPACITY) == 0)
-        iface->hw_rx_bytes = req.ios2_DataLength;
+    if (ami_sana2_command(iface, &req, ANXD_CMD_RX_CAPACITY) == 0 &&
+        req.ios2_DataLength != iface->hw_rx_bytes)
+    {
+        iface->hw_rx_bytes         = req.ios2_DataLength;
+        iface->rx_capacity_changed = TRUE;
+    }
 }
 
 ULONG ami_sana2_get_hw_rx_bytes(const AmiSana2If *iface)

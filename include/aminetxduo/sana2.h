@@ -268,6 +268,16 @@ typedef VOID (*AmiSana2BlockHook)(VOID);
 VOID ami_sana2_set_block_hooks(AmiSana2BlockHook before_wait,
                                AmiSana2BlockHook after_wait);
 
+/*
+ * The device's answer to ANXD_CMD_RX_CAPACITY changed while the unit was
+ * online -- a link renegotiated with or without PAUSE.  Called by the
+ * interface's SANA-II reader with nx_ip_protection held, so the TCP layer
+ * can re-apply the receive window of the sockets already established on it
+ * (bsdsocket socket.c, bsd_tcp_window_recap).  NULL does nothing.
+ */
+typedef VOID (*AmiSana2CapacityHook)(NX_IP *ip, AmiSana2If *iface);
+VOID ami_sana2_set_capacity_hook(AmiSana2CapacityHook hook);
+
 #ifdef __cplusplus
 }
 #endif

@@ -867,6 +867,9 @@ struct AmiSana2If
        attach, so its first pass asks). */
     BOOL                rx_capacity_live;
     ULONG               rx_capacity_at;
+    /* Set when an asking found a different answer; the reader's next drain
+       clears it and calls the capacity hook with the IP mutex held. */
+    BOOL                rx_capacity_changed;
     /* TCPGROWRTT in ms, 0 = BSD_TCP_WINDOW_GROW_RTT_MS (bsdsocket_window.h). */
     UWORD               tcp_grow_rtt;
     /* TCPWANWINDOW in bytes, 0 = not set (bsdsocket_window.h). */
@@ -1033,6 +1036,7 @@ LONG ami_sana2_multicast(AmiSana2If *iface, UWORD command,
                          ULONG addr_msw, ULONG addr_lsw);
 VOID ami_sana2_refresh_stats(AmiSana2If *iface);
 VOID ami_sana2_refresh_rx_capacity(AmiSana2If *iface);
+VOID ami_sana2_capacity_changed(AmiSana2If *iface);
 
 /* sana2_driver.c */
 VOID ami_sana2_unbind(AmiSana2If *iface);

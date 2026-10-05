@@ -2,6 +2,7 @@
    SPDX-License-Identifier: MIT */
 
 #include "sana2_internal.h"
+#include "aminetxduo/anxs2ext.h"
 #include "bsdsocket_window.h"
 
 #include "aminetxduo/netstack.h"
@@ -66,6 +67,11 @@ typedef struct HostDevice
     int     rx_reclaims;
     int     packets_released;   /* the read slots' packets, back to the pool */
     int     slot_frees;         /* the watched interface's read slots freed */
+
+    /* ANXD_CMD_RX_CAPACITY: the answer, and whether the command fails. */
+    ULONG   rx_capacity;
+    BOOL    rx_capacity_fails;
+    int     rx_capacity_cmds;
 } HostDevice;
 
 /* S2_OFFLINE by SendIO(): inside BeginIO(), later, only once aborted, or
@@ -556,6 +562,16 @@ LONG DoIO(struct IORequest *ioreq)
         hdr->RecordCountSupplied = n;
         break;
     }
+
+    case ANXD_CMD_RX_CAPACITY:
+        h_dev.rx_capacity_cmds++;
+        if (h_dev.rx_capacity_fails)
+        {
+            req->ios2_Req.io_Error = (BYTE)IOERR_NOCMD;
+            break;
+        }
+        req->ios2_DataLength = h_dev.rx_capacity;
+        break;
 
     default:
         req->ios2_Req.io_Error = (BYTE)IOERR_NOCMD;
@@ -1417,6 +1433,76 @@ static void case_special_recovery_stats(void)
     h_check(h_tear_down(iface), "the statistics interface closes");
 }
 
+/* 11. ANXD_CMD_RX_CAPACITY asked again: a new answer is taken and flagged
+   for the reader's drain, the same answer is not, a failed command keeps
+   the last one; the flag reaches the TCP layer's hook with the IP. */
+static NX_IP      *h_cap_ip;
+static AmiSana2If *h_cap_iface;
+static int         h_cap_calls;
+
+static VOID h_cap_hook(NX_IP *ip, AmiSana2If *iface)
+{
+    h_cap_ip    = ip;
+    h_cap_iface = iface;
+    h_cap_calls++;
+}
+
+static void case_rx_capacity_refresh(void)
+{
+    AmiSana2If *iface;
+    NX_IP       ip;
+    NX_IP      *saved_ip;
+
+    h_device_reset();
+    iface = h_bring_up_unit(0);
+    h_check(iface != NULL, "the interface opened for a capacity refresh");
+    if (iface == NULL)
+        return;
+
+    iface->hw_rx_bytes         = 0;
+    iface->rx_capacity_changed = FALSE;
+
+    h_dev.rx_capacity = 52UL * 256UL;
+    ami_sana2_refresh_rx_capacity(iface);
+    h_check(h_dev.rx_capacity_cmds == 1, "the device was asked");
+    h_check(iface->hw_rx_bytes == 52UL * 256UL, "its answer was taken");
+    h_check(iface->rx_capacity_changed, "and a new answer is flagged");
+
+    iface->rx_capacity_changed = FALSE;
+    ami_sana2_refresh_rx_capacity(iface);
+    h_check(!iface->rx_capacity_changed, "the same answer is not flagged");
+
+    h_dev.rx_capacity = 32UL * 1536UL;
+    ami_sana2_refresh_rx_capacity(iface);
+    h_check(iface->hw_rx_bytes == 32UL * 1536UL &&
+            iface->rx_capacity_changed, "a paused link's answer is flagged");
+
+    iface->rx_capacity_changed = FALSE;
+    h_dev.rx_capacity_fails = TRUE;
+    ami_sana2_refresh_rx_capacity(iface);
+    h_check(iface->hw_rx_bytes == 32UL * 1536UL &&
+            !iface->rx_capacity_changed,
+            "a failed asking keeps the last answer");
+    h_dev.rx_capacity_fails = FALSE;
+
+    saved_ip   = iface->ip;
+    iface->ip  = &ip;
+    h_cap_calls = 0;
+    ami_sana2_capacity_changed(iface);
+    h_check(h_cap_calls == 0, "no hook registered, nothing called");
+    ami_sana2_set_capacity_hook(h_cap_hook);
+    ami_sana2_capacity_changed(iface);
+    h_check(h_cap_calls == 1 && h_cap_ip == &ip && h_cap_iface == iface,
+            "the hook gets the interface and its IP");
+    iface->ip = NULL;
+    ami_sana2_capacity_changed(iface);
+    h_check(h_cap_calls == 1, "an interface with no IP calls nothing");
+    ami_sana2_set_capacity_hook(NULL);
+    iface->ip = saved_ip;
+
+    h_check(h_tear_down(iface), "the capacity interface closes");
+}
+
 /* A status query does not run the device commands itself: it asks reader 0
    (ami_sana2_stats_request()) and reads the epoch.  Without a reader there is
    nothing to ask and the answer says so; with one the flag is raised and the
@@ -2047,6 +2133,7 @@ int main(void)
     case_distinct_devices_same_unit();
     case_special_recovery_stats();
     case_stats_request();
+    case_rx_capacity_refresh();
     case_keeps_online();
     case_request_counts();
     case_tcp_grow_rtt();

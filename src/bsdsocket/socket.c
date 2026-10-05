@@ -190,25 +190,23 @@ static ULONG bsd_tcp_window_top(const NX_TCP_SOCKET *tcp)
 }
 
 /*
- * Settle a freshly established socket's window (bsdsocket_window.h).  IP
- * thread, from the establish notify, with the receive queue still empty:
- * current and default move together, so what the next acknowledgment
- * advertises is the new buffer and nothing already queued is counted twice.
- * Growth needs the scale negotiated for the maximum at SYN time; a peer that
- * offered no scaling had both fields pinned at 65535 by the fork already and
- * the maximum is not expressible, so it stays.  Shrinking needs nothing.
+ * Apply a window the settle chose (`want`, before the card's bound) for the
+ * link and round trip the socket has: the card's bound becomes the cap the
+ * sender is offered, the buffer goes to what is behind it.  Growth needs the
+ * scale negotiated for the maximum at SYN time; a peer that offered no
+ * scaling had both fields pinned at 65535 by the fork already and the
+ * maximum is not expressible, so it stays.  Shrinking the buffer is for a
+ * fresh socket only: on a live one only what is not yet spoken for could
+ * come off, and the cap alone already keeps the sender within the card.
  */
-VOID bsd_tcp_window_settle(NX_TCP_SOCKET *tcp, ULONG rtt_ms)
+static VOID bsd_tcp_window_apply(NX_TCP_SOCKET *tcp, ULONG want, ULONG rtt_ms,
+                                 BOOL fresh)
 {
     NX_INTERFACE *nxif = tcp->nx_tcp_socket_connect_interface;
     AmiSana2If   *sana = (nxif != NX_NULL)
                        ? (AmiSana2If *)nxif->nx_interface_additional_link_info
                        : NULL;
-    ULONG bps  = (sana != NULL) ? ami_sana2_get_bps(sana) : 0UL;
-    ULONG grow = ami_sana2_get_tcp_grow_rtt(sana);  /* 0 = built-in line */
     ULONG cur  = tcp->nx_tcp_socket_rx_window_default;
-    ULONG want = ami_bsd_tcp_window_settle(cur, bsd_tcp_window_top(tcp), bps,
-                                           rtt_ms, grow);
 
     /* ... and never more than the card behind this interface can hold from
        the wire at once (bsdsocket_window.h, ami_bsd_tcp_window_fit), where
@@ -221,7 +219,9 @@ VOID bsd_tcp_window_settle(NX_TCP_SOCKET *tcp, ULONG rtt_ms)
     {
         ULONG bound = ami_bsd_tcp_window_receive_bound(
                           want, ami_sana2_get_hw_rx_bytes(sana),
-                          tcp->nx_tcp_socket_connect_mss, bps, rtt_ms, grow,
+                          tcp->nx_tcp_socket_connect_mss,
+                          ami_sana2_get_bps(sana), rtt_ms,
+                          ami_sana2_get_tcp_grow_rtt(sana),
                           ami_sana2_get_tcp_wan_window(sana));
 
         /* A window cut to the card is what the sender is offered, over a
@@ -250,6 +250,8 @@ VOID bsd_tcp_window_settle(NX_TCP_SOCKET *tcp, ULONG rtt_ms)
         tcp->nx_tcp_socket_rx_window_default  = want;
         return;
     }
+    if (!fresh)
+        return;
 
     /* Smaller: only what is not yet spoken for comes off, which before the
        first data is all of it. */
@@ -258,6 +260,66 @@ VOID bsd_tcp_window_settle(NX_TCP_SOCKET *tcp, ULONG rtt_ms)
     else
         tcp->nx_tcp_socket_rx_window_current = 0;
     tcp->nx_tcp_socket_rx_window_default = want;
+}
+
+/*
+ * Settle a freshly established socket's window (bsdsocket_window.h).  IP
+ * thread, from the establish notify, with the receive queue still empty:
+ * current and default move together, so what the next acknowledgment
+ * advertises is the new buffer and nothing already queued is counted twice.
+ */
+VOID bsd_tcp_window_settle(NX_TCP_SOCKET *tcp, ULONG rtt_ms)
+{
+    NX_INTERFACE *nxif = tcp->nx_tcp_socket_connect_interface;
+    AmiSana2If   *sana = (nxif != NX_NULL)
+                       ? (AmiSana2If *)nxif->nx_interface_additional_link_info
+                       : NULL;
+    AmiSocket    *sock = (AmiSocket *)tcp->nx_tcp_socket_reserved_ptr;
+    ULONG bps  = (sana != NULL) ? ami_sana2_get_bps(sana) : 0UL;
+    ULONG grow = ami_sana2_get_tcp_grow_rtt(sana);  /* 0 = built-in line */
+    ULONG want = ami_bsd_tcp_window_settle(tcp->nx_tcp_socket_rx_window_default,
+                                           bsd_tcp_window_top(tcp), bps,
+                                           rtt_ms, grow);
+
+    if (sock != NULL)
+    {
+        sock->as_SettleWant = want;
+        sock->as_SettleRtt  = rtt_ms;
+    }
+
+    bsd_tcp_window_apply(tcp, want, rtt_ms, TRUE);
+}
+
+/*
+ * What the card behind `sana` holds changed while the unit was online -- a
+ * link renegotiated with or without PAUSE (anxs2ext.h, ANXD_CMD_RX_CAPACITY).
+ * The settle ran once, at establishment, so a connection already moving
+ * would keep a window sized for the old answer: one sized for a paused link
+ * overruns the ring when PAUSE goes.  Every settled connection on this
+ * interface takes the window the new answer gives, from the inputs its
+ * settle had.  The SANA-II reader calls this with nx_ip_protection held
+ * (sana2.h, AmiSana2CapacityHook).
+ */
+VOID bsd_tcp_window_recap(NX_IP *ip, AmiSana2If *sana)
+{
+    NX_TCP_SOCKET *tcp   = ip->nx_ip_tcp_created_sockets_ptr;
+    ULONG          total = ip->nx_ip_tcp_created_sockets_count;
+    ULONG          i;
+
+    for (i = 0; i < total && tcp != NX_NULL; i++)
+    {
+        NX_INTERFACE *nxif = tcp->nx_tcp_socket_connect_interface;
+        AmiSocket    *sock = (AmiSocket *)tcp->nx_tcp_socket_reserved_ptr;
+
+        if (nxif != NX_NULL &&
+            (AmiSana2If *)nxif->nx_interface_additional_link_info == sana &&
+            sock != NULL && sock->as_SettleWant != 0 &&
+            tcp->nx_tcp_socket_state >= NX_TCP_ESTABLISHED)
+            bsd_tcp_window_apply(tcp, sock->as_SettleWant, sock->as_SettleRtt,
+                                 FALSE);
+
+        tcp = tcp->nx_tcp_socket_created_next;
+    }
 }
 
 /*

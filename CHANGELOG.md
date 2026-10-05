@@ -10,7 +10,9 @@ Add new entries under `Unreleased`; published release sections are history.
   to 32 frames.  On an A3000 with a 68060 at 50 MHz and a switch port with
   flow control on: 16.5 -> 21.9 Mbit/s on the local network, 3.3 -> 10.4
   Mbit/s over a 25 ms path, AmiSpeedTest download 6.0 -> 14.0 Mbit/s.  Without
-  flow control the window stays what the card's memory holds.
+  flow control the window stays what the card's memory holds, and a
+  connection already running follows within a second when the switch stops
+  or starts agreeing to it.
 - A card whose memory limits the TCP receive window no longer advertises a
   zero window at the end of every burst: the window offered stays at what the
   card holds while the buffer behind it is twice that.  10% faster receiving

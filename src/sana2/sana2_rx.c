@@ -1838,6 +1838,16 @@ static UWORD ami_sana2_rx_drain(AmiSana2Reader *rd, UWORD budget)
     outer = _nx_ip_input_thread;
     _nx_ip_input_thread = tx_thread_identify();
 
+    /* The device's capacity changed since the last run (the asking at the
+       top of the reader's loop): the TCP layer re-applies the windows of the
+       sockets on this interface, under the mutex this run holds, before any
+       more of their data is taken in. */
+    if (iface->rx_capacity_changed)
+    {
+        iface->rx_capacity_changed = FALSE;
+        ami_sana2_capacity_changed(iface);
+    }
+
     /* Use Exec's public message API.  GetMsg() is non-blocking; the budget
        leaves any remainder on the port for the next pass without touching
        MsgPort internals. */
