@@ -374,6 +374,10 @@ VOID ami_sana2_refresh_stats(AmiSana2If *iface) { (VOID)iface; }
    here. */
 VOID ami_sana2_refresh_rx_capacity(AmiSana2If *iface) { (VOID)iface; }
 VOID ami_sana2_capacity_changed(AmiSana2If *iface) { (VOID)iface; }
+/* The receive pass the drain brackets (nx_tcp_receive_pass_*.c), which this
+   target does not link: no TCP here. */
+VOID _nx_tcp_receive_pass_begin(NX_IP *ip_ptr) { (VOID)ip_ptr; }
+VOID _nx_tcp_receive_pass_complete(NX_IP *ip_ptr) { (VOID)ip_ptr; }
 ULONG _tx_time_get(VOID) { return 0; }
 UWORD ami_sana2_bound_count(VOID) { return 1; }
 VOID ami_sana2_block_enter(VOID) { }

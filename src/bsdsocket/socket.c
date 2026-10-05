@@ -234,18 +234,7 @@ static VOID bsd_tcp_window_apply(NX_TCP_SOCKET *tcp, ULONG want, ULONG rtt_ms,
            X-Surf 100.  The cap never pulls back a right edge already sent
            (_nx_tcp_socket_rx_window_open). */
         if (bound < want)
-        {
             tcp->nx_tcp_socket_rx_window_cap = bound;
-
-            /* A fresh connection takes the cap now even under an edge the
-               handshake already offered -- a SYN's unscaled 65535, or a
-               SYN-ACK sent before the interface's cap was known.  Shrinking
-               the buffer did the same before the cap existed, and nothing
-               has been sent into that edge yet; a live one keeps its edge
-               (_nx_tcp_socket_rx_window_open). */
-            if (fresh && tcp->nx_tcp_socket_rx_window_last_sent > bound)
-                tcp->nx_tcp_socket_rx_window_last_sent = bound;
-        }
         want = ami_bsd_tcp_window_buffer(want, bound);
     }
 

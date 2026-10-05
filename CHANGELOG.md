@@ -18,6 +18,10 @@ Add new entries under `Unreleased`; published release sections are history.
   card holds, from a connection's first segment on, while the buffer behind
   it is twice that.  10% faster receiving on an X-Surf 100 without flow
   control.
+- What a burst leaves below the TCP acknowledgment threshold is acknowledged
+  when the receive pass ends, not a round trip later.  On an X-Surf 100 over
+  a 25 ms path with flow control the split burst held each window's tail
+  for a whole round trip: 8.4 -> 10.3 Mbit/s.
 - New interface option TCPWANWINDOW: the TCP receive window on a long path,
   for a card whose memory limits it.
 

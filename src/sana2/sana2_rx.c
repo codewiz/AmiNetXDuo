@@ -22,6 +22,7 @@
 #include "nx_ip.h"
 #ifndef NX_DISABLE_IPV4
 #include "nx_arp.h"
+#include "nx_tcp.h"         /* the receive pass */
 #include "nx_rarp.h"
 #endif
 
@@ -1848,6 +1849,12 @@ static UWORD ami_sana2_rx_drain(AmiSana2Reader *rd, UWORD budget)
         ami_sana2_capacity_changed(iface);
     }
 
+    /* Everything this run takes in is one receive pass: at its end TCP
+       acknowledges what a burst left below its threshold, rather than
+       holding it for a sender that is waiting on exactly that ACK
+       (nx_tcp_receive_pass_complete.c). */
+    _nx_tcp_receive_pass_begin(ip);
+
     /* Use Exec's public message API.  GetMsg() is non-blocking; the budget
        leaves any remainder on the port for the next pass without touching
        MsgPort internals. */
@@ -1936,6 +1943,10 @@ static UWORD ami_sana2_rx_drain(AmiSana2Reader *rd, UWORD budget)
 #else
     (VOID)r;
 #endif
+
+    /* After the last held run has gone up, before the seat and the mutex
+       are given back. */
+    _nx_tcp_receive_pass_complete(ip);
 
     _nx_ip_input_thread = outer;
     tx_mutex_put(&ip->nx_ip_protection);
