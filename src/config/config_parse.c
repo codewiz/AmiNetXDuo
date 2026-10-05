@@ -465,9 +465,9 @@ static VOID report_bad_card(ULONG line, const char *value)
 }
 
 #define CFG_HINT_KEYWORDS \
-    "The keywords an interface file understands are DEVICE, UNIT, CONFIGURE, " \
-    "ADDRESS, NETMASK, GATEWAY, MTU, and CONFIGURE6, ADDRESS6 and GATEWAY6 " \
-    "for IPv6.  The line was ignored."
+    "This copy of AmiNetXDuo does not know that keyword; a file written for " \
+    "a newer version can carry ones an older copy ignores.  The guide's " \
+    "\"The interface file\" lists every keyword.  The line was ignored."
 
 #define CFG_HINT_IPV4 \
     "An address is four numbers from 0 to 255 with dots between them, for " \
