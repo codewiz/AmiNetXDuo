@@ -848,12 +848,6 @@ BOOL el3_intr(NetdevNic *nic)
             el3_reset(nic);
             return TRUE;
         }
-
-        /* Anything else that can raise the line and that this driver did not
-           ask for: acknowledge it so the level-driven INT2 lifts. */
-        el3_cmd(nic, EL3_C_ACK_INTR,
-                (UWORD)(status & (EL3_S_RX_EARLY | EL3_S_INT_REQ |
-                                  EL3_S_UPD_STATS)));
     }
 
     if (mine)
