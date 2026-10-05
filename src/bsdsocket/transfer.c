@@ -100,8 +100,11 @@ static LONG bsd_iov_total(const struct iovec *iov, LONG count)
     return (LONG)total;
 }
 
-/* The contiguous run at the cursor. Returns 0 when the list is exhausted. */
-static ULONG bsd_iov_chunk(BsdIovCursor *cur, UBYTE **ptr)
+/* The contiguous run at the cursor. Returns 0 when the list is exhausted.
+   This and bsd_iov_advance() are always_inline for the reason
+   bsd_packet_extract() gives (packet_extract.h). */
+static inline ULONG __attribute__((always_inline)) bsd_iov_chunk(
+    BsdIovCursor *cur, UBYTE **ptr)
 {
     while (cur->ic_Index < cur->ic_Count)
     {
@@ -123,7 +126,8 @@ static ULONG bsd_iov_chunk(BsdIovCursor *cur, UBYTE **ptr)
     return 0;
 }
 
-static VOID bsd_iov_advance(BsdIovCursor *cur, ULONG bytes)
+static inline VOID __attribute__((always_inline)) bsd_iov_advance(
+    BsdIovCursor *cur, ULONG bytes)
 {
     while (bytes > 0 && cur->ic_Index < cur->ic_Count)
     {

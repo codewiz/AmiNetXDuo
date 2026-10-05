@@ -559,8 +559,10 @@ static void i_the_window_settles_for_the_path_and_the_link(void)
        use the interface's opt-in window instead of the eight-segment fit;
        a LAN round trip keeps the fit, an unset value keeps it everywhere,
        the window settled for the socket still caps it, and the fit is the
-       floor.  A2 on the TF4060 A3000 (2026-10-05): 32 frames over a ~24 ms
-       real Internet path gave 12.9 Mbit/s against 5.7 with the fit. */
+       floor.  TF4060 A3000, 2026-10-05, main 97697d70 without flow control:
+       RXBUFFER=49152 (32 frames) gave an AmiSpeedTest download of 12.9 Mbit/s
+       over a ~24 ms Internet path against 5.7 with the fit, while the same
+       boot's LAN runs overran the ring 410 times. */
     h_check(ami_bsd_tcp_window_receive_bound(max, 52UL * 256UL, 1460UL,
                                              hundm, rtt, 0UL, 0UL)
                 == 8UL * 1460UL,

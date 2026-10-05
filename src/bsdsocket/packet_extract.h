@@ -41,8 +41,11 @@ static inline ULONG bsd_packet_length(const NX_PACKET *packet)
  * packet events, and removing those events would make an instrumented build
  * lie about the path it recorded.
  */
-static inline UINT bsd_packet_extract(NX_PACKET *packet, ULONG offset,
-                                      UCHAR *dst, ULONG want, ULONG *moved)
+/* always_inline, not left to the heuristic: three call sites on the per-frame
+   receive path (tools/check-hot-calls.sh), and the LTO inliner dropped all
+   three once the NetX receive-window helpers grew their callers. */
+static inline UINT __attribute__((always_inline)) bsd_packet_extract(
+    NX_PACKET *packet, ULONG offset, UCHAR *dst, ULONG want, ULONG *moved)
 {
 #ifndef TX_ENABLE_EVENT_TRACE
     if (packet != NX_NULL && dst != NX_NULL && moved != NX_NULL &&

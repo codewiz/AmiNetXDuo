@@ -21,6 +21,7 @@
 
 #include <exec/types.h>
 #include "aminetxduo/config.h"
+#include "aminetxduo/asm_abi.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -273,9 +274,11 @@ VOID ami_sana2_set_block_hooks(AmiSana2BlockHook before_wait,
  * online -- a link renegotiated with or without PAUSE.  Called by the
  * interface's SANA-II reader with nx_ip_protection held, so the TCP layer
  * can re-apply the receive window of the sockets already established on it
- * (bsdsocket socket.c, bsd_tcp_window_recap).  NULL does nothing.
+ * (bsdsocket socket.c, bsd_tcp_window_recap).  NULL does nothing.  Pinned
+ * to the stack convention, as a type in this public header must be: the
+ * pointer and the function it holds are declared AMIGA_ASM_ARGS together.
  */
-typedef VOID (*AmiSana2CapacityHook)(NX_IP *ip, AmiSana2If *iface);
+typedef AMIGA_ASM_ARGS VOID (*AmiSana2CapacityHook)(NX_IP *ip, AmiSana2If *iface);
 VOID ami_sana2_set_capacity_hook(AmiSana2CapacityHook hook);
 
 #ifdef __cplusplus

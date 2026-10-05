@@ -304,7 +304,7 @@ VOID bsd_tcp_window_settle(NX_TCP_SOCKET *tcp, ULONG rtt_ms)
  * nx_ip_protection held (sana2.h, AmiSana2CapacityHook): once when the unit
  * is attached, then on every change.
  */
-VOID bsd_tcp_window_recap(NX_IP *ip, AmiSana2If *sana)
+AMIGA_ASM_ARGS VOID bsd_tcp_window_recap(NX_IP *ip, AmiSana2If *sana)
 {
     NX_TCP_SOCKET *tcp   = ip->nx_ip_tcp_created_sockets_ptr;
     ULONG          total = ip->nx_ip_tcp_created_sockets_count;

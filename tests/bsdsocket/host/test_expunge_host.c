@@ -444,7 +444,7 @@ VOID bsd_bpf_close_all(struct AmiSocketBase *b) { (VOID)b; }
 VOID bsd_bpf_zone_read(VOID) { }
 /* The startup job registers the TCP window re-apply with the SANA-II layer
    (socket.c, sana2_device.c): neither is linked here. */
-VOID bsd_tcp_window_recap(NX_IP *ip, struct AmiSana2If *sana)
+AMIGA_ASM_ARGS VOID bsd_tcp_window_recap(NX_IP *ip, struct AmiSana2If *sana)
 {
     (VOID)ip;
     (VOID)sana;
