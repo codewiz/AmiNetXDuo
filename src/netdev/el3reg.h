@@ -82,6 +82,11 @@
                                  EL3_S_RX_EARLY | EL3_S_INT_REQ | \
                                  EL3_S_UPD_STATS)
 
+/* What el3_init enables in the interrupt mask, and so the only causes that
+   raise INT; the others in EL3_S_INTS are reported but masked. */
+#define EL3_S_ENABLED           (EL3_S_ADAPTER_FAIL | EL3_S_TX_COMPLETE | \
+                                 EL3_S_TX_AVAIL | EL3_S_RX_COMPLETE)
+
 /* ------------------------------------------------------- receive filter -- */
 
 /*
