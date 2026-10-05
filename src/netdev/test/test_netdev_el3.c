@@ -1146,6 +1146,16 @@ static void test_interrupt(void)
     expect_u32("an idle chip disclaims the interrupt",
                (unsigned long)el3_intr(&nic), 0);
 
+    /* Masked causes do not raise INT, so they are not ours either, and they
+       are left as they are. */
+    mock_status = EL3_S_UPD_STATS | EL3_S_RX_EARLY | EL3_S_INT_REQ;
+    expect_u32("a masked cause disclaims the interrupt",
+               (unsigned long)el3_intr(&nic), 0);
+    expect_u32("and is not acknowledged",
+               (unsigned long)mock_status,
+               (unsigned long)(EL3_S_UPD_STATS | EL3_S_RX_EARLY |
+                               EL3_S_INT_REQ));
+
     /* A receive drains the FIFO and the cause goes with the discard. */
     mock_rxlen = 74;
     mock_rxpos = 0;

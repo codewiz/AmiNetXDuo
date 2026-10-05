@@ -518,9 +518,7 @@ LONG el3_init(NetdevNic *nic)
      * blinds the interrupt handler.  The power-up default is zero.
      */
     el3_cmd(nic, EL3_C_SET_ZERO_MASK, 0x00ff);
-    el3_cmd(nic, EL3_C_SET_INTR_MASK,
-            EL3_S_ADAPTER_FAIL | EL3_S_TX_COMPLETE | EL3_S_TX_AVAIL |
-            EL3_S_RX_COMPLETE);
+    el3_cmd(nic, EL3_C_SET_INTR_MASK, EL3_S_ENABLED);
 
     nic->running   = TRUE;
     nic->txb_inuse = 0;
@@ -802,7 +800,13 @@ BOOL el3_intr(NetdevNic *nic)
     {
         status = el3_status(nic);
 
-        if ((status & EL3_S_INTS) == 0)
+        /*
+         * Only an enabled cause raises INT.  The line is shared (INT2 with the
+         * A1200's IDE, for one), and Exec stops the server chain at the first
+         * server that claims, so a claim on a masked cause (UPD_STATS sets as
+         * the counters fill) skips the server whose device is asserting it.
+         */
+        if ((status & EL3_S_ENABLED) == 0)
             break;
 
         mine = TRUE;
