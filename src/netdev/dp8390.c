@@ -30,6 +30,11 @@
 
 #include <proto/exec.h>
 
+/* The interrupts dp8390_init enables.  ISR and IMR bits share positions, so
+   this is also the set of ISR bits that raise INT; RDC, CNT and RST do not. */
+#define DP_INT_ENABLED  (ED_IMR_PRXE | ED_IMR_PTXE | ED_IMR_RXEE | ED_IMR_TXEE | \
+                         ED_IMR_OVWE)
+
 /* --------------------------------------------------------------- helpers -- */
 
 #ifdef NETDEV_TIME
@@ -187,9 +192,7 @@ LONG dp8390_init(NetdevNic *nic)
     NIC_PUT(nic, ED_P0_PSTART, nic->rec_page_start);
     NIC_PUT(nic, ED_P0_PSTOP, nic->rec_page_stop);
 
-    NIC_PUT(nic, ED_P0_IMR,
-            ED_IMR_PRXE | ED_IMR_PTXE | ED_IMR_RXEE | ED_IMR_TXEE |
-            ED_IMR_OVWE);
+    NIC_PUT(nic, ED_P0_IMR, DP_INT_ENABLED);
     NIC_PUT(nic, ED_P0_ISR, 0xff);
 
     NIC_PUT(nic, ED_P0_CR, nic->cr_proto | ED_CR_PAGE_1 | ED_CR_STP);
@@ -579,8 +582,9 @@ static BOOL dp8390_overwrite(NetdevNic *nic, UBYTE isr)
 /* ------------------------------------------------------------ interrupt --- */
 
 /*
- * Drain all of it: the loop re-reads ISR until it reads zero.  The line is
- * level-triggered, and a bit left set is an interrupt that never ends.
+ * Drain all of it: the loop re-reads ISR until no enabled bit is left.  The
+ * line is level-triggered, and an enabled bit left set is an interrupt that
+ * never ends.
  */
 BOOL dp8390_intr(NetdevNic *nic)
 {
@@ -593,8 +597,15 @@ BOOL dp8390_intr(NetdevNic *nic)
     NIC_PUT(nic, ED_P0_CR, nic->cr_proto | ED_CR_PAGE_0 | ED_CR_STA);
     dp_pause(nic, 1);
 
+    /*
+     * Claim only what this chip raised INT for.  The line is shared (INT2 with
+     * an accelerator's IDE, for one), and Exec stops the server chain at the
+     * first server that claims, so a claim on a stale RDC, CNT or RST skips
+     * the server whose device is asserting the line.  Those bits are left
+     * set: the remote DMA paths clear RDC before they wait on it.
+     */
     isr = NIC_GET(nic, ED_P0_ISR);
-    if (isr == 0)
+    if ((isr & DP_INT_ENABLED) == 0)
     {
 #ifdef NETDEV_TIME
         netdev_time_null++;
@@ -676,8 +687,10 @@ BOOL dp8390_intr(NetdevNic *nic)
             (VOID)NIC_GET(nic, ED_P0_CNTR2);
         }
 
+        /* Done when nothing enabled is left.  A bit that cannot be cleared
+           (RST is read-only) must not keep the server claiming the line. */
         isr = NIC_GET(nic, ED_P0_ISR);
-        if (isr == 0)
+        if ((isr & DP_INT_ENABLED) == 0)
             break;
 
         /*
