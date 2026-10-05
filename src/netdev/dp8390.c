@@ -686,8 +686,10 @@ BOOL dp8390_intr(NetdevNic *nic)
             (VOID)NIC_GET(nic, ED_P0_CNTR2);
         }
 
+        /* Done when nothing enabled is left.  A bit that cannot be cleared
+           (RST is read-only) must not keep the server claiming the line. */
         isr = NIC_GET(nic, ED_P0_ISR);
-        if (isr == 0)
+        if ((isr & DP_INT_ENABLED) == 0)
             break;
 
         /*
