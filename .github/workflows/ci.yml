@@ -16,21 +16,21 @@ name: CI
 
 permissions:
   contents: read
+  actions: read
 
 on:
   push:
-    # ONE CI RUN PER INTEGRATION.  ["**"] built the branch and then built
-    # main again for the same tree, so every item cost two runs and a
-    # re-pushed amend cost two more.  The local gate is what earns the push:
-    # .githooks/pre-push refuses a tree tools/ci.sh has not passed on, and
-    # cross arms that only CI can run are worth `tools/ci.sh cross' before a
-    # push rather than a second hosted build after one.
+    # Branch pushes are covered by PR validation. Main still gets fresh
+    # shipping checks/artifacts; only proven identical-tree matrices reuse.
     branches: ["main"]
   pull_request:
   workflow_dispatch:
+  schedule:
+    # Weekly full option coverage, rather than every tool/UI/test-only edit.
+    - cron: '23 8 * * 1'
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -44,6 +44,8 @@ jobs:
     outputs:
       mode: ${{ steps.changes.outputs.mode }}
       matrix: ${{ steps.matrix.outputs.matrix }}
+      options: ${{ steps.options.outputs.options }}
+      reuse_run: ${{ steps.options.outputs.reuse_run }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -53,14 +55,29 @@ jobs:
         id: changes
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: tools/ci-plan.sh "$BASE_SHA" "$GITHUB_SHA" | tee -a "$GITHUB_OUTPUT"
+        run: tools/ci-plan.sh "$BASE_SHA" "$GITHUB_SHA" "$GITHUB_EVENT_NAME" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Select option coverage
+        id: options
+        env:
+          MODE: ${{ steps.changes.outputs.mode }}
+          BASE_SHA: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$MODE" != full ]; then
+            echo 'options=skipped' >> "$GITHUB_OUTPUT"
+          elif [ "$GITHUB_EVENT_NAME" = push ]; then
+            tools/ci-matrix-reuse.sh "$BASE_SHA" "$GITHUB_SHA" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo 'options=build' >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Derive the option matrix
         id: matrix
         run: |
           matrix=$(tools/ci.sh --list-cross | jq -Rsc 'split("\n") | map(select(length > 0))')
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
-          echo "mode=${{ steps.changes.outputs.mode }} matrix=$matrix" >> "$GITHUB_STEP_SUMMARY"
+          echo "mode=${{ steps.changes.outputs.mode }} options=${{ steps.options.outputs.options }} reused_run=${{ steps.options.outputs.reuse_run }} matrix=$matrix" >> "$GITHUB_STEP_SUMMARY"
 
   # actions/checkout leaves submodules shallow even with fetch-depth: 0 on
   # the superproject. The usual ci.sh check can then only say
@@ -69,7 +86,7 @@ jobs:
   gitlinks:
     name: gitlink ancestry
     needs: plan
-    if: needs.plan.outputs.mode == 'full'
+    if: needs.plan.outputs.mode == 'full' || needs.plan.outputs.mode == 'shipping'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -98,7 +115,7 @@ jobs:
   analyze:
     name: static analysis
     needs: plan
-    if: needs.plan.outputs.mode == 'full'
+    if: needs.plan.outputs.mode == 'full' || needs.plan.outputs.mode == 'shipping'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -118,7 +135,7 @@ jobs:
   options:
     name: "cross: ${{ matrix.config }}"
     needs: plan
-    if: needs.plan.outputs.mode == 'full'
+    if: needs.plan.outputs.mode == 'full' && needs.plan.outputs.options == 'build'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -142,7 +159,7 @@ jobs:
   stackframes:
     name: stack-frame budget
     needs: plan
-    if: needs.plan.outputs.mode == 'full'
+    if: needs.plan.outputs.mode == 'full' || needs.plan.outputs.mode == 'shipping'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -164,7 +181,7 @@ jobs:
   tier1:
     name: build + host tests
     needs: plan
-    if: needs.plan.outputs.mode == 'full'
+    if: needs.plan.outputs.mode == 'full' || needs.plan.outputs.mode == 'shipping'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -264,7 +281,7 @@ jobs:
   host-clang:
     name: host tests (macOS / clang)
     needs: plan
-    if: needs.plan.outputs.mode == 'full'
+    if: needs.plan.outputs.mode == 'full' || needs.plan.outputs.mode == 'shipping'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -284,7 +301,7 @@ jobs:
   shellcheck:
     name: shell scripts
     needs: plan
-    if: needs.plan.outputs.mode == 'full'
+    if: needs.plan.outputs.mode == 'full' || needs.plan.outputs.mode == 'shipping'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -302,6 +319,8 @@ jobs:
           shellcheck -S warning -e SC1091 \
             tools/ci.sh \
             tools/ci-plan.sh \
+            tools/ci-matrix-reuse.sh \
+            tools/ci-policy-selftest.sh \
             tools/check-ci-success.sh \
             tools/check-ci-success-selftest.sh \
             tools/check-submodule-delta.sh \
@@ -373,7 +392,7 @@ jobs:
   package:
     name: release candidate
     needs: plan
-    if: needs.plan.outputs.mode == 'full'
+    if: needs.plan.outputs.mode == 'full' || needs.plan.outputs.mode == 'shipping'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -427,8 +446,8 @@ jobs:
           tools/check-changelog-prose.sh
           tools/ci.sh survey
 
-  # The stable required check.  Expensive jobs are allowed to be skipped only
-  # when the planner proved that every changed file is documentation.
+  # Stable required check: shipping keeps every gate except optional builds.
+  # Reused matrix proof is reported explicitly, not relabelled as execution.
   gate:
     name: tier 1 report
     if: always()
@@ -442,6 +461,8 @@ jobs:
           GITLINKS: ${{ needs.gitlinks.result }}
           ANALYZE: ${{ needs.analyze.result }}
           OPTIONS: ${{ needs.options.result }}
+          OPTION_PLAN: ${{ needs.plan.outputs.options }}
+          REUSE_RUN: ${{ needs.plan.outputs.reuse_run }}
           STACKFRAMES: ${{ needs.stackframes.result }}
           TIER1: ${{ needs.tier1.result }}
           HOST_CLANG: ${{ needs.host-clang.result }}
@@ -449,23 +470,57 @@ jobs:
           PACKAGE: ${{ needs.package.result }}
           DOCS: ${{ needs.docs.result }}
         run: |
+          echo "option_plan=$OPTION_PLAN reuse_run=$REUSE_RUN"
           printf 'mode=%s plan=%s gitlinks=%s analyze=%s options=%s stackframes=%s tier1=%s host_clang=%s shellcheck=%s package=%s docs=%s\n' \
             "$MODE" "$PLAN" "$GITLINKS" "$ANALYZE" "$OPTIONS" "$STACKFRAMES" \
             "$TIER1" "$HOST_CLANG" "$SHELLCHECK" "$PACKAGE" "$DOCS"
           [ "$PLAN" = success ] || exit 1
           case "$MODE" in
-            full)
-              [ "$GITLINKS" = success ] && [ "$ANALYZE" = success ] && [ "$OPTIONS" = success ] &&
+            full|shipping)
+              case "$MODE:$OPTION_PLAN:$OPTIONS" in
+                full:build:success|shipping:skipped:skipped) ;;
+                full:reused:skipped)
+                  case "$REUSE_RUN" in ''|*[!0-9]*) exit 1 ;; esac
+                  echo "option_matrix=reused source_run=$REUSE_RUN" ;;
+                *) echo "unexpected option coverage: $MODE:$OPTION_PLAN:$OPTIONS" >&2; exit 1 ;;
+              esac
+              [ "$GITLINKS" = success ] && [ "$ANALYZE" = success ] &&
               [ "$STACKFRAMES" = success ] && [ "$TIER1" = success ] &&
               [ "$HOST_CLANG" = success ] && [ "$SHELLCHECK" = success ] &&
               [ "$PACKAGE" = success ] &&
               [ "$DOCS" = skipped ]
               ;;
             docs)
-              [ "$DOCS" = success ] && [ "$GITLINKS" = skipped ] && [ "$ANALYZE" = skipped ] &&
+              [ "$OPTION_PLAN" = skipped ] && [ "$DOCS" = success ] && [ "$GITLINKS" = skipped ] && [ "$ANALYZE" = skipped ] &&
               [ "$OPTIONS" = skipped ] && [ "$STACKFRAMES" = skipped ] &&
               [ "$TIER1" = skipped ] && [ "$HOST_CLANG" = skipped ] &&
               [ "$SHELLCHECK" = skipped ] && [ "$PACKAGE" = skipped ]
               ;;
             *) echo "unknown CI mode: $MODE" >&2; exit 1 ;;
           esac
+
+      # Only a genuinely executed full matrix earns these markers. Shipping
+      # and reused runs remain useful candidates, but cannot authorize release.
+      - uses: actions/checkout@v4
+        if: needs.plan.outputs.mode == 'full' && needs.options.result == 'success'
+      - name: Record full coverage identity
+        if: needs.plan.outputs.mode == 'full' && needs.options.result == 'success'
+        id: proof
+        run: |
+          tree=$(git rev-parse 'HEAD^{tree}')
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+          printf 'sha=%s\ntree=%s\nrun=%s\n' "$GITHUB_SHA" "$tree" "$GITHUB_RUN_ID" > ci-full-coverage.txt
+      - uses: actions/upload-artifact@v4
+        if: needs.plan.outputs.mode == 'full' && needs.options.result == 'success'
+        with:
+          name: ci-options-tree-${{ steps.proof.outputs.tree }}
+          path: ci-full-coverage.txt
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        if: needs.plan.outputs.mode == 'full' && needs.options.result == 'success'
+        with:
+          name: ci-full-${{ github.sha }}
+          path: ci-full-coverage.txt
+          if-no-files-found: error
+          retention-days: 90

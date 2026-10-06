@@ -651,6 +651,14 @@ stage_toolchain() {
 stage_host() {
     hr "host tests"
 
+    if tools/ci-policy-selftest.sh > "$BUILD/ci-policy-selftest.log" 2>&1; then
+        note "$(tail -1 "$BUILD/ci-policy-selftest.log")"
+    else
+        cat "$BUILD/ci-policy-selftest.log"
+        fail "CI scheduling policy selftest"
+        return 1
+    fi
+
     # The verdict the fourteen on-Amiga harnesses share, against ten fixtures
     # including a missing transcript and a check count under the floor.  It
     # needs no emulator, so it runs here: an assertion that stopped firing in

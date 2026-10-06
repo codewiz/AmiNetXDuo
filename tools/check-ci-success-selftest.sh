@@ -59,6 +59,7 @@ run_case() {                    # name  want-rc  want-text  runs-json  [id:artif
 r() { printf '{"databaseId":%s,"headSha":"%s","status":"%s","conclusion":"%s","url":"u%s","event":"%s"}' \
         "$1" "$sha" "$2" "$3" "$1" "$4"; }
 cand="release-candidate-$sha"
+fullcand="$cand"$'\n'"ci-full-$sha"
 
 o() { printf '{"databaseId":%s,"headSha":"%s","status":"completed","conclusion":"success","url":"u%s","event":"%s"}' \
         "$1" "$2" "$1" "$3"; }
@@ -67,29 +68,29 @@ other=fedcba9876543210fedcba9876543210fedcba98
 # A docs-only push, newer, without the candidate; the full dispatch has it.
 run_case "docs-only push newer than the full dispatch" 0 "run=2 " \
     "[$(r 3 completed success push),$(r 2 completed success workflow_dispatch)]" \
-    "3:build-logs" "2:$cand"
+    "3:build-logs" "2:$fullcand"
 # The full push run is newer and has it.
 run_case "full push newer than docs-only" 0 "run=5 " \
     "[$(r 5 completed success push),$(r 4 completed success push)]" \
-    "5:$cand" "4:build-logs"
+    "5:$fullcand" "4:build-logs"
 # The newest run failed: an older success with the candidate does not
 # outvote it.
 run_case "newest run failed" 1 "run=7 .*conclusion=failure" \
     "[$(r 7 completed failure workflow_dispatch),$(r 6 completed success push)]" \
-    "7:$cand" "6:$cand"
+    "7:$fullcand" "6:$fullcand"
 # A newer run still going is waited for, not skipped (wait 0: FAIL).
 run_case "newer run in progress" 1 "state=active" \
     "[$(r 11 in_progress '' workflow_dispatch),$(r 10 completed success push)]" \
-    "10:$cand"
+    "10:$fullcand"
 # Docs-only success, then a FAILED run, then an older candidate: the walk
 # stops at the failure; it does not step over it.
 run_case "docs-only then failed then candidate" 1 "run=14 .*conclusion=failure" \
     "[$(r 15 completed success push),$(r 14 completed failure workflow_dispatch),$(r 13 completed success push)]" \
-    "15:build-logs" "13:$cand"
+    "15:build-logs" "13:$fullcand"
 # Docs-only success, then a run STILL GOING, then an older candidate: wait.
 run_case "docs-only then active then candidate" 1 "state=active" \
     "[$(r 18 completed success push),$(r 17 in_progress '' workflow_dispatch),$(r 16 completed success push)]" \
-    "18:build-logs" "16:$cand"
+    "18:build-logs" "16:$fullcand"
 # An expired candidate is not a candidate, nor one whose expiry is absent.
 run_case "expired candidate" 1 "reason=no_successful_run_with_candidate" \
     "[$(r 12 completed success push)]" "12:$cand true"
@@ -106,7 +107,19 @@ run_case "wrong headSha" 1 "reason=no_successful_run_with_candidate" \
     "[$(o 21 "$other" push)]" "21:$cand"
 # A pull_request run of the exact SHA is never taken.
 run_case "pull_request event ignored" 1 "reason=no_successful_run_with_candidate" \
-    "[$(o 9 "$sha" pull_request)]" "9:$cand"
+    "[$(o 9 "$sha" pull_request)]" "9:$fullcand"
+
+run_case "shipping candidate without full coverage" 1 "reason=no_successful_run_with_candidate" \
+    "[$(r 22 completed success push)]" "22:$cand"
+run_case "reused matrix candidate then exact full run" 0 "run=23 " \
+    "[$(r 24 completed success push),$(r 23 completed success workflow_dispatch)]" \
+    "24:$cand" "23:$fullcand"
+run_case "weekly full run" 0 "run=25 " \
+    "[$(r 25 completed success schedule)]" "25:$fullcand"
+run_case "expired full coverage proof" 1 "reason=no_successful_run_with_candidate" \
+    "[$(r 26 completed success push)]" "26:$cand"$'\n'"ci-full-$sha true"
+run_case "proof alone without candidate" 1 "reason=no_successful_run_with_candidate" \
+    "[$(r 27 completed success push)]" "27:ci-full-$sha"
 
 if [ "$failures" = 0 ]; then
     echo "check_ci_success_selftest=PASS cases=$cases failures=0"
