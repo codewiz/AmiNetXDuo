@@ -2074,6 +2074,52 @@ static VOID fb_inject_key(rfb_s32 raw, rfb_s32 qual, BOOL down)
     fb_input_left = fb_chase_bands();
 }
 
+/* The wheel, as AmigaOS 3.2 (Intuition V47) takes it: a notch is the NewMouse
+   rawkey below, pressed and released.  Measured on the A3000's 3.2 Workbench:
+   a drawer window scrolls on the rawkey and ignores the IECLASS_NEWMOUSE
+   (0x16) event some drivers send beside it, so that one is not sent. */
+#define FB_NM_WHEEL_UP      0x7A
+#define FB_NM_WHEEL_DOWN    0x7B
+#define FB_NM_WHEEL_LEFT    0x7C
+#define FB_NM_WHEEL_RIGHT   0x7D
+#define FB_WHEEL_MAX        8       /* notches taken from one word */
+
+static VOID fb_inject_notch(UWORD code)
+{
+    UBYTE up;
+
+    for (up = 0; up < 2; up++)
+    {
+        memset(&fb_event, 0, sizeof(fb_event));
+        fb_event.ie_Class     = IECLASS_RAWKEY;
+        fb_event.ie_Code      = (UWORD)(code | (up ? IECODE_UP_PREFIX : 0));
+        fb_event.ie_Qualifier = fb_buttons;
+        fb_write_event();
+    }
+}
+
+static VOID fb_inject_wheel(rfb_s32 dx, rfb_s32 dy)
+{
+    rfb_s32 n;
+
+    /* 3.1 has no wheel: these rawkeys would be taken as keystrokes there. */
+    if (IntuitionBase == NULL ||
+        IntuitionBase->LibNode.lib_Version < 47)
+        return;
+
+    for (n = 0; n < dy && n < FB_WHEEL_MAX; n++)
+        fb_inject_notch(FB_NM_WHEEL_DOWN);
+    for (n = 0; n < -dy && n < FB_WHEEL_MAX; n++)
+        fb_inject_notch(FB_NM_WHEEL_UP);
+    for (n = 0; n < dx && n < FB_WHEEL_MAX; n++)
+        fb_inject_notch(FB_NM_WHEEL_RIGHT);
+    for (n = 0; n < -dx && n < FB_WHEEL_MAX; n++)
+        fb_inject_notch(FB_NM_WHEEL_LEFT);
+
+    if (dx != 0 || dy != 0)
+        fb_input_left = fb_chase_bands();
+}
+
 /* A refresh, honoured, coalesced or deferred.  The shadow goes and geom and pal
    are re-queued: a full frame is XOR against the shadow, so both ends need a
    known zero at the same point in the stream. */
@@ -2140,9 +2186,8 @@ static VOID fb_take_word(const char *w, ULONG len)
         break;
 
     case RFB_IN_WHEEL:
-        /* Dropped, deliberately.  AmigaOS 3.1 has no wheel, and the rawkey
-           codes a third-party driver invented for one would be acted on as
-           keystrokes.  Read and refused rather than left to fail. */
+        /* Forwarded on 3.2 and later only; see fb_inject_wheel(). */
+        fb_inject_wheel(ev.a, ev.b);
         break;
 
     default:

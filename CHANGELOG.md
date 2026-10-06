@@ -5,6 +5,7 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ## Unreleased
 
+- /console forwards the mouse wheel on AmigaOS 3.2 and later.
 - /console on a ZZ9000: an idle screen costs a fraction of the CPU it did,
   and keystrokes show within 20 ms instead of up to half a second.
 - A long path (round trip at or above TCPGROWRTT) is offered the full TCP
