@@ -426,7 +426,7 @@ want_rc "SYS:ConfigureNetInterface eth0 CONFIGURE=DHCP TIMEOUT 3" 1 10 \
         "and returns ERROR"
 
 says "SYS:ConfigureNetInterface eth0 TIMEOUT 30" 1 \
-     "needs CONFIGURE=DHCP" \
+     "requires CONFIGURE=DHCP" \
      "a TIMEOUT with nothing to wait for is refused"
 want_rc "SYS:ConfigureNetInterface eth0 TIMEOUT 30" 1 10 "and returns ERROR"
 

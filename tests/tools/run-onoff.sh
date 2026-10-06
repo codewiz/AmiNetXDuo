@@ -231,7 +231,7 @@ fi
 
 # ---- 1. with the stack down, Offline is a no-op and says so --------------
 says "SYS:Offline eth0" 1 \
-     "eth0 is already offline: the network is not running." \
+     "eth0 is offline: network not running." \
      "with no stack, Offline says the network is not running"
 want_rc "SYS:Offline eth0" 1 5 "and returns WARN, not a failure"
 

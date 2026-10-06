@@ -304,7 +304,7 @@ says "SYS:ConfigureNetInterface eth0" 1 "nothing to change" \
 want_rc "SYS:ConfigureNetInterface eth0" 1 10 "and returns ERROR"
 
 says "SYS:ConfigureNetInterface eth0 ADDRESS 10.0.2.20/24 NETMASK 255.255.0.0" 1 \
-     "do not agree" \
+     "prefix lengths differ" \
      "a prefix length that contradicts NETMASK is refused"
 want_rc "SYS:ConfigureNetInterface eth0 ADDRESS 10.0.2.20/24 NETMASK 255.255.0.0" 1 10 \
         "and returns ERROR"
@@ -387,7 +387,7 @@ want_rc "SYS:ConfigureNetInterface eth0 GATEWAY 192.0.2.1" 1 20 "and returns FAI
 
 want_rc "SYS:ConfigureNetInterface eth0 GATEWAY NONE" 1 0 "GATEWAY NONE is accepted"
 says "SYS:ConfigureNetInterface eth0 GATEWAY NONE" 1 \
-     "default gateway is cleared" "and says so"
+     "default gateway cleared" "and says so"
 if routes 4 | grep -Eq '^default +'; then
     fail "the default route is still there after GATEWAY NONE"
     routes 4 | sed 's/^/       /' >&2
@@ -442,7 +442,7 @@ else
     ifaces 6 | sed 's/^/       /' >&2
 fi
 
-says "SYS:ConfigureNetInterface eth0 MTU 40" 1 "below the 68 bytes" \
+says "SYS:ConfigureNetInterface eth0 MTU 40" 1 "below the IPv4 minimum of 68" \
      "an MTU under the IPv4 minimum is refused, with the number"
 want_rc "SYS:ConfigureNetInterface eth0 MTU 40" 1 10 "and returns ERROR"
 
@@ -456,7 +456,7 @@ else
     ifaces 7 | sed 's/^/       /' >&2
 fi
 
-says "SYS:ConfigureNetInterface eth0 UP DOWN" 1 "only.*one of them" \
+says "SYS:ConfigureNetInterface eth0 UP DOWN" 1 "mutually exclusive" \
      "two states in one call are refused"
 want_rc "SYS:ConfigureNetInterface eth0 UP DOWN" 1 10 "and returns ERROR"
 
