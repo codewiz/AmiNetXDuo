@@ -1355,6 +1355,11 @@ AmiSana2If *ami_sana2_open(const AmiIfConfig *cfg, LONG *err)
     iface->rx_capacity_live    = FALSE;
     iface->rx_capacity_at      = 0;
     iface->rx_capacity_changed = FALSE;
+    iface->overruns_seen       = 0;
+    iface->wan_fitted          = FALSE;
+    /* The count the driver already holds is history, not this attach's. */
+    ami_sana2_poll_overruns(iface);
+    iface->overruns_new        = 0;
     if (cfg->rx_buffer != 0)
         iface->hw_rx_bytes = cfg->rx_buffer;
     else if ((iface->extension.Accepted & ANXD_S2F_RX_CAPACITY) != 0)
@@ -1671,6 +1676,46 @@ ULONG ami_sana2_get_hw_rx_bytes(const AmiSana2If *iface)
 ULONG ami_sana2_get_tcp_grow_rtt(const AmiSana2If *iface)
 {
     return (iface != NULL) ? iface->tcp_grow_rtt : 0;
+}
+
+ULONG ami_sana2_take_overruns(AmiSana2If *iface)
+{
+    ULONG n;
+
+    if (iface == NULL)
+        return 0;
+    n = iface->overruns_new;
+    iface->overruns_new = 0;
+    return n;
+}
+
+BOOL ami_sana2_get_wan_fitted(const AmiSana2If *iface)
+{
+    return (iface != NULL) ? iface->wan_fitted : FALSE;
+}
+
+VOID ami_sana2_set_wan_fitted(AmiSana2If *iface)
+{
+    if (iface != NULL)
+        iface->wan_fitted = TRUE;
+}
+
+/*
+ * The driver's overrun count, from the reader thread once a second: what it
+ * added since the last look accumulates for the TCP layer's next recap.  One
+ * quick S2_GETGLOBALSTATS; a failed command adds nothing.
+ */
+VOID ami_sana2_poll_overruns(AmiSana2If *iface)
+{
+    struct IOSana2Req       req   = iface->templ;
+    struct Sana2DeviceStats stats = { 0 };
+
+    req.ios2_StatData = &stats;
+    if (ami_sana2_command(iface, &req, S2_GETGLOBALSTATS) != 0)
+        return;
+    if (stats.Overruns != iface->overruns_seen)
+        iface->overruns_new += stats.Overruns - iface->overruns_seen;
+    iface->overruns_seen = stats.Overruns;
 }
 
 ULONG ami_sana2_get_tcp_wan_window(const AmiSana2If *iface)

@@ -894,6 +894,13 @@ struct AmiSana2If
        connections; the reader's next drain clears it and calls the
        capacity hook with the IP mutex held. */
     BOOL                rx_capacity_changed;
+    /* The driver's overrun count at the last once-a-second look, what it
+       added since the TCP layer last asked (ami_sana2_take_overruns), and
+       whether this interface fits long paths to the card after an overrun
+       under an unfitted one (bsdsocket_window.h); cleared at attach. */
+    ULONG               overruns_seen;
+    ULONG               overruns_new;
+    BOOL                wan_fitted;
     /* TCPGROWRTT in ms, 0 = BSD_TCP_WINDOW_GROW_RTT_MS (bsdsocket_window.h). */
     UWORD               tcp_grow_rtt;
     /* TCPWANWINDOW in bytes, 0 = not set (bsdsocket_window.h). */
@@ -1084,6 +1091,7 @@ LONG ami_sana2_multicast(AmiSana2If *iface, UWORD command,
                          ULONG addr_msw, ULONG addr_lsw);
 VOID ami_sana2_refresh_stats(AmiSana2If *iface);
 VOID ami_sana2_refresh_rx_capacity(AmiSana2If *iface);
+VOID ami_sana2_poll_overruns(AmiSana2If *iface);
 VOID ami_sana2_capacity_changed(AmiSana2If *iface);
 
 /* sana2_driver.c */

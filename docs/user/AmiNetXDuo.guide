@@ -490,15 +490,13 @@
 
   @{b}TCPWANWINDOW@{ub}
              Bytes, 1 to 1048576: the TCP receive window on a path
-             whose handshake round trip is at or above TCPGROWRTT, in
-             place of the size the card's receive memory allows. Only
-             for a card whose memory limits the window, such as an
-             X-Surf 100 on a switch port without flow control. More
-             than the card holds can overrun it on a bursty path; on
-             an A3000 a 16-frame window (23360) was 23% faster on a
-             25 ms path and lost frames. Leave it out to keep the
-             card's size. Editing the file takes effect when the
-             interface is next attached.
+             whose handshake round trip is at or above TCPGROWRTT.
+             Without it such a path gets the full window until the
+             card counts an overrun, then the size the card's receive
+             memory allows until the interface is next attached. Set
+             it to fix the window whatever the card counts. Editing
+             the file takes effect when the interface is next
+             attached.
 
   @{b}GROFRAMES@{ub}
              Frames, 1 to 16: the most received TCP frames joined into
@@ -514,7 +512,7 @@
              before it opened takes at this rate, so a sender limited
              by the window is paced instead of bursting. Only a
              connection advertising more window than the card holds is
-             paced (a long path with TCPWANWINDOW set), so it does
+             paced (a long path), so it does
              nothing on a link with flow control agreed. With it,
              GROFRAMES applies to the paced connection alone. Measured
              only on one A3000 (68060, X-Surf 100, no flow control):

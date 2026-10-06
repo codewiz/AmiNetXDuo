@@ -119,9 +119,15 @@ BOOL ami_bsd_tcp_window_burst_bound(ULONG bps, ULONG rtt_ms,
     return TRUE;
 }
 
+BOOL ami_bsd_tcp_window_long_path(ULONG rtt_ms, ULONG grow_rtt_ms)
+{
+    return (rtt_ms >= bsd_grow_rtt(grow_rtt_ms)) ? TRUE : FALSE;
+}
+
 ULONG ami_bsd_tcp_window_receive_bound(ULONG want, ULONG hw_bytes, ULONG mss,
                                        ULONG bps, ULONG rtt_ms,
-                                       ULONG grow_rtt_ms, ULONG wan_window)
+                                       ULONG grow_rtt_ms, ULONG wan_window,
+                                       BOOL wan_fitted)
 {
     ULONG fit;
 
@@ -130,12 +136,17 @@ ULONG ami_bsd_tcp_window_receive_bound(ULONG want, ULONG hw_bytes, ULONG mss,
 
     fit = ami_bsd_tcp_window_fit(want, hw_bytes, mss);
 
-    /* Opt-in: a long path, where an upstream link spaces the data, may use
-       the interface's TCPWANWINDOW instead of the ring fit -- never less
-       than the fit, never more than the window settled for the socket. */
-    if (wan_window != 0UL && rtt_ms >= bsd_grow_rtt(grow_rtt_ms))
+    /* A long path: an upstream link spaces the data, so the settled window
+       stands until the card has overrun under it; TCPWANWINDOW, when set,
+       is the window instead -- never less than the fit, never more than the
+       window settled for the socket. */
+    if (rtt_ms >= bsd_grow_rtt(grow_rtt_ms))
     {
-        ULONG wan = (wan_window < want) ? wan_window : want;
+        ULONG wan;
+
+        if (wan_window == 0UL)
+            return wan_fitted ? fit : want;
+        wan = (wan_window < want) ? wan_window : want;
         return (wan > fit) ? wan : fit;
     }
 

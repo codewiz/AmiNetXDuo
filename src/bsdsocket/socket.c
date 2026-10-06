@@ -240,6 +240,40 @@ static ULONG bsd_tcp_ring_sharers(NX_IP *ip, AmiSana2If *sana)
 }
 
 /*
+ * Whether a connection on `sana` is taking data over a long path with the
+ * settled window rather than the card's fit (bsdsocket_window.h,
+ * ami_bsd_tcp_window_receive_bound): what an overrun is blamed on.
+ */
+static BOOL bsd_tcp_wan_unfitted(NX_IP *ip, AmiSana2If *sana)
+{
+    NX_TCP_SOCKET *tcp   = ip->nx_ip_tcp_created_sockets_ptr;
+    ULONG          total = ip->nx_ip_tcp_created_sockets_count;
+    ULONG          bps   = ami_sana2_get_bps(sana);
+    ULONG          grow  = ami_sana2_get_tcp_grow_rtt(sana);
+    ULONG          now   = ami_millis();
+    ULONG          i;
+
+    for (i = 0; i < total && tcp != NX_NULL; i++)
+    {
+        NX_INTERFACE *nxif = tcp->nx_tcp_socket_connect_interface;
+        AmiSocket    *sock = (AmiSocket *)tcp->nx_tcp_socket_reserved_ptr;
+
+        if (nxif != NX_NULL &&
+            (AmiSana2If *)nxif->nx_interface_additional_link_info == sana &&
+            sock != NULL && sock->as_SettleWant != 0 &&
+            bsd_tcp_draws(tcp->nx_tcp_socket_state) &&
+            ami_bsd_tcp_window_burst_bound(bps, sock->as_SettleRtt, grow) &&
+            ami_bsd_tcp_window_long_path(sock->as_SettleRtt, grow) &&
+            now - sock->as_ShareMillis <= BSD_TCP_SHARE_IDLE_MS)
+            return TRUE;
+
+        tcp = tcp->nx_tcp_socket_created_next;
+    }
+
+    return FALSE;
+}
+
+/*
  * Apply a window the settle chose (`want`, before the card's bound) for the
  * link and round trip the socket has: the card's bound becomes the cap the
  * sender is offered, the buffer goes to what is behind it.  Growth needs the
@@ -277,7 +311,8 @@ static VOID bsd_tcp_window_apply(NX_TCP_SOCKET *tcp, ULONG want, ULONG rtt_ms,
                           tcp->nx_tcp_socket_connect_mss,
                           ami_sana2_get_bps(sana), rtt_ms,
                           ami_sana2_get_tcp_grow_rtt(sana),
-                          ami_sana2_get_tcp_wan_window(sana));
+                          ami_sana2_get_tcp_wan_window(sana),
+                          ami_sana2_get_wan_fitted(sana));
 
         /* A window cut to the card is what the sender is offered, over a
            buffer with room behind it (ami_bsd_tcp_window_buffer): with the
@@ -374,6 +409,14 @@ AMIGA_ASM_ARGS VOID bsd_tcp_window_recap(NX_IP *ip, AmiSana2If *sana)
     ULONG          total = ip->nx_ip_tcp_created_sockets_count;
     ULONG          sharers = bsd_tcp_ring_sharers(ip, sana);
     ULONG          i;
+
+    /* The card overran while a long path ran with the settled window: from
+       now on this interface fits long paths to the card too. */
+    if (ami_sana2_take_overruns(sana) != 0UL &&
+        !ami_sana2_get_wan_fitted(sana) &&
+        ami_sana2_get_tcp_wan_window(sana) == 0UL &&
+        bsd_tcp_wan_unfitted(ip, sana))
+        ami_sana2_set_wan_fitted(sana);
 
     /* The interface's own cap first: what a connection on it offers from
        its SYN or SYN-ACK until its window is settled.  The round trip is not

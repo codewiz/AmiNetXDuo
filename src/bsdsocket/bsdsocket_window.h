@@ -191,19 +191,24 @@ ULONG ami_bsd_tcp_window_ring_share(ULONG hw_bytes, ULONG sharers);
 BOOL ami_bsd_tcp_window_burst_bound(ULONG bps, ULONG rtt_ms,
                                     ULONG grow_rtt_ms);
 
+/* Whether a round trip is a long path: at or above the grow line
+   (TCPGROWRTT, else BSD_TCP_WINDOW_GROW_RTT_MS). */
+BOOL ami_bsd_tcp_window_long_path(ULONG rtt_ms, ULONG grow_rtt_ms);
+
 /*
  * The window a socket may advertise given the card behind it: `want` when
- * the path is not burst-bound, else the ring fit (ami_bsd_tcp_window_fit) --
- * except on a long path (rtt_ms at or above the grow line) on an interface
- * that sets TCPWANWINDOW, which then gets min(want, wan_window), never below
- * the fit.  The opt-in exists because a long RTT does not prove the data
- * arrives spaced: behind a store-and-forward switch the whole window can
- * still land back to back, which only the interface's owner can judge.
- * `wan_window` 0 = not set.  Pure arithmetic, host-tested.
+ * the path is not burst-bound, else the ring fit (ami_bsd_tcp_window_fit) on
+ * a LAN round trip.  On a long path (rtt_ms at or above the grow line) the
+ * far end's link spaces the data, so the window is `want` -- unless the card
+ * overran while a long path ran unfitted (`wan_fitted`), which then gets the
+ * fit.  An interface that sets TCPWANWINDOW gets min(want, wan_window) on a
+ * long path instead, never below the fit, overruns or not.  `wan_window` 0 =
+ * not set.  Pure arithmetic, host-tested.
  */
 ULONG ami_bsd_tcp_window_receive_bound(ULONG want, ULONG hw_bytes, ULONG mss,
                                        ULONG bps, ULONG rtt_ms,
-                                       ULONG grow_rtt_ms, ULONG wan_window);
+                                       ULONG grow_rtt_ms, ULONG wan_window,
+                                       BOOL wan_fitted);
 
 /*
  * The receive buffer behind a window the receive bound cut (`bound` below

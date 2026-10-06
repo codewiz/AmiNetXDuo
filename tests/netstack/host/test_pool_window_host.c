@@ -569,40 +569,52 @@ static void i_the_window_settles_for_the_path_and_the_link(void)
     h_check(ami_bsd_tcp_window_ring_share(0UL, 4UL) == 0UL,
             "an unstated capacity became a stated one");
 
-    /* TCPWANWINDOW: an X-Surf 100 (13 KB ring, 100 Mbit) on a long path may
-       use the interface's opt-in window instead of the eight-segment fit;
-       a LAN round trip keeps the fit, an unset value keeps it everywhere,
-       the window settled for the socket still caps it, and the fit is the
+    /* A long path: an X-Surf 100 (13 KB ring, 100 Mbit) keeps the settled
+       window until the card overruns under it, then the eight-segment fit;
+       TCPWANWINDOW replaces both; a LAN round trip keeps the fit, the
+       window settled for the socket still caps it, and the fit is the
        floor.  TF4060 A3000, 2026-10-05, main 97697d70 without flow control:
        RXBUFFER=49152 (32 frames) gave an AmiSpeedTest download of 12.9 Mbit/s
        over a ~24 ms Internet path against 5.7 with the fit, while the same
        boot's LAN runs overran the ring 410 times. */
     h_check(ami_bsd_tcp_window_receive_bound(max, 52UL * 256UL, 1460UL,
-                                             hundm, rtt, 0UL, 0UL)
-                == 8UL * 1460UL,
-            "an unset TCPWANWINDOW left a long-path X-Surf unfitted");
+                                             hundm, rtt, 0UL, 0UL, FALSE)
+                == max,
+            "a long path was fitted to the card before any overrun");
     h_check(ami_bsd_tcp_window_receive_bound(max, 52UL * 256UL, 1460UL,
-                                             hundm, rtt, 0UL, 46720UL)
+                                             hundm, rtt, 0UL, 0UL, TRUE)
+                == 8UL * 1460UL,
+            "a long path stayed unfitted after the card overran");
+    h_check(ami_bsd_tcp_window_receive_bound(max, 52UL * 256UL, 1460UL,
+                                             hundm, rtt - 1UL, 0UL, 0UL, FALSE)
+                == 8UL * 1460UL,
+            "a LAN round trip went unfitted");
+    h_check(ami_bsd_tcp_window_receive_bound(max, 52UL * 256UL, 1460UL,
+                                             hundm, rtt, 0UL, 46720UL, TRUE)
+                == 46720UL,
+            "an overrun overrode the interface's TCPWANWINDOW");
+    h_check(ami_bsd_tcp_window_receive_bound(max, 52UL * 256UL, 1460UL,
+                                             hundm, rtt, 0UL, 46720UL, FALSE)
                 == 46720UL,
             "TCPWANWINDOW did not replace the fit on a long path");
     h_check(ami_bsd_tcp_window_receive_bound(lan, 52UL * 256UL, 1460UL,
-                                             hundm, rtt - 1UL, 0UL, 46720UL)
+                                             hundm, rtt - 1UL, 0UL, 46720UL, FALSE)
                 == 8UL * 1460UL,
             "TCPWANWINDOW lifted the fit on a LAN round trip");
     h_check(ami_bsd_tcp_window_receive_bound(20000UL, 52UL * 256UL, 1460UL,
-                                             hundm, rtt, 0UL, 46720UL)
+                                             hundm, rtt, 0UL, 46720UL, FALSE)
                 == 20000UL,
             "TCPWANWINDOW advertised more than the settled window");
     h_check(ami_bsd_tcp_window_receive_bound(max, 52UL * 256UL, 1460UL,
-                                             hundm, rtt, 0UL, 4096UL)
+                                             hundm, rtt, 0UL, 4096UL, FALSE)
                 == 8UL * 1460UL,
             "a TCPWANWINDOW under the fit took the window below it");
     h_check(ami_bsd_tcp_window_receive_bound(max, 52UL * 256UL, 1460UL,
-                                             hundm, 22UL, 50UL, 46720UL)
+                                             hundm, 22UL, 50UL, 46720UL, FALSE)
                 == 8UL * 1460UL,
             "TCPWANWINDOW ignored a raised TCPGROWRTT line");
     h_check(ami_bsd_tcp_window_receive_bound(max, 52UL * 256UL, 1460UL,
-                                             gbit, rtt, 0UL, 46720UL) == max,
+                                             gbit, rtt, 0UL, 46720UL, FALSE) == max,
             "TCPWANWINDOW capped a path that was never burst-bound");
 
     /* The buffer behind a cut window: twice the cut, so the acknowledgment

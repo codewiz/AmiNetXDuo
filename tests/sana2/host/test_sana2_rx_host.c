@@ -377,6 +377,7 @@ VOID ami_sana2_ack_reader_stop(AmiSana2Reader *rd)  { (VOID)rd; }
    and the ThreadX clock that paces it: the reader's loop is not driven
    here. */
 VOID ami_sana2_refresh_rx_capacity(AmiSana2If *iface) { (VOID)iface; }
+VOID ami_sana2_poll_overruns(AmiSana2If *iface) { (VOID)iface; }
 VOID ami_sana2_capacity_changed(AmiSana2If *iface) { (VOID)iface; }
 /* The receive pass the drain brackets (nx_tcp_receive_pass_*.c), which this
    target does not link: no TCP here. */

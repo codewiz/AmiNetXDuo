@@ -2429,7 +2429,13 @@ static VOID ami_sana2_rx_thread(ULONG argument)
             if (iface->rx_capacity_live)
                 ami_sana2_refresh_rx_capacity(iface);
             if (iface->hw_rx_bytes != 0UL)
+            {
+                /* Whether the card overran: the TCP layer fits long paths
+                   to it from then on (bsdsocket_window.h). */
+                if (!iface->wan_fitted && iface->tcp_wan_window == 0UL)
+                    ami_sana2_poll_overruns(iface);
                 iface->rx_capacity_changed = TRUE;
+            }
         }
 
         for (r = 0; r < (UWORD)AMI_SANA2_RX_READERS; r++)

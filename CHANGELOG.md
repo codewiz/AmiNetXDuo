@@ -5,6 +5,12 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ## Unreleased
 
+- A long path (round trip at or above TCPGROWRTT) is offered the full TCP
+  receive window on a card with little receive memory, such as a 3C589 or
+  an X-Surf 100 without flow control, instead of what the card holds.  If
+  the card overruns while such a connection runs, that interface falls back
+  to the card's size until it is next attached.  TCPWANWINDOW still sets
+  the window outright.
 - A connection that has taken no data for two seconds (an open shell, a
   page held open) no longer takes a share of the card's receive memory, so
   it no longer halves the window of a download beside it.

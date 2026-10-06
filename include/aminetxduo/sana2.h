@@ -125,6 +125,13 @@ ULONG       ami_sana2_get_tcp_grow_rtt(const AmiSana2If *iface);
 /* The interface file's TCPWANWINDOW in bytes, 0 = not set
    (bsdsocket_window.h, ami_bsd_tcp_window_receive_bound). */
 ULONG       ami_sana2_get_tcp_wan_window(const AmiSana2If *iface);
+/* Overruns the driver counted since the last call (the reader looks once a
+   second while a capacity is stated); 0 for NULL.  IP thread. */
+ULONG       ami_sana2_take_overruns(AmiSana2If *iface);
+/* Whether long paths on this interface are fitted to the card: set by the
+   TCP layer after an overrun under an unfitted long path, until attach. */
+BOOL        ami_sana2_get_wan_fitted(const AmiSana2If *iface);
+VOID        ami_sana2_set_wan_fitted(AmiSana2If *iface);
 BOOL        ami_sana2_is_online(const AmiSana2If *iface);
 
 /*
