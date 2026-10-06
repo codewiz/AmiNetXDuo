@@ -433,13 +433,15 @@ static VOID show_interface(const AmiIfConfig *cfg, const ToolIfInfo *live,
                     (LONG)cfg->name, (LONG)cfg->device, (LONG)cfg->unit);
     }
 
-    if (stack_running && readable)
+    if (stack_running && readable && (live == NULL || !live->attached))
+    {
+        tool_printf("  state       not attached\n");
+    }
+    else if (stack_running && readable)
     {
         tool_printf("  state       %-10s      link %s\n",
                     (LONG)(up ? "online" : "offline"),
-                    (LONG)(live != NULL && live->attached
-                               ? (live->link_up ? "up" : "down")
-                               : "unknown"));
+                    (LONG)(live->link_up ? "up" : "down"));
     }
     else if (stack_running)
     {
@@ -1324,24 +1326,20 @@ static VOID diagnose_interface(const AmiIfConfig *cfg, const ToolIfInfo *live,
     if (!stack_running || !readable)
         return;
 
-    if (!up)
-    {
-        problem_head();
-        advice("  * %s is offline, so nothing can go in or out of it.\n",
-                    (LONG)cfg->name);
-        advice("    Bring it up with:   Online %s\n", (LONG)cfg->name);
-        return;
-    }
-
+    /* Never attached first: such an interface also reads as not up. */
     if (live == NULL || !live->attached)
     {
         problem_head();
-        advice("  * %s is described in DEVS:NetInterfaces but was never "
-                    "attached, so it is not part of the running network.\n",
-                    (LONG)cfg->name);
-        advice("    ShowNetStatus EVENTS names the call that refused; "
-                    "if every interface slot is taken, RemoveNetInterface "
-                    "frees one.\n");
+        advice("  * %s: not attached (Online %s)\n",
+                    (LONG)cfg->name, (LONG)cfg->name);
+        return;
+    }
+
+    if (!up)
+    {
+        problem_head();
+        advice("  * %s: offline (Online %s)\n",
+                    (LONG)cfg->name, (LONG)cfg->name);
         return;
     }
 

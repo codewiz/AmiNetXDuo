@@ -389,13 +389,32 @@ static LONG switch_live(const char *name, const AmiIfConfig *ifc, BOOL up,
     }
 
     index = live_index(base, name, &online);
+
+    /* Defined but never attached (the stack starts only the interfaces it
+       is told to): Online attaches the definition, as AddNetInterface does. */
+    if (index == -1 && up)
+    {
+        err = tool_stack_add_interface(base, name, NULL, TRUE);
+        if (err != 0 && err != EEXIST)
+        {
+            tool_error("%s did not join the running network: %s (%ld)",
+                       (LONG)name, (LONG)tool_code_errno(err), err);
+            if (ifc != NULL)
+                tool_explain_device(ifc->device, ifc->unit, ifc->card);
+            tool_netstatus_close(base);
+            FreeArgs(rda);
+            return RETURN_FAIL;
+        }
+        err   = 0;
+        index = live_index(base, name, &online);
+    }
+
     if (index < 0)
     {
         if (index == -2)
             tool_error("the network did not say which interfaces it has");
         else
-            tool_error("%s is configured but the running stack has no such "
-                       "interface", (LONG)name);
+            tool_error("%s is not attached", (LONG)name);
         tool_netstatus_close(base);
         FreeArgs(rda);
         return RETURN_ERROR;

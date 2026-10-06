@@ -5,6 +5,9 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ## Unreleased
 
+- Online attaches an interface defined in DEVS:NetInterfaces that the
+  running stack does not have yet, instead of refusing it; ShowNetStatus
+  reports such an interface as "not attached", not "offline".
 - /console forwards the mouse wheel on AmigaOS 3.2 and later.
 - /console on a ZZ9000: an idle screen costs a fraction of the CPU it did,
   and keystrokes show within 20 ms instead of up to half a second.
