@@ -3,10 +3,10 @@
 # candidate.  A release may package that commit; it may not re-run a
 # convenient subset and call that the same verdict.
 #
-# A main push or a workflow_dispatch on it both count, but only a run that
-# uploaded release-candidate-<SHA>: a docs-only push builds no candidate, so
-# a CHANGELOG-only release commit is released from the full run dispatched
-# on the same SHA.  The newest completed run with the artifact is the one.
+# A main push, full manual dispatch or weekly full run counts only with BOTH
+# release-candidate-<SHA> and ci-full-<SHA>. Shipping-only and reused-matrix
+# success is not full pre-release coverage. Dispatch CI on the exact release
+# SHA if it does not already have a full run (including prose-only releases).
 #
 #   tools/check-ci-success.sh SHA [WAIT_SECONDS]
 #
@@ -34,18 +34,19 @@ command -v gh >/dev/null 2>&1 || {
 
 deadline=$((SECONDS + wait_seconds))
 artifact="release-candidate-$sha"
+proof="ci-full-$sha"
 while :; do
     runs=$(gh run list --workflow CI --commit "$sha" --limit 20 \
         --json databaseId,headSha,status,conclusion,url,event)
     runs=$(printf '%s' "$runs" | jq -c --arg sha "$sha" '
         [.[] | select(.headSha == $sha and
-                      (.event == "push" or .event == "workflow_dispatch"))]')
+                      (.event == "push" or .event == "workflow_dispatch" or .event == "schedule"))]')
 
     # One walk, newest first, as gh lists them.  A completed success without
-    # the candidate (a docs-only push) is passed over; anything else decides:
+    # full proof/candidate (docs, shipping or reuse) is passed over; otherwise:
     # a run still going is waited for, a failed run is the verdict, and a
-    # success holding an unexpired candidate is the one.  No run is stepped
-    # over to reach an older candidate except a candidate-less success.
+    # success holding both unexpired artifacts is the one. No failed or
+    # pending run is stepped over to reach an older full success.
     state=none
     count=$(printf '%s' "$runs" | jq 'length')
     i=0
@@ -63,8 +64,9 @@ while :; do
         fi
         id=$(printf '%s' "$run" | jq -r .databaseId)
         if gh api "repos/{owner}/{repo}/actions/runs/$id/artifacts" 2>/dev/null |
-           jq -r '.artifacts[] | select(.expired == false) | .name' |
-           grep -qx "$artifact"; then
+           jq -e --arg candidate "$artifact" --arg proof "$proof" '
+             [.artifacts[] | select(.expired == false) | .name] as $names |
+             ($names | index($candidate)) != null and ($names | index($proof)) != null' >/dev/null; then
             printf '%s\n' "$run" | jq -r '
                 "ci_success=PASS run=\(.databaseId) sha=\(.headSha) event=\(.event) url=\(.url)"'
             exit 0
