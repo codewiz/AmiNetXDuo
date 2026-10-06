@@ -5,6 +5,12 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ## Unreleased
 
+- D-Link DL10019/DL10022 PC Cards (DFE-670TXD and others): the station
+  address from the chip, its 32 KB of buffer memory (18 receive frames
+  instead of 8), full duplex set from the PHY's link, the real link speed,
+  and a 10 Mbit/s link by default: a 100 Mbit/s burst overruns the card
+  faster than the Amiga reads it.  A1200 (PiStorm), DFE-670TXD: AmiSpeedTest
+  6.1 -> 9.4 Mbit/s down; up 9.1 (was 16-33 at 100 Mbit/s).
 - Every network command's messages rewritten short: about 790 messages in
   40 commands, the config-file warnings, httpd's error pages and the
   /console refusal reasons.  Explanations and next-step hints after a

@@ -533,7 +533,8 @@ static VOID cmd_device_query(NetdevUnit *unit, struct IOSana2Req *io)
     answer.DeviceLevel    = 0;
     answer.AddrFieldSize  = 48;
     answer.MTU            = NETDEV_MTU;
-    answer.BPS            = unit->nu_Nic.card->bps;
+    answer.BPS            = (unit->nu_Nic.link_bps != 0)
+                          ? unit->nu_Nic.link_bps : unit->nu_Nic.card->bps;
     answer.HardwareType   = S2WireType_Ethernet;
 
     cmd_bytes((UBYTE *)q, (const UBYTE *)&answer, want);

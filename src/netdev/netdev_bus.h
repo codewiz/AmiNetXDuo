@@ -45,6 +45,11 @@ struct NetdevBus
     volatile UBYTE *asic;       /* nic + 16 * stride, unless overridden */
     volatile UBYTE *wide;       /* 32-bit read data window, or NULL */
     volatile UBYTE *wide_write; /* write window; defaults to wide */
+    /* The wide window is one address, not a mirrored range: every longword
+       is a move.l from the same place, never a movem.l that walks on.  Gayle
+       PCMCIA, whose data port sits below the chip's other registers and,
+       on an NE2000, a reset port that a walking read would trigger. */
+    UBYTE           wide_fixed;
 
     /*
      * The odd-register window, or NULL when the register file is contiguous.

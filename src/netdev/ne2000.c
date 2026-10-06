@@ -500,6 +500,7 @@ static VOID ne2000_probe_reset(NetdevNic *nic)
 {
     UBYTE tmp = ASIC_GET(nic, NE2000_ASIC_RESET);
 
+    nic->reset_id = tmp;
     ne_delay(nic, 10000);
     ASIC_PUT(nic, NE2000_ASIC_RESET, tmp);
     ne_delay(nic, 5000);
@@ -903,6 +904,189 @@ static VOID ne2000_ax88796_phy(NetdevNic *nic)
 }
 
 /*
+ * DL10019 / DL10022 PHY and duplex, after Linux pcnet_cs (mdio_*, read_eeprom,
+ * write_asic) and NetBSD dl10019.c.  The chips have no PAUSE, and the MAC
+ * does not follow the PHY: at a full-duplex link it still defers its own
+ * transmits to carrier until told otherwise, which on an A1200 cost a third
+ * of a 10 Mbit/s download.  ASIC registers, relative to the data port:
+ * $0C GPIO (MII bit-bang, low nibble preserved), $0D DIAG (DL10022 duplex),
+ * $0E serial EEPROM / internal ASIC port (DL10019 duplex, register 4).
+ */
+#define DL_GPIO             0x0c
+#define DL_DIAG             0x0d
+#define DL_EEPROM           0x0e
+#define DL_MDIO_CLK         0x80
+#define DL_MDIO_OUT         0x40
+#define DL_MDIO_WRITE       0x30        /* direction: $10 DL10019, $20 DL10022 */
+#define DL_MDIO_IN          0x10
+#define DL_EE_EEP           0x40
+#define DL_EE_ASIC          0x10
+#define DL_EE_CS            0x08
+#define DL_EE_CK            0x04
+#define DL_EE_DO            0x02
+#define DL_EE_DI            0x01
+#define DL_EE_READ          0x06
+#define DL19_FDUPLX         0x0400
+#define DL_LINK_TICKS       50          /* blanks between looks: one second */
+
+static UWORD dl_mii_read(NetdevNic *nic, UBYTE phy, UBYTE loc)
+{
+    ULONG cmd = (0x06UL << 10) | ((ULONG)phy << 5) | (ULONG)loc;
+    UBYTE m   = (UBYTE)(ASIC_GET(nic, DL_GPIO) & 0x0fu);
+    UWORD r   = 0;
+    WORD  i;
+
+    for (i = 0; i < 32; i++)
+    {
+        ASIC_PUT(nic, DL_GPIO, m | DL_MDIO_WRITE | DL_MDIO_OUT);
+        ASIC_PUT(nic, DL_GPIO, m | DL_MDIO_WRITE | DL_MDIO_OUT | DL_MDIO_CLK);
+    }
+    for (i = 13; i >= 0; i--)
+    {
+        UBYTE d = (UBYTE)(DL_MDIO_WRITE |
+                          ((cmd & (1UL << i)) ? DL_MDIO_OUT : 0));
+        ASIC_PUT(nic, DL_GPIO, m | d);
+        ASIC_PUT(nic, DL_GPIO, m | d | DL_MDIO_CLK);
+    }
+    for (i = 19; i > 0; i--)
+    {
+        ASIC_PUT(nic, DL_GPIO, m);
+        r = (UWORD)((r << 1) |
+                    ((ASIC_GET(nic, DL_GPIO) & DL_MDIO_IN) ? 1u : 0u));
+        ASIC_PUT(nic, DL_GPIO, m | DL_MDIO_CLK);
+    }
+    return (UWORD)(r >> 1);
+}
+
+static VOID dl_mii_write(NetdevNic *nic, UBYTE phy, UBYTE loc, UWORD val)
+{
+    ULONG cmd = (0x05UL << 28) | ((ULONG)phy << 23) | ((ULONG)loc << 18) |
+                (1UL << 17) | (ULONG)val;
+    UBYTE m   = (UBYTE)(ASIC_GET(nic, DL_GPIO) & 0x0fu);
+    WORD  i;
+
+    for (i = 0; i < 32; i++)
+    {
+        ASIC_PUT(nic, DL_GPIO, m | DL_MDIO_WRITE | DL_MDIO_OUT);
+        ASIC_PUT(nic, DL_GPIO, m | DL_MDIO_WRITE | DL_MDIO_OUT | DL_MDIO_CLK);
+    }
+    for (i = 31; i >= 0; i--)
+    {
+        UBYTE d = (UBYTE)(DL_MDIO_WRITE |
+                          ((cmd & (1UL << i)) ? DL_MDIO_OUT : 0));
+        ASIC_PUT(nic, DL_GPIO, m | d);
+        ASIC_PUT(nic, DL_GPIO, m | d | DL_MDIO_CLK);
+    }
+    for (i = 1; i >= 0; i--)
+    {
+        ASIC_PUT(nic, DL_GPIO, m);
+        ASIC_PUT(nic, DL_GPIO, m | DL_MDIO_CLK);
+    }
+}
+
+static UWORD dl_eeprom_read(NetdevNic *nic, UWORD loc)
+{
+    UWORD cmd = (UWORD)(loc | (DL_EE_READ << 8));
+    UWORD r   = 0;
+    WORD  i;
+
+    ASIC_PUT(nic, DL_EEPROM, 0);
+    ASIC_PUT(nic, DL_EEPROM, DL_EE_EEP | DL_EE_CS);
+    for (i = 10; i >= 0; i--)
+    {
+        UBYTE d = (UBYTE)((cmd & (1u << i)) ? DL_EE_DO : 0);
+        ASIC_PUT(nic, DL_EEPROM, DL_EE_EEP | DL_EE_CS | d);
+        ASIC_PUT(nic, DL_EEPROM, DL_EE_EEP | DL_EE_CS | d | DL_EE_CK);
+    }
+    ASIC_PUT(nic, DL_EEPROM, DL_EE_EEP | DL_EE_CS);
+    for (i = 16; i > 0; i--)
+    {
+        ASIC_PUT(nic, DL_EEPROM, DL_EE_EEP | DL_EE_CS | DL_EE_CK);
+        r = (UWORD)((r << 1) |
+                    ((ASIC_GET(nic, DL_EEPROM) & DL_EE_DI) ? 1u : 0u));
+        ASIC_PUT(nic, DL_EEPROM, DL_EE_EEP | DL_EE_CS);
+    }
+    ASIC_PUT(nic, DL_EEPROM, 0);
+    return r;
+}
+
+/* An internal ASIC register is written by an EEPROM read with the ASIC
+   select bit set, the data shifted out on DI. */
+static VOID dl_asic_write(NetdevNic *nic, UWORD loc, UWORD data)
+{
+    UWORD cmd = (UWORD)((loc | (DL_EE_READ << 8)) >> 1);
+    WORD  i;
+
+    data |= dl_eeprom_read(nic, loc);
+
+    ASIC_PUT(nic, DL_EEPROM, 0);
+    ASIC_PUT(nic, DL_EEPROM, DL_EE_ASIC | DL_EE_CS | DL_EE_DI);
+    for (i = 9; i >= 0; i--)
+    {
+        UBYTE d = (UBYTE)((cmd & (1u << i)) ? DL_EE_DO : 0);
+        ASIC_PUT(nic, DL_EEPROM, DL_EE_ASIC | DL_EE_CS | DL_EE_DI | d);
+        ASIC_PUT(nic, DL_EEPROM, DL_EE_ASIC | DL_EE_CS | DL_EE_DI | d | DL_EE_CK);
+        ASIC_PUT(nic, DL_EEPROM, DL_EE_ASIC | DL_EE_CS | DL_EE_DI | d);
+    }
+    ASIC_PUT(nic, DL_EEPROM, DL_EE_ASIC | DL_EE_CS);
+    ASIC_PUT(nic, DL_EEPROM, DL_EE_ASIC | DL_EE_CS | DL_EE_CK);
+    ASIC_PUT(nic, DL_EEPROM, DL_EE_ASIC | DL_EE_CS);
+    for (i = 15; i >= 0; i--)
+    {
+        UBYTE d = (UBYTE)((data & (1u << i)) ? DL_EE_DI : 0);
+        ASIC_PUT(nic, DL_EEPROM, DL_EE_ASIC | DL_EE_CS | d);
+        ASIC_PUT(nic, DL_EEPROM, DL_EE_ASIC | DL_EE_CS | d | DL_EE_CK);
+        ASIC_PUT(nic, DL_EEPROM, DL_EE_ASIC | DL_EE_CS | d);
+    }
+    ASIC_PUT(nic, DL_EEPROM, DL_EE_ASIC | DL_EE_DI);
+    ASIC_PUT(nic, DL_EEPROM, DL_EE_ASIC | DL_EE_DI | DL_EE_CK);
+    ASIC_PUT(nic, DL_EEPROM, DL_EE_ASIC | DL_EE_DI);
+    ASIC_PUT(nic, DL_EEPROM, 0);
+}
+
+/* The first MII address whose status register answers, 0xff for none. */
+static UBYTE dl_find_phy(NetdevNic *nic)
+{
+    UBYTE p;
+
+    for (p = 1; p <= 32; p++)
+    {
+        UWORD bmsr = dl_mii_read(nic, (UBYTE)(p & 31u), 1);
+
+        if (bmsr != 0 && bmsr != 0xffffu)
+            return (UBYTE)(p & 31u);
+    }
+    return 0xffu;
+}
+
+/* The link as negotiated: the MAC's duplex follows it, and the speed is
+   what S2_DEVICEQUERY reports. */
+static VOID dl_link(NetdevNic *nic)
+{
+    UWORD bmsr;
+    UWORD both;
+    UBYTE fdx;
+
+    (VOID)dl_mii_read(nic, nic->dl_phy, 1);     /* the link bit latches low */
+    bmsr = dl_mii_read(nic, nic->dl_phy, 1);
+    if ((bmsr & 0x0004u) == 0)
+        return;
+
+    both = (UWORD)(dl_mii_read(nic, nic->dl_phy, 4) &
+                   dl_mii_read(nic, nic->dl_phy, 5));
+    fdx  = (UBYTE)((both & 0x0140u) != 0);
+    nic->link_bps = (both & 0x0180u) ? 100000000UL : 10000000UL;
+
+    if (fdx == nic->dl_fdx)
+        return;
+    nic->dl_fdx = fdx;
+    if (nic->dl_kind == 22)
+        ASIC_PUT(nic, DL_DIAG, fdx ? 4u : 0u);
+    else
+        dl_asic_write(nic, 4, fdx ? DL19_FDUPLX : 0);
+}
+
+/*
  * Once a blank under Disable(), with the interrupt server out
  * (netdev_device.c): every AX88796_PHY_TICKS a look at the negotiation,
  * three register reads.  The link bit latches low, so a link that dropped
@@ -914,6 +1098,12 @@ static BOOL ne2000_tick(NetdevNic *nic)
     LONG bmsr;
     LONG anar;
     LONG anlpar;
+
+    if (nic->dl_kind != 0 && ++nic->dl_tick >= DL_LINK_TICKS)
+    {
+        nic->dl_tick = 0;
+        dl_link(nic);
+    }
 
     if (!nic->ax_phy || ++nic->ax_phy_tick < AX88796_PHY_TICKS)
         return FALSE;
@@ -993,9 +1183,66 @@ static BOOL ne2000_test_mem(NetdevNic *nic)
     return TRUE;
 }
 
+/*
+ * D-Link DL10019 / DL10022 (DFE-670TXD and the NE2000-compatible PC Cards
+ * built on them): the station address is in ASIC registers 4..9 ($14..$19),
+ * with a card ID at $1A and a checksum at $1B over $14..$1B that makes the
+ * eight bytes sum to $FF (Linux pcnet_cs get_dl10019, NetBSD dl10019.c).  $1F
+ * is the reset port and is not read.  The chip also carries more than the
+ * standard 16 KB: 32 KB on the DFE-670TXD (D-Link data sheet), see below.
+ */
+static BOOL ne2000_dl100xx(NetdevNic *nic, UBYTE *mac)
+{
+    UBYTE sum = 0;
+    UBYTE b;
+    UWORD i;
+
+    for (i = 0; i < 8; i++)
+    {
+        b = ASIC_GET(nic, 4u + i);
+        if (i < NETDEV_ADDR_LEN)
+            mac[i] = b;
+        sum = (UBYTE)(sum + b);
+    }
+
+    return (BOOL)(sum == 0xffu && netdev_mac_usable(mac) && (mac[0] & 1u) == 0);
+}
+
+/*
+ * Whether [start, start + size) is that many distinct bytes of buffer RAM: a
+ * page number written at the head of every page reads back from every page.
+ * A part with less memory mirrors it, and the mirror reads back the last
+ * page written to it instead.
+ */
+static BOOL ne2000_mem_distinct(NetdevNic *nic, LONG start, LONG size)
+{
+    UBYTE tag[4];
+    UBYTE back[4];
+    LONG  off;
+
+    for (off = 0; off < size; off += ED_PAGE_SIZE)
+    {
+        tag[0] = (UBYTE)(off >> 8);
+        tag[1] = (UBYTE)~tag[0];
+        tag[2] = 0x5au;
+        tag[3] = 0xa5u;
+        ne2000_writemem(nic, tag, start + off, 4);
+    }
+    for (off = 0; off < size; off += ED_PAGE_SIZE)
+    {
+        ne2000_readmem(nic, start + off, back, 4);
+        if (back[0] != (UBYTE)(off >> 8) || back[1] != (UBYTE)~back[0] ||
+            back[2] != 0x5au || back[3] != 0xa5u)
+            return FALSE;
+    }
+    return TRUE;
+}
+
 static LONG ne2000_attach(NetdevNic *nic)
 {
     UBYTE romdata[32];
+    UBYTE dlmac[NETDEV_ADDR_LEN];
+    BOOL  dl;
     UWORD i;
 
     if (!ne2000_detect(nic))
@@ -1003,6 +1250,51 @@ static LONG ne2000_attach(NetdevNic *nic)
 
     nic->mem_start = 16384;
     nic->mem_size  = 16384;
+
+    /* A DL100xx with its 24 KB intact takes all of it: half again the receive
+       ring, which on a card read slower than the wire delivers is the window
+       a long path gets before the ring overruns. */
+    dl = ne2000_dl100xx(nic, dlmac);
+    nic->dl_kind = 0;
+    nic->dl_fdx  = 0xffu;
+    nic->link_bps = 0;
+    /*
+     * The DFE-670TXD carries 32 KB, at $8000-$FFFF; $4000-$7FFF is the same
+     * RAM with A15 ignored, which is why 32 KB placed at 16K fails (FreeBSD).
+     * The page registers stop at $FF, so the ring ends one page short: 127
+     * pages, 18 receive frames beside three transmit buffers.  24 KB at 24K
+     * is the next best for a part that carries less.
+     */
+    if (dl && ne2000_mem_distinct(nic, 32768, 32512))
+    {
+        nic->mem_start = 32768;
+        nic->mem_size  = 32512;
+    }
+    else if (dl && ne2000_mem_distinct(nic, 24576, 24576))
+    {
+        nic->mem_start = 24576;
+        nic->mem_size  = 24576;
+    }
+    if (dl)
+    {
+        nic->dl_phy = dl_find_phy(nic);
+        if (nic->dl_phy != 0xffu)
+        {
+            nic->dl_kind = (UBYTE)((nic->reset_id == 0x91u ||
+                                    nic->reset_id == 0x99u) ? 22 : 19);
+
+            /*
+             * 10BASE-T only.  These chips have no PAUSE, and the host reads
+             * their port slower than 100 Mbit/s delivers: on a PiStorm A1200
+             * 1.23 us a word, 12.7 Mbit/s.  A 100 Mbit/s burst overruns the
+             * ring, and a download fell to 5.9 Mbit/s against 9.4 at
+             * 10 Mbit/s, where nothing overruns.  The duplex and speed follow
+             * from the tick once autonegotiation has finished.
+             */
+            dl_mii_write(nic, nic->dl_phy, 4, 0x0061);
+            dl_mii_write(nic, nic->dl_phy, 0, 0x1200);
+        }
+    }
 
     nic->cr_proto  = ED_CR_RD2;
 
@@ -1083,6 +1375,12 @@ static LONG ne2000_attach(NetdevNic *nic)
     {
         for (i = 0; i < NETDEV_ADDR_LEN; i++)
             nic->factory[i] = romdata[i * 2];
+    }
+
+    if (dl)
+    {
+        for (i = 0; i < NETDEV_ADDR_LEN; i++)
+            nic->factory[i] = dlmac[i];
     }
 
     /*

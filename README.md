@@ -125,10 +125,12 @@ machine not in this table is not known to fail; it is not known.
 |---|---|---|---|
 | A1200 + PiStorm32 Lite, Emu68 1.1 | 3.1 | GENET, `anxgenet.device` (AmiNetXDuo extension path) | 900 in / 580 out Mbit/s |
 | A1200 + PiStorm32 Lite, Emu68 1.1 | 3.1 | 3Com 3C589 PCMCIA, `anxnet.device` | 8.3 Mbit/s |
+| A1200 + PiStorm32 Lite, Emu68 1.1 | 3.1 | D-Link DFE-670TXD PCMCIA (DL10019), `anxnet.device` | 9.4 in / 9.1 out Mbit/s at its default 10 Mbit/s link, AmiSpeedTest over a 24 ms path (2026-10-06) |
 | A1200 + PiStorm32 Lite, Emu68 1.1 | 3.1 | Broadcom 43455 Wi-Fi, `anxwifipi.device` | 34-36 in / 52-61 out Mbit/s, 5 GHz at -69 dBm |
 | A3000, 68030/25 | 3.9 | X-Surf 100 (Zorro III), `anxnet.device` | 3.8 in / 3.3-3.7 out Mbit/s |
 | A3000, 68060/50 (TF4060) | 3.9 | X-Surf 100 (Zorro III), `anxnet.device` | 22.5 in / 11.8 out Mbit/s with flow control on the switch port, 18.9 in / 11.7 out with it off (31fff37c, 2026-10-05) |
 | A3000, 68030/25 | 3.9 | ZZ9000, `ZZ9000Net.device` 2.2 | 3.6 in / 3.5-3.7 out Mbit/s |
+| A3000, 68060/50 (TF4060) | 3.2 | ZZ9000, `anxzz9000.device`, firmware fork | 22.2 in / 13.0 out Mbit/s (iperf, 2026-10-06) |
 | Amiberry, A1200 (68020) | 3.1 | A2065, `anxnet.device` | 4.8 in / 4.4 out Mbit/s |
 | Amiberry, A3000 (68030) | 3.1 | X-Surf 100 (Zorro III), `anxnet.device` | 30 in / 31 out Mbit/s |
 | Amiberry, A600 (68000) | 2.05 | NE2000 PCMCIA and `cnet.device` | boots, DHCP, transfers (CI) |

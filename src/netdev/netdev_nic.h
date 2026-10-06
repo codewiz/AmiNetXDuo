@@ -288,6 +288,23 @@ struct NetdevNic
     UBYTE               ax_phy_tries;
     UBYTE               ax_phy_pad;
 
+    /*
+     * D-Link DL10019/DL10022 (ne2000.c): dl_kind 19 or 22, 0 for anything
+     * else; dl_phy the MII address that answered; dl_fdx the duplex last set
+     * on the MAC (0xff none yet); dl_tick blanks to the next look at the
+     * link.  reset_id is what the reset port read before the pulse, which on
+     * a DL10022 is $91 or $99.
+     */
+    UBYTE               dl_kind;
+    UBYTE               dl_phy;
+    UBYTE               dl_fdx;
+    UBYTE               dl_tick;
+    UBYTE               reset_id;
+
+    /* The negotiated link speed when the core knows it, else 0 and
+       S2_DEVICEQUERY answers the card table's number. */
+    ULONG               link_bps;
+
     LONG                mem_start;
     LONG                mem_end;
     LONG                mem_size;

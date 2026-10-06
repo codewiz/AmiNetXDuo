@@ -71,7 +71,9 @@ static VOID bus_rdata_long(const NetdevBus *bus, UBYTE *dst, UWORD len)
     ULONG          *out  = (ULONG *)(APTR)dst;
     UWORD           i    = (UWORD)(len & (UWORD)~31u);
 
-    if (i != 0)
+    if (bus->wide_fixed)
+        i = 0;
+    else if (i != 0)
     {
         n68k_port_in(out, bus->wide, (ULONG)(i >> 5));
         out += (i >> 2);
@@ -95,7 +97,9 @@ static VOID bus_wdata_long(const NetdevBus *bus, const UBYTE *src, UWORD len)
     const ULONG    *in   = (const ULONG *)(const void *)src;
     UWORD           i    = (UWORD)(len & (UWORD)~31u);
 
-    if (i != 0)
+    if (bus->wide_fixed)
+        i = 0;
+    else if (i != 0)
     {
         BUS_OUT_L(bus->wide_write, in, (ULONG)(i >> 5));
         in += (i >> 2);
@@ -311,7 +315,25 @@ ULONG netdev_bus_rdata_sum(const NetdevBus *bus, UBYTE *dst, UWORD len)
         whole = (UWORD)(len & (UWORD)~3u);
         tail  = (UWORD)(len & 3u);
 
-        sum = n68k_port_in_l_sum(dst, bus->wide, (ULONG)(whole >> 2));
+        if (bus->wide_fixed)
+        {
+            volatile ULONG *port = (volatile ULONG *)bus->wide;
+            ULONG          *out  = (ULONG *)(APTR)dst;
+            UWORD           i;
+
+            sum = 0;
+            for (i = 0; i < whole; i += 4)
+            {
+                ULONG v = *port;
+
+                *out++ = v;
+                sum += v;
+                if (sum < v)
+                    sum++;
+            }
+        }
+        else
+            sum = n68k_port_in_l_sum(dst, bus->wide, (ULONG)(whole >> 2));
         if (tail != 0u)
             sum = bus_sum_add(sum, bus_tail_sum(bus, dst + whole, tail));
 
@@ -348,6 +370,13 @@ VOID netdev_bus_split(NetdevBus *bus, APTR odd)
 {
     bus->odd = (volatile UBYTE *)odd;
     bus_fill_at(bus);
+
+    /* Gayle carries a longword to the data port as two word cycles, at the
+       port and two above it.  Offered as the wide window at that one address;
+       ne2000_probe_wide() keeps it only if both directions read back. */
+    bus->wide       = bus->asic;
+    bus->wide_write = bus->asic;
+    bus->wide_fixed = 1;
 }
 
 /*
@@ -390,6 +419,7 @@ VOID netdev_bus_setup(NetdevBus *bus, APTR base, UWORD stride, APTR wide)
     bus->asic   = (volatile UBYTE *)base + 16u * stride;
     bus->wide   = (volatile UBYTE *)wide;
     bus->wide_write = (volatile UBYTE *)wide;
+    bus->wide_fixed = 0;
     bus->odd    = NULL;
     bus->regmap = NULL;         /* netdev_bus_split() for the ones that need it */
     bus->stride = stride;
