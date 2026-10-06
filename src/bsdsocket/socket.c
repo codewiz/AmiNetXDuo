@@ -193,10 +193,15 @@ static ULONG bsd_tcp_window_top(const NX_TCP_SOCKET *tcp)
 #endif
 }
 
+/* A connection that has taken no data for this long is not receiving: an
+   open shell or a page held open keeps no part of the card. */
+#define BSD_TCP_SHARE_IDLE_MS   2000UL
+
 /*
  * The settled connections on `sana` whose window the card bounds (still able
- * to receive, and burst-bound at the round trip they settled at): what
- * shares the card's memory (ami_bsd_tcp_window_ring_share).  At least 1.
+ * to receive, burst-bound at the round trip they settled at, and taking data
+ * now or settled within BSD_TCP_SHARE_IDLE_MS): what shares the card's
+ * memory (ami_bsd_tcp_window_ring_share).  At least 1.
  */
 static ULONG bsd_tcp_ring_sharers(NX_IP *ip, AmiSana2If *sana)
 {
@@ -204,6 +209,7 @@ static ULONG bsd_tcp_ring_sharers(NX_IP *ip, AmiSana2If *sana)
     ULONG          total = ip->nx_ip_tcp_created_sockets_count;
     ULONG          bps   = ami_sana2_get_bps(sana);
     ULONG          grow  = ami_sana2_get_tcp_grow_rtt(sana);
+    ULONG          now   = ami_millis();
     ULONG          n     = 0;
     ULONG          i;
 
@@ -217,7 +223,15 @@ static ULONG bsd_tcp_ring_sharers(NX_IP *ip, AmiSana2If *sana)
             sock != NULL && sock->as_SettleWant != 0 &&
             bsd_tcp_draws(tcp->nx_tcp_socket_state) &&
             ami_bsd_tcp_window_burst_bound(bps, sock->as_SettleRtt, grow))
-            n++;
+        {
+            if (tcp->nx_tcp_socket_rx_pass != sock->as_SharePass)
+            {
+                sock->as_SharePass   = tcp->nx_tcp_socket_rx_pass;
+                sock->as_ShareMillis = now;
+            }
+            if (now - sock->as_ShareMillis <= BSD_TCP_SHARE_IDLE_MS)
+                n++;
+        }
 
         tcp = tcp->nx_tcp_socket_created_next;
     }
@@ -324,8 +338,10 @@ VOID bsd_tcp_window_settle(NX_TCP_SOCKET *tcp, ULONG rtt_ms)
 
     if (sock != NULL)
     {
-        sock->as_SettleWant = want;
-        sock->as_SettleRtt  = rtt_ms;
+        sock->as_SettleWant  = want;
+        sock->as_SettleRtt   = rtt_ms;
+        sock->as_SharePass   = tcp->nx_tcp_socket_rx_pass;
+        sock->as_ShareMillis = ami_millis();
     }
 
     /* The card's memory is the unit's: this connection takes its part, and

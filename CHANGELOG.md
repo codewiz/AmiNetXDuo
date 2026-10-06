@@ -5,6 +5,9 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ## Unreleased
 
+- A connection that has taken no data for two seconds (an open shell, a
+  page held open) no longer takes a share of the card's receive memory, so
+  it no longer halves the window of a download beside it.
 - Shorter messages from ConfigureNetInterface, ShowNetStatus and the other
   network commands.
 - Connections receiving at once through one card share its memory: each

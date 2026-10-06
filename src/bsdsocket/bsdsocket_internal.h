@@ -519,6 +519,12 @@ typedef struct AmiSocket
        as_SettleWant 0 = not settled. */
     ULONG                   as_SettleWant;
     ULONG                   as_SettleRtt;
+    /* The receive pass that last took this connection's data
+       (nx_tcp_socket_rx_pass) as the last re-share saw it, and when it
+       moved: a connection idle longer than BSD_TCP_SHARE_IDLE_MS gives its
+       part of the card back (socket.c, bsd_tcp_ring_sharers). */
+    ULONG                   as_SharePass;
+    ULONG                   as_ShareMillis;
 
     NXD_ADDRESS             as_LocalAddr;
     UINT                    as_LocalPort;
