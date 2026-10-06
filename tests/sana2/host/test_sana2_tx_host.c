@@ -34,6 +34,13 @@ static unsigned long     h_sends;
 VOID Disable(VOID) { }
 VOID Enable(VOID)  { }
 VOID Forbid(VOID)  { }
+/* ACKPACE stays off here (ack_tpkb 0); the hold is test_sana2_ackpace's. */
+BOOL ami_sana2_ack_hold(AmiSana2If *iface, NX_PACKET *packet,
+                        ULONG dst_msw, ULONG dst_lsw)
+{
+    (VOID)iface; (VOID)packet; (VOID)dst_msw; (VOID)dst_lsw;
+    return FALSE;
+}
 VOID Permit(VOID)  { }
 
 /* The real one is exec's `io_Flags = 0; BeginIO()`, and the zero is why the

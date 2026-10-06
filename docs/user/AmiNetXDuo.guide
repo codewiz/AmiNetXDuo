@@ -500,6 +500,28 @@
              card's size. Editing the file takes effect when the
              interface is next attached.
 
+  @{b}GROFRAMES@{ub}
+             Frames, 1 to 16: the most received TCP frames joined into
+             one segment before TCP sees them (receive offload). A
+             smaller number lets TCP acknowledge sooner, so a sender
+             limited by the window sends in smaller bursts. Leave it out
+             for 16. Editing the file takes effect when the interface is
+             next attached.
+
+  @{b}ACKPACE@{ub}
+             Kbit/s, 1 to 1000000. Experimental. Lets a TCP
+             acknowledgment leave no sooner than the data the one
+             before it opened takes at this rate, so a sender limited
+             by the window is paced instead of bursting. Only a
+             connection advertising more window than the card holds is
+             paced (a long path with TCPWANWINDOW set), so it does
+             nothing on a link with flow control agreed. With it,
+             GROFRAMES applies to the paced connection alone. Measured
+             only on one A3000 (68060, X-Surf 100, no flow control):
+             TCPWANWINDOW=46720 GROFRAMES=4 TCPACKMAX=5840 ACKPACE=24000
+             took a 25 ms path from 3.3 to 11 Mbit/s. Leave it out to
+             send acknowledgments at once.
+
   Interface files written for Roadshow usually carry other keywords:
   COPYMODE, ALIAS, METRIC, LEASE, DHCPUNICAST, LINKSTATUSCOMMAND,
   MULTICAST, POINTTOPOINT, DESTINATION and BROADCASTADDRESS among

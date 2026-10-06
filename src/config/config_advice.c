@@ -91,9 +91,10 @@ static const char *const ami_cfg_advice_text[] =
     "ver listens on.  The line was ignored.",
     "A service name is one label, so it cannot contain a dot.  The "
     "line was ignored.",
-    "The keywords an interface file understands are DEVICE, UNIT, C"
-    "ONFIGURE, ADDRESS, NETMASK, GATEWAY, MTU, and CONFIGURE6, ADDR"
-    "ESS6 and GATEWAY6 for IPv6.  The line was ignored.",
+    "This copy of AmiNetXDuo does not know that keyword; a file wri"
+    "tten for a newer version can carry ones an older copy ignores."
+    "  The guide's \"The interface file\" lists every keyword.  The"
+    " line was ignored.",
     "there is no DEVS:NetInterfaces drawer, so nothing describes a "
     "network card",
     "the DEVS:NetInterfaces drawer holds no usable interface file",
@@ -135,6 +136,10 @@ static const char *const ami_cfg_advice_text[] =
     "numeric IPTYPE is accepted for compatibility but ignored",
     "TCPWANWINDOW is bytes, 1 to 1048576: the receive window on a long "
     "path in place of the RXBUFFER fit. Leave it out to keep the fit.",
+    "GROFRAMES is frames, 1 to 16: the most received TCP frames joined "
+    "into one before TCP sees them. Leave it out for 16.",
+    "ACKPACE is kbit/s, 1 to 1000000: the rate TCP acknowledgments clock "
+    "a sender at. Leave it out to send them at once.",
 };
 
 const char *ami_cfg_advice(UWORD code)

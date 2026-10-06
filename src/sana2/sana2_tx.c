@@ -820,6 +820,19 @@ VOID ami_sana2_tx_flush_replied(AmiSana2If *iface)
 UINT ami_sana2_tx_send(AmiSana2If *iface, NX_PACKET *packet, UWORD ether_type,
                        ULONG dst_msw, ULONG dst_lsw)
 {
+    /* ACKPACE: a pure acknowledgment may wait for its turn instead
+       (sana2_ackpace.c).  One test when the option is off. */
+    if (iface != NULL && iface->ack_tpkb != 0 && packet != NULL &&
+        ether_type == AMI_ETHERTYPE_IPV4 &&
+        ami_sana2_ack_hold(iface, packet, dst_msw, dst_lsw))
+        return NX_SUCCESS;
+
+    return ami_sana2_tx_send_now(iface, packet, ether_type, dst_msw, dst_lsw);
+}
+
+UINT ami_sana2_tx_send_now(AmiSana2If *iface, NX_PACKET *packet,
+                           UWORD ether_type, ULONG dst_msw, ULONG dst_lsw)
+{
     AmiTxSlot *slot;
 #ifdef AMINETXDUO_RXPROBE
     ULONG probe_t0 = ami_budget_clock();

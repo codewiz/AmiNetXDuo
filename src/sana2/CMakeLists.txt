@@ -4,6 +4,7 @@ add_library(aminetxduo_sana2 STATIC
     sana2_copy.c
     sana2_rx.c
     sana2_tx.c
+    sana2_ackpace.c
     sana2_txmeta.c
     sana2_driver.c)
 

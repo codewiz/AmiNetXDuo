@@ -26,9 +26,17 @@ struct timerequest
     struct s2_timeval tr_time;
 };
 
+/* The E-clock reading sana2_ackpace.c paces acknowledgments by. */
+struct EClockVal
+{
+    ULONG ev_hi;
+    ULONG ev_lo;
+};
+
 #define TIMERNAME       "timer.device"
 #define UNIT_MICROHZ    0
 #define UNIT_VBLANK     1
+#define UNIT_ECLOCK     2
 #define TR_ADDREQUEST   9
 
 #endif

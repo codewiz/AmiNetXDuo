@@ -93,7 +93,22 @@ static ULONG fb_kbs(ULONG bytes, ULONG ticks)
     if (ticks == 0UL)
         return 0UL;
 
-    return ((bytes / 1024UL) * fb_rate) / ticks;
+    ULONG kb   = bytes / 1024UL;
+    ULONG rate = fb_rate;
+
+    /* KB times the E-clock rate passes 2^32 above ~5.9 MB at 715,909 Hz, and
+       an 8 MB run read 352 KB/s for 1,316.  Halve the rate and the ticks
+       together until the product fits: a 64-bit divide would pull
+       __udivdi3 out of libgcc and its hunks with it. */
+    while (rate > 1UL && kb > 0xFFFFFFFFUL / rate)
+    {
+        rate  >>= 1;
+        ticks >>= 1;
+    }
+    if (ticks == 0UL)
+        return 0UL;
+
+    return (kb * rate) / ticks;
 }
 
 static UBYTE *fb_buf;

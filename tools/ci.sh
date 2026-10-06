@@ -475,7 +475,9 @@ host_test_targets() { # builddir
 #      (all hosts).
 #      554 with tcp_rxpass: what a burst leaves below the ACK threshold is
 #      acknowledged when the receive pass ends (all hosts).
-HOST_TESTS_EXPECTED=554
+#      555 with sana2_ackpace: which acknowledgments ACKPACE holds and when
+#      it releases them (all hosts).
+HOST_TESTS_EXPECTED=555
 case "$(uname -m)" in
     x86_64|amd64) ;;
     # test_inet, test_route, test_expunge, test_expunge_cork, test_select,

@@ -369,6 +369,10 @@ LONG ami_sana2_offline(AmiSana2If *iface) { (VOID)iface; return 0; }
 /* The device-derived counters a status query asks the reader for
    (sana2_device.c): no device here, only a link. */
 VOID ami_sana2_refresh_stats(AmiSana2If *iface) { (VOID)iface; }
+/* ACKPACE's reader duty is sana2_ackpace.c's, tested on its own. */
+VOID ami_sana2_ack_reader_start(AmiSana2Reader *rd) { rd->ack_mask = 0; }
+VOID ami_sana2_ack_reader_pass(AmiSana2Reader *rd)  { (VOID)rd; }
+VOID ami_sana2_ack_reader_stop(AmiSana2Reader *rd)  { (VOID)rd; }
 /* The capacity the reader asks again for once a second (sana2_device.c),
    and the ThreadX clock that paces it: the reader's loop is not driven
    here. */
@@ -447,6 +451,7 @@ static void fixture_init(void)
     iface.interface_ptr = &interface_obj;
     iface.addr_bytes    = AMI_ETH_ADDR_SIZE;
     iface.mtu           = 1500;
+    iface.gro_frames    = AMI_SANA2_GRO_MAX;   /* attach's default */
 
     h_went           = TO_NOWHERE;
     h_seen_length    = 0;
@@ -1275,6 +1280,82 @@ static void test_run_is_capped(void)
     h_check(pkt.nx_packet_last == &many[AMI_SANA2_GRO_MAX - 1],
             "with the last frame as the chain's last");
     gro_done();
+}
+
+/* GROFRAMES=4: the run goes up at its fourth frame, not the sixteenth. */
+static void test_run_follows_groframes(void)
+{
+    AmiRxSum head = h_flagged(ANXD_S2_RXF_SUMMED | ANXD_S2_RXF_VERIFIED);
+    AmiRxSum cont = h_flagged(ANXD_S2_RXF_SUMMED | ANXD_S2_RXF_VERIFIED);
+    static NX_PACKET  few[4];
+    static UCHAR      bufs[4][256];
+    UWORD i;
+
+    printf("sana2: GROFRAMES 4 delivers a run at its fourth frame\n");
+
+    gro_init();
+    iface.gro_frames = 4;
+    tcp_frame_init(&pkt, buffer, 6, 10);
+    (VOID)ami_sana2_gro_take(&rxs, &pkt, &head);
+
+    for (i = 1; i < 4; i++)
+    {
+        tcp_frame_init(&few[i], bufs[i], 6, 10);
+        tcp_frame_seq(bufs[i], 1000UL + (ULONG)i * 10UL);
+        h_check(ami_sana2_gro_take(&rxs, &few[i], &cont) == TRUE,
+                "each continuing frame is taken");
+        if (i < 3)
+            h_check(h_went == TO_NOWHERE, "and held");
+    }
+
+    h_check(h_went == TO_IP, "the fourth frame delivers the run");
+    h_check(h_seen_length == 50UL + 10UL * 3UL, "as four frames");
+    h_check(rxs.gro_head == NX_NULL, "and nothing is held after");
+    gro_done();
+}
+
+/* ACKPACE on: GROFRAMES cuts the paced connection's runs only. */
+static void test_groframes_follows_the_paced_connection(void)
+{
+    AmiRxSum head = h_flagged(ANXD_S2_RXF_SUMMED | ANXD_S2_RXF_VERIFIED);
+    AmiRxSum cont = h_flagged(ANXD_S2_RXF_SUMMED | ANXD_S2_RXF_VERIFIED);
+    static NX_PACKET  run[6];
+    static UCHAR      bufs[6][256];
+    UWORD i;
+    int   pass;
+
+    printf("sana2: with ACKPACE, GROFRAMES cuts only the paced connection\n");
+
+    for (pass = 0; pass < 2; pass++)
+    {
+        gro_init();
+        iface.gro_frames    = 4;
+        iface.ack_tpkb      = 286;
+        /* The test frames run 1234 -> 4321. */
+        iface.ack_gro_ports = (pass == 0) ? 0x04d210e1UL : 0x13890bb8UL;
+        tcp_frame_init(&pkt, buffer, 6, 10);
+        (VOID)ami_sana2_gro_take(&rxs, &pkt, &head);
+        for (i = 1; i < 6; i++)
+        {
+            tcp_frame_init(&run[i], bufs[i], 6, 10);
+            tcp_frame_seq(bufs[i], 1000UL + (ULONG)i * 10UL);
+            (VOID)ami_sana2_gro_take(&rxs, &run[i], &cont);
+            if (i == 3)
+            {
+                if (pass == 0)
+                    h_check(h_went == TO_IP && h_seen_length == 80UL,
+                            "the paced connection goes up at four frames");
+                else
+                    h_check(h_went == TO_NOWHERE,
+                            "another connection is still held at four");
+            }
+        }
+        if (pass == 1)
+            h_check(rxs.gro_head != NX_NULL && rxs.gro_count == 6,
+                    "and keeps chaining past it");
+        iface.ack_tpkb = 0;
+        gro_done();
+    }
 }
 
 #endif /* AMINETXDUO_GRO */
@@ -2284,6 +2365,8 @@ int main(void)
     test_stack_gro_ipv6();
     test_run_ends_on_a_frame_that_does_not_continue();
     test_run_is_capped();
+    test_run_follows_groframes();
+    test_groframes_follows_the_paced_connection();
 #endif
 
     printf("%lu checks, %lu failures, %s\n", h_checks, h_failures,
