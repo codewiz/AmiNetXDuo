@@ -39,7 +39,7 @@ VOID netdev_take_tags(const struct TagItem *tags, NetdevOpener *op,
         if (tag == S2_CopyToBuff)
             op->op_CopyTo = (APTR)tags->ti_Data;
         else if (tag == ANXD_S2_EXTENSION && tags->ti_Data != 0)
-            (VOID)netdev_take_extension(
+            (VOID)netdev_take_extension_once(
                 (AnxdS2Extension *)tags->ti_Data, op, ext_answer);
         else if (tag == S2_CopyFromBuff)
             op->op_CopyFrom = (APTR)tags->ti_Data;

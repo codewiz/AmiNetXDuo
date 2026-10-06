@@ -2,6 +2,17 @@
 
 #include "netdev_internal.h"
 
+/* The frozen m68k layout anxs2ext.h documents (a host build's pointers are
+   wider, so only the target is held to it). */
+#if defined(__mc68000__) || defined(mc68000)
+typedef char anxd_ext_size_is_frozen[
+    (ANXD_S2_EXTENSION_SIZE == 24u) ? 1 : -1];
+typedef char anxd_ext_txflags_at_20[
+    (offsetof(AnxdS2Extension, TxFlags) == 20u) ? 1 : -1];
+typedef char anxd_batch_header_is_8[
+    (offsetof(AnxdS2RxBatch, Cookie) == 8u) ? 1 : -1];
+#endif
+
 BOOL netdev_take_extension(AnxdS2Extension *ext, NetdevOpener *op,
                            AnxdS2Extension **answer)
 {
@@ -10,7 +21,7 @@ BOOL netdev_take_extension(AnxdS2Extension *ext, NetdevOpener *op,
     if (ext == NULL || op == NULL || answer == NULL ||
         ext->Version < ANXD_S2_ABI_VERSION_MIN ||
         ext->Version > ANXD_S2_ABI_VERSION ||
-        ext->Size < (UWORD)sizeof(*ext))
+        ext->Size < (UWORD)ANXD_S2_EXTENSION_SIZE)
         return FALSE;
 
     request = ext->Request;
@@ -37,6 +48,18 @@ BOOL netdev_take_extension(AnxdS2Extension *ext, NetdevOpener *op,
     }
 
     return TRUE;
+}
+
+/* One negotiation per open (ANX-006): the first valid record in the taglist
+   is taken; a later ANXD_S2_EXTENSION tag is ignored and its Accepted left
+   as the opener set it.  Taking it too merged a second record's request with
+   the first one's callbacks and reported Accepted 0 over active callbacks. */
+BOOL netdev_take_extension_once(AnxdS2Extension *ext, NetdevOpener *op,
+                                AnxdS2Extension **answer)
+{
+    if (answer == NULL || *answer != NULL)
+        return FALSE;
+    return netdev_take_extension(ext, op, answer);
 }
 
 /* Resolve request-independent opener prerequisites against one selected

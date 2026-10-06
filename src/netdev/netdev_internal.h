@@ -450,6 +450,8 @@ VOID netdev_take_tags(const struct TagItem *tags, NetdevOpener *op,
                       const char **pin, AnxdS2Extension **ext_answer);
 BOOL netdev_take_extension(AnxdS2Extension *ext, NetdevOpener *op,
                            AnxdS2Extension **answer);
+BOOL netdev_take_extension_once(AnxdS2Extension *ext, NetdevOpener *op,
+                                AnxdS2Extension **answer);
 ULONG netdev_extension_supported(NetdevOpener *op, const NetdevNic *nic);
 
 /* netdev_event.c */

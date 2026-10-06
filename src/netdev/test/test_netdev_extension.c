@@ -92,12 +92,9 @@ static void test_version_and_size_gate(void)
     CHECK(netdev_take_extension(&ext, &op, &answer) && answer == &ext,
           "a larger compatible record is accepted by its known prefix");
 
-    /* ABI 2 has the same negotiation prefix.  Its RX_BATCH subrecord lacked
-       Version/Size; a v3 driver accepts the useful callbacks and features,
-       then safely refuses that old command record and the v2 reader falls
-       back to CMD_READ.  Rejecting the whole negotiation disables every fast
-       path during an in-place driver upgrade. */
-    ext.Version = ANXD_S2_ABI_VERSION_MIN;
+    /* ABI 2 never shipped: a v2 record is ignored like any unknown version,
+       and the opener falls back to plain SANA-II. */
+    ext.Version = 2;
     ext.Size = (UWORD)sizeof(ext);
     ext.Request = ANXD_S2F_ALL;
     ext.RxDirect = rx_direct;
@@ -105,10 +102,9 @@ static void test_version_and_size_gate(void)
     ext.TxFlags = tx_flags;
     memset(&op, 0, sizeof(op));
     answer = NULL;
-    CHECK(netdev_take_extension(&ext, &op, &answer) && answer == &ext &&
-          op.op_RxDirect == (APTR)rx_direct &&
-          op.op_TxFlags == (APTR)tx_flags,
-          "the ABI 2 negotiation prefix remains compatible");
+    CHECK(!netdev_take_extension(&ext, &op, &answer) && answer == NULL &&
+          op.op_RxDirect == NULL && op.op_TxFlags == NULL,
+          "an ABI 2 record is ignored like an unknown version");
 }
 
 static void test_receive_facts_need_the_receive_callbacks(void)
@@ -206,8 +202,49 @@ static void test_supported_features_follow_opener_and_unit(void)
           "a raw opener never advertises the cooked receive batch");
 }
 
+/* ANX-006: one negotiation per open.  The first valid ANX record is taken;
+   a later one is ignored and its Accepted left as the opener set it, so no
+   callbacks can be active behind an Accepted the opener never sees. */
+static void test_duplicate_records_first_valid_wins(void)
+{
+    NetdevOpener     op;
+    AnxdS2Extension  first, second;
+    AnxdS2Extension *answer = NULL;
+
+    memset(&op, 0, sizeof(op));
+    memset(&first, 0, sizeof(first));
+    memset(&second, 0, sizeof(second));
+    first.Version  = second.Version = ANXD_S2_ABI_VERSION;
+    first.Size     = second.Size    = (UWORD)sizeof(first);
+    first.Request  = ANXD_S2F_RX_DIRECT | ANXD_S2F_RX_LINK_HDR;
+    first.RxDirect = rx_direct;
+    first.RxFilled = rx_filled;
+    second.Accepted = 0x5a5a5a5aUL;     /* must stay untouched */
+
+    CHECK(netdev_take_extension_once(&first, &op, &answer) && answer == &first,
+          "two ANX records: the first is the negotiation");
+    CHECK(!netdev_take_extension_once(&second, &op, &answer) &&
+          answer == &first && second.Accepted == 0x5a5a5a5aUL,
+          "two ANX records: the second is ignored and not touched");
+    CHECK(op.op_RxDirect == (APTR)rx_direct && op.op_RxLinkHdr,
+          "two ANX records: the first record's callbacks stay the ones taken");
+
+    /* An invalid first record does not block a valid later one. */
+    memset(&op, 0, sizeof(op));
+    first.Version = 2;
+    second.Request = ANXD_S2F_RX_DIRECT;
+    second.RxDirect = rx_direct;
+    second.RxFilled = rx_filled;
+    answer = NULL;
+    CHECK(!netdev_take_extension_once(&first, &op, &answer) && answer == NULL,
+          "an invalid first ANX record is not taken");
+    CHECK(netdev_take_extension_once(&second, &op, &answer) && answer == &second,
+          "a valid later ANX record is taken after an invalid one");
+}
+
 int main(void)
 {
+    test_duplicate_records_first_valid_wins();
     test_valid_record();
     test_version_and_size_gate();
     test_receive_facts_need_the_receive_callbacks();

@@ -928,7 +928,11 @@ static LONG netdev_tx_issue(NetdevUnit *unit, struct IOSana2Req *io,
        write advances from interrupt context. */
     unit->nu_Nic.tx_csum = 0;
     unit->nu_Nic.tx_more = 0;
-    if (op->op_TxFlags != NULL)
+    /* Only when a transmit feature was accepted (ANX-013): an opener that
+       supplied TxFlags but was granted nothing it governs is not called. */
+    if (op->op_TxFlags != NULL &&
+        (op->op_Extensions & (ANXD_S2F_TX_CSUM_TCP | ANXD_S2F_TX_CSUM_UDP |
+                              ANXD_S2F_TX_MORE)) != 0)
     {
         UBYTE flags = ((AnxdS2TxFlags)op->op_TxFlags)(io->ios2_Data);
 

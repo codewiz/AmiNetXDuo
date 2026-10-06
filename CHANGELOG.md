@@ -5,6 +5,9 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ## Unreleased
 
+- SANA-II extension (anxs2ext.h): version 3 only, with a fixed 24-byte
+  record; a driver ignores a v1/v2 record and a second record in the same
+  taglist.  TxFlags is called only when a transmit feature was accepted.
 - anxzz9000.device finds the asynchronous send of the current ZZ9000
   firmware (status at 0x68) and takes its receive window from the firmware
   (0x6C, 32 frames when absent).  A3000, 68060/50: 22.1 Mbit/s receive,
