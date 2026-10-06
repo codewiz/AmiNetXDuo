@@ -150,7 +150,7 @@ int main(int argc, char **argv)
        interface out of it is not what was asked for. */
     if (!tool_stack_library_running())
     {
-        say("The network is not running, so there is nothing to remove.\n");
+        say("Network not running.\n");
         FreeArgs(rda);
         return RETURN_WARN;
     }
@@ -184,7 +184,7 @@ int main(int argc, char **argv)
         }
         if (index < 0)
         {
-            tool_error("there is no interface called \"%s\"", (LONG)name);
+            tool_error("no interface \"%s\"", (LONG)name);
             failed++;
             continue;
         }

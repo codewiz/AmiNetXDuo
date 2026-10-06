@@ -225,7 +225,7 @@ int main(int argc, char **argv)
     /* Nothing to stop. tool_netstatus_open() does not start the stack. */
     if (!tool_stack_library_running())
     {
-        say("The network is not running, so there is nothing to stop.\n");
+        say("Network not running.\n");
         FreeArgs(rda);
         return RETURN_WARN;
     }

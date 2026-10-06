@@ -201,7 +201,7 @@ fi
 
 # ---- 1. nothing to remove, because nothing is up -------------------------
 if block "SYS:RemoveNetInterface eth0" 1 |
-   grep -q "The network is not running"; then
+   grep -q "Network not running"; then
     pass "removing before any add says the network is not running"
 else
     fail "removing with the stack down did not say so"
@@ -220,7 +220,7 @@ pinged 1 "and the gateway answers over it"
 
 # ---- 3. a name that is not there -----------------------------------------
 if block "SYS:RemoveNetInterface nosuch0" 1 |
-   grep -q 'there is no interface called "nosuch0"'; then
+   grep -q 'no interface "nosuch0"'; then
     pass "an unknown name is reported by name"
 else
     fail "an unknown name was not reported"
@@ -284,7 +284,7 @@ else
     fail "the multiple-name call did not remove eth0"
     printf '%s\n' "$MULTI" | sed 's/^/       /' >&2
 fi
-if printf '%s\n' "$MULTI" | grep -q 'no interface called "nosuch0"'; then
+if printf '%s\n' "$MULTI" | grep -q 'no interface "nosuch0"'; then
     pass "and still reports the one that does not"
 else
     fail "the bad name in a multiple-name call was swallowed"

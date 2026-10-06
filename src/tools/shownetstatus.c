@@ -423,12 +423,8 @@ static VOID show_interface(const AmiIfConfig *cfg, const ToolIfInfo *live,
 
         if (cfg->device[0] != '\0' && (!same || cfg->unit != live->nx_unit))
         {
-            tool_printf("  NOTE        running on this driver. The "
-                        "configuration file says\n");
-            tool_printf("              %s unit %ld. The file was changed "
-                        "after the\n", (LONG)cfg->device, (LONG)cfg->unit);
-            tool_printf("              network started, or this interface "
-                        "was brought up by hand.\n");
+            tool_printf("  file        %s unit %ld\n",
+                        (LONG)cfg->device, (LONG)cfg->unit);
         }
     }
     else
@@ -528,10 +524,11 @@ static VOID show_interface(const AmiIfConfig *cfg, const ToolIfInfo *live,
        PRIORITY changes it without touching the file -- else the file's. */
     if (live != NULL)
     {
-        if (live->priority != 0 || cfg->priority != 0)
-            tool_printf("  priority    %ld%s\n", live->priority,
-                        (LONG)((live->priority != cfg->priority)
-                                   ? "  (the file says otherwise)" : ""));
+        if (live->priority != cfg->priority)
+            tool_printf("  priority    %ld (file %ld)\n", live->priority,
+                        (LONG)cfg->priority);
+        else if (live->priority != 0)
+            tool_printf("  priority    %ld\n", live->priority);
     }
     else if (cfg->priority != 0)
         tool_printf("  priority    %ld\n", (LONG)cfg->priority);
@@ -1236,7 +1233,7 @@ static VOID show_igmp(const AmiConfig *cfg, BOOL stack_running)
 
     if (!stack_running)
     {
-        tool_printf("  the network is not running, so nothing is joined\n");
+        tool_printf("  network not running\n");
         return;
     }
 
@@ -1508,8 +1505,7 @@ static VOID show_users(BOOL stack_running)
 
     if (!stack_running)
     {
-        tool_printf("(the network is not running, so no program is using "
-                    "it)\n");
+        tool_printf("(network not running)\n");
         return;
     }
 
@@ -1871,7 +1867,7 @@ static LONG report(const Wanted *w, const AmiConfig *cfg, BOOL from_disk)
 
         if (shown == 0 && detailed)
         {
-            tool_error("there is no interface called \"%s\"",
+            tool_error("no interface \"%s\"",
                        (LONG)tool_basename((const char *)w->interface[0]));
 
             if (cfg->interface_count > 0)

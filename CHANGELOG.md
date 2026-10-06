@@ -5,6 +5,8 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ## Unreleased
 
+- Shorter messages from ConfigureNetInterface, ShowNetStatus and the other
+  network commands.
 - Connections receiving at once through one card share its memory: each
   is offered its part of the window the card holds, not all of it, and
   gets the rest back within a second of the others ending.

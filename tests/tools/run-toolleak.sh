@@ -53,7 +53,7 @@ EOF"
 # what would start it, so every row is the "the network is not running" arm.
 cold|CheckNetConfig|reads-config|5|re:nothing wrong with it|-|SYS:CheckNetConfig
 cold|CheckNetConfig|verbose|5|re:Reading the configuration|-|SYS:CheckNetConfig VERBOSE
-cold|GetNetStatus|no-stack|5|re:The network is not running|-|SYS:GetNetStatus
+cold|GetNetStatus|no-stack|5|re:Network not running|-|SYS:GetNetStatus
 cold|ShowNetStatus|no-stack|5|re:Network stack: +not started|-|SYS:ShowNetStatus
 cold|netstat|no-stack|5|re:netstat: network not started|-|SYS:netstat -i
 cold|arp|no-stack|5|re:arp: network not started|-|SYS:arp
@@ -67,10 +67,10 @@ cold|Offline|bad-timeout|5|re:TIMEOUT cannot be negative|-|SYS:Offline eth0 TIME
 cold|RemoveNetInterface|unknown-name|5|re:nothing to remove|-|SYS:RemoveNetInterface nosuchif
 cold|ConfigureNetInterface|no-stack|5|re:no interface to configure|-|SYS:ConfigureNetInterface eth0 ADDRESS 10.0.2.20
 cold|ConfigureNetInterface|bad-address|5|re:is not an address|-|SYS:ConfigureNetInterface eth0 ADDRESS notanaddress
-cold|ConfigureNetInterface|bad-configure|5|re:CONFIGURE takes DHCP and nothing else|-|SYS:ConfigureNetInterface eth0 CONFIGURE=AUTO
+cold|ConfigureNetInterface|bad-configure|5|re:CONFIGURE accepts only DHCP|-|SYS:ConfigureNetInterface eth0 CONFIGURE=AUTO
 cold|ConfigureNetInterface|bad-mdns|5|re:MDNS is YES or NO|-|SYS:ConfigureNetInterface eth0 MDNS=MAYBE
 cold|ConfigureNetInterface|bad-timeout|5|re:a TIMEOUT of less than 10 seconds|-|SYS:ConfigureNetInterface eth0 CONFIGURE=DHCP TIMEOUT=-1
-cold|AddNetInterface|unknown-name|5|re:there is no interface called|-|SYS:AddNetInterface nosuchinterface
+cold|AddNetInterface|unknown-name|5|re:no interface|-|SYS:AddNetInterface nosuchinterface
 cold|AddNetInterface|bad-timeout|5|re:TIMEOUT cannot be negative|-|SYS:AddNetInterface eth0 TIMEOUT=-1
 # hostname reads the whole configuration into a static AmiConfig to answer with
 # the stack down, and ami_config_load() loads the netdb behind it, which is
@@ -212,12 +212,12 @@ live|AddNetRoute|no-gateway|5|re:no GATEWAY was given|-|SYS:AddNetRoute DST=192.
 live|DeleteNetRoute|no-such-route|5|re:no route to 198.51.100.0|-|SYS:DeleteNetRoute DST=198.51.100.0
 live|AddNetRoute|added|5|re:now go through 10.0.2.2|SYS:DeleteNetRoute DST=192.0.2.0|SYS:AddNetRoute DST=192.0.2.0 VIA=10.0.2.2
 live|DeleteNetRoute|deleted|5|re:The route to 192.0.2.0/24 is gone|SYS:AddNetRoute DST=192.0.2.0 VIA=10.0.2.2|SYS:DeleteNetRoute DST=192.0.2.0
-live|RemoveNetInterface|unknown-name|5|re:there is no interface called|-|SYS:RemoveNetInterface nosuchif
+live|RemoveNetInterface|unknown-name|5|re:no interface|-|SYS:RemoveNetInterface nosuchif
 # Both arms of ConfigureNetInterface against a running stack.  The prep moves
 # the address away and the MEASURED call puts it back, that way round on
 # purpose: every row below this one expects eth0 on 10.0.2.15, and a pair whose
 # last step left it somewhere else would fail them and not itself.
-live|ConfigureNetInterface|unknown-name|5|re:there is no interface called|-|SYS:ConfigureNetInterface nosuchif ADDRESS 10.0.2.20
+live|ConfigureNetInterface|unknown-name|5|re:no interface|-|SYS:ConfigureNetInterface nosuchif ADDRESS 10.0.2.20
 live|ConfigureNetInterface|reconfigures|5|re:eth0: 10.0.2.15 netmask 255.255.255.0|SYS:ConfigureNetInterface eth0 QUIET ADDRESS 10.0.2.20/24|SYS:ConfigureNetInterface eth0 ADDRESS 10.0.2.15/24
 # The mDNS pair.  The first repetition of the ON row pays for the responder --
 # a 4 KB thread stack and the module, which are created the first time any
@@ -225,10 +225,10 @@ live|ConfigureNetInterface|reconfigures|5|re:eth0: 10.0.2.15 netmask 255.255.255
 # claim: an off/on cycle costs nothing, and in particular does not register the
 # services a second time.  eth0's file says nothing about MDNS, so the pair is
 # ordered to leave it off, which is where the boot left it.
-live|ConfigureNetInterface|mdns-on|5|re:eth0: answering .local here|SYS:ConfigureNetInterface eth0 QUIET MDNS=NO|SYS:ConfigureNetInterface eth0 MDNS=YES
-live|ConfigureNetInterface|mdns-off|5|re:eth0: no longer answering .local here|SYS:ConfigureNetInterface eth0 QUIET MDNS=YES|SYS:ConfigureNetInterface eth0 MDNS=NO
+live|ConfigureNetInterface|mdns-on|5|re:eth0: mDNS on|SYS:ConfigureNetInterface eth0 QUIET MDNS=NO|SYS:ConfigureNetInterface eth0 MDNS=YES
+live|ConfigureNetInterface|mdns-off|5|re:eth0: mDNS off|SYS:ConfigureNetInterface eth0 QUIET MDNS=YES|SYS:ConfigureNetInterface eth0 MDNS=NO
 live|AddNetInterface|already-up|5|re:online, address 10.0.2.15|-|SYS:AddNetInterface eth0
-live|AddNetInterface|unknown-name|5|re:there is no interface called|-|SYS:AddNetInterface nosuchinterface
+live|AddNetInterface|unknown-name|5|re:no interface|-|SYS:AddNetInterface nosuchinterface
 # Setting a name on a RUNNING stack: the ENV: and ENVARC: writes and the
 # NETCTRL_HOSTNAME_SET call, which is the arm that has something to give back.
 # Repeating it is not a no-op -- the offer is at ENV:HOSTNAME rank and the
@@ -245,7 +245,7 @@ live|Offline|unknown-name|5|re:nothing here is called|-|SYS:Offline nosuch0
 # and on one that has a lease says "lease renewed", and a premise that has to
 # hold on every run cannot straddle the two.  The pair ends bound, which is
 # what the rows below expect.
-cycle|ConfigureNetInterface|dhcp-release|4|re:the lease is released|SYS:ConfigureNetInterface eth0 QUIET CONFIGURE=DHCP TIMEOUT 20|SYS:ConfigureNetInterface eth0 RELEASE
+cycle|ConfigureNetInterface|dhcp-release|4|re:lease released|SYS:ConfigureNetInterface eth0 QUIET CONFIGURE=DHCP TIMEOUT 20|SYS:ConfigureNetInterface eth0 RELEASE
 cycle|ConfigureNetInterface|dhcp-renew|4|re:lease renewed|SYS:ConfigureNetInterface eth0 QUIET CONFIGURE=DHCP TIMEOUT 20|SYS:ConfigureNetInterface eth0 CONFIGURE=DHCP TIMEOUT 20
 cycle|Offline|takes-down|4|re:eth0 is offline|SYS:Online eth0|SYS:Offline eth0
 cycle|Online|brings-up|4|re:eth0 is.*online|SYS:Offline eth0|SYS:Online eth0

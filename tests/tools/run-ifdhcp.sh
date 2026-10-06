@@ -283,7 +283,7 @@ else
     fail "the run never got as far as bringing eth0 up, something hung"
 fi
 
-says "SYS:ConfigureNetInterface eth0 RELEASE" 1 "The network is not running" \
+says "SYS:ConfigureNetInterface eth0 RELEASE" 1 "Network not running" \
      "releasing before any add says the network is not running"
 want_rc "SYS:ConfigureNetInterface eth0 RELEASE" 1 5 "and returns WARN"
 
@@ -332,14 +332,14 @@ fi
 pinged 2 "and still carries traffic to $PING_TARGET"
 
 want_rc "SYS:ConfigureNetInterface eth0 RELEASE" 2 0 "RELEASE is accepted"
-says "SYS:ConfigureNetInterface eth0 RELEASE" 2 "the lease is released" \
+says "SYS:ConfigureNetInterface eth0 RELEASE" 2 "lease released" \
      "and says so"
 
 says_not "SYS:ShowNetStatus eth0" 3 "lease +from" \
          "and ShowNetStatus no longer reports a lease on eth0"
 
 if status 3 | grep -q '^[[:space:]]*lease6[[:space:]]'; then
-    says "SYS:ConfigureNetInterface eth0 RELEASE" 3 "the lease is released" \
+    says "SYS:ConfigureNetInterface eth0 RELEASE" 3 "lease released" \
          "a second RELEASE gives back the remaining DHCPv6 lease"
     want_rc "SYS:ConfigureNetInterface eth0 RELEASE" 3 0 "and succeeds"
 else
@@ -409,18 +409,18 @@ fi
 pinged 3 "and $PING_TARGET answers over the re-acquired lease"
 
 says "SYS:ConfigureNetInterface eth0 CONFIGURE=DHCP NETMASK 255.255.255.0" 1 \
-     "takes its netmask and gateway from the server" \
+     "cannot be used with CONFIGURE=DHCP" \
      "NETMASK with CONFIGURE=DHCP is refused, and says why"
 want_rc "SYS:ConfigureNetInterface eth0 CONFIGURE=DHCP NETMASK 255.255.255.0" 1 10 \
         "and returns ERROR"
 
 says "SYS:ConfigureNetInterface eth0 CONFIGURE=AUTO" 1 \
-     "CONFIGURE takes DHCP and nothing else" \
+     "CONFIGURE accepts only DHCP" \
      "CONFIGURE=AUTO is refused by name"
 want_rc "SYS:ConfigureNetInterface eth0 CONFIGURE=AUTO" 1 10 "and returns ERROR"
 
 says "SYS:ConfigureNetInterface eth0 CONFIGURE=DHCP TIMEOUT 3" 1 \
-     "is too short to tell anything about the network" \
+     "TIMEOUT must be at least" \
      "a TIMEOUT of less than ten seconds is refused"
 want_rc "SYS:ConfigureNetInterface eth0 CONFIGURE=DHCP TIMEOUT 3" 1 10 \
         "and returns ERROR"
@@ -431,7 +431,7 @@ says "SYS:ConfigureNetInterface eth0 TIMEOUT 30" 1 \
 want_rc "SYS:ConfigureNetInterface eth0 TIMEOUT 30" 1 10 "and returns ERROR"
 
 says "SYS:ConfigureNetInterface nosuch0 RELEASE" 1 \
-     'there is no interface called "nosuch0"' \
+     'no interface "nosuch0"' \
      "RELEASE on a name that is not there is reported by name"
 want_rc "SYS:ConfigureNetInterface nosuch0 RELEASE" 1 20 "and returns FAIL"
 

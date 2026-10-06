@@ -218,7 +218,7 @@ denies "$LOOKUP" 1 "has address"    "1: and $LABEL.local does not resolve"
 
 # ---- 2: on --------------------------------------------------------------
 
-says "$ON"     1 "answering .local here" "2: MDNS=YES was accepted"
+says "$ON"     1 "mDNS on" "2: MDNS=YES was accepted"
 says "$STATUS" 2 '^ *mDNS +yes, answering \.local$' \
                                          "2: and it now reports on"
 says "$LOOKUP" 2 "^$LABEL\.local has address " \
@@ -230,13 +230,13 @@ says "$LOOKUP" 2 "^$LABEL\.local has address 10\.0\.2\.15" \
 
 # ---- 3: off, which is the case a pretending flag cannot pass -------------
 
-says   "$OFF"    1 "no longer answering .local here" "3: MDNS=NO was accepted"
+says   "$OFF"    1 "mDNS off" "3: MDNS=NO was accepted"
 says   "$STATUS" 3 '^ *mDNS +no$'  "3: and it reports off again"
 denies "$LOOKUP" 3 "has address"   "3: and $LABEL.local has STOPPED resolving"
 
 # ---- 2b: and back on, so an off/on pair is proved as well as an off ------
 
-says "$ON"     2 "answering .local here" "3b: MDNS=YES again was accepted"
+says "$ON"     2 "mDNS on" "3b: MDNS=YES again was accepted"
 says "$STATUS" 4 '^ *mDNS +yes, answering \.local$' \
                                          "3b: it reports on after an off/on pair"
 says "$LOOKUP" 4 "^$LABEL\.local has address 10\.0\.2\.15" \

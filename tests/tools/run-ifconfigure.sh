@@ -259,7 +259,7 @@ else
 fi
 
 says "SYS:ConfigureNetInterface eth0 ADDRESS 10.0.2.20" 1 \
-     "The network is not running" \
+     "Network not running" \
      "configuring before any add says the network is not running"
 want_rc "SYS:ConfigureNetInterface eth0 ADDRESS 10.0.2.20" 1 5 \
         "and returns WARN, not a failure"
@@ -294,7 +294,7 @@ else
 fi
 
 says "SYS:ConfigureNetInterface nosuch0 ADDRESS 10.0.2.20" 1 \
-     'there is no interface called "nosuch0"' \
+     'no interface "nosuch0"' \
      "an unknown name is reported by name"
 want_rc "SYS:ConfigureNetInterface nosuch0 ADDRESS 10.0.2.20" 1 20 \
         "and returns FAIL"
@@ -310,7 +310,7 @@ want_rc "SYS:ConfigureNetInterface eth0 ADDRESS 10.0.2.20/24 NETMASK 255.255.0.0
         "and returns ERROR"
 
 says "SYS:ConfigureNetInterface eth0 NETMASK 255.0.255.0" 1 \
-     "the ones must come first" \
+     "is not a valid netmask" \
      "a netmask with a hole in it is refused"
 want_rc "SYS:ConfigureNetInterface eth0 NETMASK 255.0.255.0" 1 10 "and returns ERROR"
 
@@ -333,7 +333,7 @@ says "SYS:ConfigureNetInterface eth0 ADDRESS 10.0.2.20/24" 1 \
      "and reports what the interface now has, read back from the stack"
 
 if block "SYS:ConfigureNetInterface eth0 ADDRESS 10.0.2.20/24" 1 |
-   grep -q "takes its address by DHCP"; then
+   grep -q "uses DHCP"; then
     fail "the DHCP warning was printed for a STATIC interface"
 else
     pass "and says nothing about DHCP, which this interface does not use"
@@ -381,7 +381,7 @@ else
 fi
 
 says "SYS:ConfigureNetInterface eth0 GATEWAY 192.0.2.1" 1 \
-     "not on any of this machine's own subnets" \
+     "is not on a local subnet" \
      "a gateway off every subnet is refused, and says why"
 want_rc "SYS:ConfigureNetInterface eth0 GATEWAY 192.0.2.1" 1 20 "and returns FAIL"
 

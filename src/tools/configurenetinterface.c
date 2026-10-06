@@ -643,8 +643,7 @@ int main(int argc, char **argv)
 
         if (have_netmask && explicit_mask != netmask)
         {
-            tool_error("the prefix lengths in ADDRESS and NETMASK do not "
-                       "agree");
+            tool_error("ADDRESS and NETMASK prefix lengths differ");
             FreeArgs(rda);
             return RETURN_ERROR;
         }
@@ -656,7 +655,7 @@ int main(int argc, char **argv)
     if (have_netmask && !mask_is_contiguous(netmask))
     {
         ami_config_format_ip(netmask, cni_text, sizeof(cni_text));
-        tool_error("%s is not a netmask: the ones must come first",
+        tool_error("%s is not a valid netmask",
                    (LONG)cni_text);
         FreeArgs(rda);
         return RETURN_ERROR;
@@ -674,7 +673,7 @@ int main(int argc, char **argv)
         }
         else if (!ami_config_parse_ip(g, &gateway))
         {
-            tool_error("\"%s\" is not an address. GATEWAY NONE clears it",
+            tool_error("\"%s\" is not an address",
                        (LONG)g);
             FreeArgs(rda);
             return RETURN_ERROR;
@@ -688,26 +687,14 @@ int main(int argc, char **argv)
      */
     if (args[ARG_ADDRESS6] != 0)
     {
-        tool_error("an interface's IPv6 address cannot be changed while it is "
-                   "running");
-        tool_printf("  Put  ADDRESS6 = %s  in DEVS:NetInterfaces/%s and bring "
-                    "the interface up again:\n",
-                    (LONG)args[ARG_ADDRESS6], (LONG)name);
-        tool_printf("     RemoveNetInterface %s\n     AddNetInterface %s\n",
-                    (LONG)name, (LONG)name);
+        tool_error("ADDRESS6 cannot be changed on a running interface");
         FreeArgs(rda);
         return RETURN_ERROR;
     }
 
     if (args[ARG_CONFIGURE6] != 0)
     {
-        tool_error("CONFIGURE6 is decided when the interface comes up, so it "
-                   "cannot be changed here");
-        tool_printf("  Put  CONFIGURE6 = %s  in DEVS:NetInterfaces/%s and "
-                    "bring the interface up again:\n",
-                    (LONG)args[ARG_CONFIGURE6], (LONG)name);
-        tool_printf("     RemoveNetInterface %s\n     AddNetInterface %s\n",
-                    (LONG)name, (LONG)name);
+        tool_error("CONFIGURE6 cannot be changed on a running interface");
         FreeArgs(rda);
         return RETURN_ERROR;
     }
@@ -725,12 +712,10 @@ int main(int argc, char **argv)
         }
         else if (!tool_parse_ip6(g, cni_gateway6))
         {
-            tool_error("\"%s\" is not an IPv6 address. GATEWAY6 NONE clears "
-                       "it", (LONG)g);
+            tool_error("\"%s\" is not an IPv6 address", (LONG)g);
 
             if (has_zone(g))
-                tool_printf("  The interface is the first argument here, so "
-                            "the %c<name> is not needed.\n", (LONG)'%');
+                tool_printf("  Omit the %czone suffix.\n", (LONG)'%');
 
             FreeArgs(rda);
             return RETURN_ERROR;
@@ -765,9 +750,7 @@ int main(int argc, char **argv)
 
         if (tool_stricmp(c, "DHCP") != 0)
         {
-            tool_error("CONFIGURE takes DHCP and nothing else. A link-local "
-                       "address is CONFIGURE=LINKLOCAL in "
-                       "DEVS:NetInterfaces/%s", (LONG)name);
+            tool_error("CONFIGURE accepts only DHCP");
             FreeArgs(rda);
             return RETURN_ERROR;
         }
@@ -776,8 +759,7 @@ int main(int argc, char **argv)
 
         if (have_netmask || have_gateway)
         {
-            tool_error("CONFIGURE=DHCP takes its netmask and gateway from the "
-                       "server, so NETMASK and GATEWAY cannot be given with it");
+            tool_error("NETMASK and GATEWAY cannot be used with CONFIGURE=DHCP");
             FreeArgs(rda);
             return RETURN_ERROR;
         }
@@ -789,15 +771,13 @@ int main(int argc, char **argv)
 
         if (!want_dhcp)
         {
-            tool_error("TIMEOUT is how long to wait for a lease, so it needs "
-                       "CONFIGURE=DHCP");
+            tool_error("TIMEOUT requires CONFIGURE=DHCP");
             FreeArgs(rda);
             return RETURN_ERROR;
         }
         if (seconds < CNI_DHCP_TIMEOUT_MIN)
         {
-            tool_error("a TIMEOUT of less than %ld seconds is too short to "
-                       "tell anything about the network",
+            tool_error("TIMEOUT must be at least %ld seconds",
                        (LONG)CNI_DHCP_TIMEOUT_MIN);
             FreeArgs(rda);
             return RETURN_ERROR;
@@ -816,8 +796,7 @@ int main(int argc, char **argv)
 
         if (asked > 1)
         {
-            tool_error("ONLINE, OFFLINE, UP and DOWN are four states, so only "
-                       "one of them can be asked for at a time");
+            tool_error("ONLINE, OFFLINE, UP and DOWN are mutually exclusive");
             FreeArgs(rda);
             return RETURN_ERROR;
         }
@@ -846,7 +825,7 @@ int main(int argc, char **argv)
            down to what the hardware will carry. */
         if (bytes < CNI_MTU_MIN)
         {
-            tool_error("an MTU of %ld is below the %ld bytes IPv4 requires",
+            tool_error("MTU %ld is below the IPv4 minimum of %ld",
                        bytes, (LONG)CNI_MTU_MIN);
             FreeArgs(rda);
             return RETURN_ERROR;
@@ -877,9 +856,7 @@ int main(int argc, char **argv)
         !have_mdns && !want_dhcp && !want_release && !have_mtu && !have_state &&
         !have_priority)
     {
-        tool_error("nothing to change: give ADDRESS, NETMASK, GATEWAY, "
-                   "GATEWAY6, MDNS, MTU, PRIORITY, CONFIGURE, RELEASE, or one "
-                   "of ONLINE, OFFLINE, UP and DOWN");
+        tool_error("nothing to change");
         FreeArgs(rda);
         return RETURN_ERROR;
     }
@@ -888,8 +865,7 @@ int main(int argc, char **argv)
        re-address an interface in it is not what was asked for. */
     if (!tool_stack_library_running())
     {
-        say("The network is not running, so there is no interface to "
-            "configure.\n");
+        say("Network not running.\n");
         FreeArgs(rda);
         return RETURN_WARN;
     }
@@ -906,7 +882,7 @@ int main(int argc, char **argv)
     index = find_index(base, name);
     if (index == -2)
     {
-        tool_error("the network did not say which interfaces it has");
+        tool_error("cannot read the interface list");
         tool_explain_no_netstatus(base);
         tool_netstatus_close(base);
         FreeArgs(rda);
@@ -914,7 +890,7 @@ int main(int argc, char **argv)
     }
     if (index < 0)
     {
-        tool_error("there is no interface called \"%s\"", (LONG)name);
+        tool_error("no interface \"%s\"", (LONG)name);
         tool_netstatus_close(base);
         FreeArgs(rda);
         return RETURN_FAIL;
@@ -932,11 +908,9 @@ int main(int argc, char **argv)
         if (v6 <= 0)
         {
             if (v6 == 0)
-                tool_error("this bsdsocket.library was built without IPv6, "
-                           "so there is no IPv6 route to change");
+                tool_error("bsdsocket.library has no IPv6 support");
             else
-                tool_error("the network did not say whether it has IPv6, so "
-                           "nothing was changed");
+                tool_error("cannot determine IPv6 support");
             tool_netstatus_close(base);
             FreeArgs(rda);
             return RETURN_FAIL;
@@ -954,9 +928,7 @@ int main(int argc, char **argv)
         if (!apply_state(base, name, FALSE, 0, TRUE, state, &err))
         {
             if (err == CNI_ENOSYS)
-                tool_error("this bsdsocket.library was built without the "
-                           "interface-administration vectors, so its state "
-                           "cannot be changed here");
+                tool_error("bsdsocket.library cannot change interface state");
             else
                 tool_error("%s did not go online", (LONG)name);
 
@@ -984,8 +956,7 @@ int main(int argc, char **argv)
             return RETURN_FAIL;
         }
 
-        say("%s: the lease is released. The address stays until something "
-            "else changes it\n", (LONG)name);
+        say("%s: lease released\n", (LONG)name);
     }
 
     if (want_dhcp)
@@ -1001,16 +972,14 @@ int main(int argc, char **argv)
             if (err == CNI_ENOTCONN)
                 tool_error("%s has no lease to renew", (LONG)name);
             else if (err == CNI_EBUSY)
-                tool_error("%s is already asking a DHCP server for an "
-                           "address. Wait for that request to be answered or "
-                           "to give up, then ask again", (LONG)name);
+                tool_error("%s: DHCP request already in progress", (LONG)name);
             else if (renewing)
-                tool_error("%s has no DHCP client to ask", (LONG)name);
+                tool_error("%s has no DHCP client", (LONG)name);
             else
             {
                 const NetStatusDhcp *d = dhcp_row(base, index);
 
-                tool_error("%s did not start a DHCP request: its client is %s",
+                tool_error("%s: DHCP request not started (client %s)",
                            (LONG)name,
                            (LONG)raw_state_name((d != NULL) ? d->nsd_RawState
                                                             : (UWORD)0));
@@ -1068,8 +1037,7 @@ int main(int argc, char **argv)
             else if (err == CNI_EINVAL && have_gateway && gateway != 0)
             {
                 ami_config_format_ip(gateway, cni_text, sizeof(cni_text));
-                tool_error("%s is not on any of this machine's own subnets, "
-                           "so nothing here can reach it", (LONG)cni_text);
+                tool_error("%s is not on a local subnet", (LONG)cni_text);
             }
             else
             {
@@ -1095,12 +1063,12 @@ int main(int argc, char **argv)
         {
             if (gateway == 0)
             {
-                say("%s: the default gateway is cleared\n", (LONG)name);
+                say("%s: default gateway cleared\n", (LONG)name);
             }
             else
             {
                 ami_config_format_ip(gateway, cni_text, sizeof(cni_text));
-                say("%s: the default gateway is %s\n", (LONG)name, (LONG)cni_text);
+                say("%s: default gateway %s\n", (LONG)name, (LONG)cni_text);
             }
         }
     }
@@ -1129,8 +1097,7 @@ int main(int argc, char **argv)
 
             if (found < 0)
             {
-                tool_error("%s: the IPv6 routes could not be read, so the "
-                           "default router was not changed", (LONG)name);
+                tool_error("%s: cannot read IPv6 routes", (LONG)name);
                 tool_netstatus_close(base);
                 FreeArgs(rda);
                 return RETURN_FAIL;
@@ -1143,7 +1110,7 @@ int main(int argc, char **argv)
         if (!drop_routers6(base, index, clear_gateway6 ? NULL : cni_gateway6,
                            &dropped, &err))
         {
-            tool_error("%s: the IPv6 default router was not removed",
+            tool_error("%s: IPv6 default router not removed",
                        (LONG)name);
             tool_netstatus_close(base);
             FreeArgs(rda);
@@ -1153,14 +1120,14 @@ int main(int argc, char **argv)
         if (clear_gateway6)
         {
             if (dropped == 0)
-                say("%s: there was no IPv6 default router to clear\n",
+                say("%s: no IPv6 default router\n",
                     (LONG)name);
             else
-                say("%s: the IPv6 default router is cleared\n", (LONG)name);
+                say("%s: IPv6 default router cleared\n", (LONG)name);
         }
         else if (already6)
         {
-            say("%s: the IPv6 default router is %s\n", (LONG)name,
+            say("%s: IPv6 default router %s\n", (LONG)name,
                 (LONG)gwtext);
         }
         else
@@ -1168,28 +1135,25 @@ int main(int argc, char **argv)
             if (control6(base, NETCTRL_ROUTE6_ADD, index, cni_gateway6, &err) != 0)
             {
                 if (err == CNI_ENOSYS)
-                    tool_error("this bsdsocket.library was built without "
-                               "IPv6, so there is no IPv6 route to change");
+                    tool_error("bsdsocket.library has no IPv6 support");
                 else if (err == CNI_ENOBUFS)
-                    tool_error("this stack holds no more default routers, so "
-                               "%s was not added", (LONG)gwtext);
+                    tool_error("default router table full; %s not added", (LONG)gwtext);
                 else if (err == CNI_EINVAL)
                     tool_error("%s was refused as a next hop for %s",
                                (LONG)gwtext, (LONG)name);
                 else
-                    tool_error("%s: the IPv6 default router was not set to %s",
+                    tool_error("%s: IPv6 default router not set to %s",
                                (LONG)name, (LONG)gwtext);
 
                 if (dropped != 0)
-                    tool_printf("  The router it had was removed first, so "
-                                "there is none now.\n");
+                    tool_printf("  The previous default router was removed.\n");
 
                 tool_netstatus_close(base);
                 FreeArgs(rda);
                 return RETURN_FAIL;
             }
 
-            say("%s: the IPv6 default router is %s\n", (LONG)name,
+            say("%s: IPv6 default router %s\n", (LONG)name,
                 (LONG)gwtext);
         }
 
@@ -1204,10 +1168,9 @@ int main(int argc, char **argv)
                     mdns_on ? (ULONG)NETCTRL_F_MDNS : 0UL, &err) != 0)
         {
             if (err == CNI_ENOSYS)
-                tool_error("this bsdsocket.library was built without mDNS, "
-                           "so there is nothing to switch");
+                tool_error("bsdsocket.library has no mDNS support");
             else if (err == CNI_EIO)
-                tool_error("%s did not %s answering .local", (LONG)name,
+                tool_error("%s: mDNS %s failed", (LONG)name,
                            (LONG)(mdns_on ? "start" : "stop"));
             else if (err == CNI_ENXIO)
                 tool_error("%s is no longer attached", (LONG)name);
@@ -1222,11 +1185,10 @@ int main(int argc, char **argv)
 
         /* Probing is not waited for, so this says what was started. */
         if (mdns_on)
-            say("%s: answering .local here, and the name is claimed now\n",
+            say("%s: mDNS on\n",
                 (LONG)name);
         else
-            say("%s: no longer answering .local here, and the network was "
-                "told to forget the name\n", (LONG)name);
+            say("%s: mDNS off\n", (LONG)name);
     }
 
     /*
@@ -1241,16 +1203,13 @@ int main(int argc, char **argv)
         if (!apply_state(base, name, have_mtu, mtu, late_state, state, &err))
         {
             if (err == CNI_ENOSYS)
-                tool_error("this bsdsocket.library was built without the "
-                           "interface-administration vectors, so neither the "
-                           "MTU nor the state can be changed here");
+                tool_error("bsdsocket.library cannot change MTU or interface state");
             else if (err == CNI_ENETDOWN)
-                tool_error("%s is not on the network, so its MTU cannot be "
-                           "set", (LONG)name);
+                tool_error("%s is offline; MTU not set", (LONG)name);
             else if (have_mtu && !late_state)
-                tool_error("%s did not take an MTU of %lu", (LONG)name, mtu);
+                tool_error("%s: MTU %lu refused", (LONG)name, mtu);
             else if (have_mtu)
-                tool_error("%s: neither the MTU nor %s was applied",
+                tool_error("%s: MTU and %s not applied",
                            (LONG)name, (LONG)state_word(state));
             else
                 tool_error("%s did not go %s", (LONG)name,
@@ -1268,8 +1227,7 @@ int main(int argc, char **argv)
             if (find_index(base, name) >= 0 && (row = iface_row(index)) != NULL)
                 say("%s: MTU %lu\n", (LONG)name, row->nsi_MTU);
             else
-                say("%s: MTU %lu was asked for; the MTU in use could not be "
-                    "read back\n", (LONG)name, mtu);   /* F-148 */
+                say("%s: MTU %lu set, not verified\n", (LONG)name, mtu);   /* F-148 */
         }
 
         if (late_state)
@@ -1289,9 +1247,7 @@ int main(int argc, char **argv)
             if (err == CNI_ENXIO)
                 tool_error("%s is no longer attached", (LONG)name);
             else if (err == CNI_ENOSYS)
-                tool_error("this bsdsocket.library predates PRIORITY on a "
-                           "running interface; put PRIORITY=%ld in its "
-                           "interface file instead", priority);
+                tool_error("bsdsocket.library cannot change PRIORITY on a running interface");
             else
                 tool_error("%s: PRIORITY %ld was refused", (LONG)name,
                            priority);
@@ -1301,16 +1257,14 @@ int main(int argc, char **argv)
             return RETURN_FAIL;
         }
 
-        say("%s: priority %ld; the interface file still says what it said, "
-            "so the next boot does not\n", (LONG)name, priority);
+        say("%s: priority %ld until reboot\n", (LONG)name, priority);
     }
 
     /* Said last, so it is the line left on the screen. */
     if (!want_dhcp && (have_address || have_netmask || have_gateway) &&
         on_dhcp(base, index))
     {
-        say("%s takes its address by DHCP, so the next lease writes over "
-            "this.\n", (LONG)name);
+        say("%s uses DHCP; the next lease replaces this\n", (LONG)name);
     }
 
     tool_netstatus_close(base);

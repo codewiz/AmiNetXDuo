@@ -741,7 +741,7 @@ static VOID usage(VOID)
 
 static VOID say_no_stack(VOID)
 {
-    tool_error("the network is not running, so it has no routes");
+    tool_error("network not running");
 }
 
 static LONG run_ipv6(const LONG *args, BOOL have_default)
@@ -843,7 +843,7 @@ static LONG run_ipv6(const LONG *args, BOOL have_default)
 
             if (via.have_zone)
             {
-                tool_printf("  This machine has no interface called \"%s\".\n",
+                tool_printf("  No interface \"%s\".\n",
                             (LONG)via.zone);
             }
             else if (is_link_local6(via.addr))

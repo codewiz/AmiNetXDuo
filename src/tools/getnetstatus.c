@@ -283,7 +283,7 @@ int main(int argc, char **argv)
 
     if (check == NULL)
     {
-        say("The network is %s\n", (LONG)(running ? "running" : "not running"));
+        say("Network %s\n", (LONG)(running ? "running" : "not running"));
 
         for (i = 0; i < (UWORD)COND_COUNT; i++)
         {

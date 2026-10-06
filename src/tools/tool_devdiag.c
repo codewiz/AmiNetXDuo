@@ -387,7 +387,7 @@ LONG tool_find_interface(const char *name)
             return (LONG)i;
     }
 
-    tool_error("there is no interface called \"%s\"", (LONG)name);
+    tool_error("no interface \"%s\"", (LONG)name);
 
     if (cfg->interface_count == 0)
     {

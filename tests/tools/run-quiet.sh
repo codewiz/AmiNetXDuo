@@ -293,7 +293,7 @@ fi
 same_rc "SYS:ShowNetStatus" 1 "SYS:ShowNetStatus QUIET" 1 \
         "and returns what the loud run returned"
 
-says "SYS:AddNetInterface nosuch0 QUIET" 1 'no interface called "nosuch0"' \
+says "SYS:AddNetInterface nosuch0 QUIET" 1 'no interface "nosuch0"' \
      "AddNetInterface QUIET still reports a missing interface file"
 want_rc "SYS:AddNetInterface nosuch0 QUIET" 1 20 "and still fails"
 
@@ -356,9 +356,9 @@ same_rc "SYS:DeleteNetRoute DESTINATION=192.168.77.0" 1 \
         "and returns what the loud run returned"
 
 says "SYS:ConfigureNetInterface nosuch0 QUIET ADDRESS 10.99.99.99/24" 1 \
-     'no interface called "nosuch0"' \
+     'no interface "nosuch0"' \
      "ConfigureNetInterface QUIET still reports an unknown interface"
-says "SYS:RemoveNetInterface nosuch0 QUIET" 1 'no interface called "nosuch0"' \
+says "SYS:RemoveNetInterface nosuch0 QUIET" 1 'no interface "nosuch0"' \
      "RemoveNetInterface QUIET still reports an unknown interface"
 
 says_nothing "SYS:NetShutdown QUIET" 1 "NetShutdown QUIET says nothing"

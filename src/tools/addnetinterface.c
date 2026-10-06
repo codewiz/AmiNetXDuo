@@ -145,7 +145,7 @@ static BOOL load_interface(const char *name, AmiIfConfig *ifc, BOOL again)
 
     if (err == AMI_CFG_ERR_IO)
     {
-        tool_error("there is no interface called \"%s\"", (LONG)name);
+        tool_error("no interface \"%s\"", (LONG)name);
         tool_explain_interface_file(name);
     }
     else if (err == AMI_CFG_ERR_SYNTAX)

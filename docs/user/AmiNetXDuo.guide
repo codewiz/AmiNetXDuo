@@ -1345,7 +1345,7 @@
 
   @{b}Errors@{ub}
 
-      AddNetInterface: there is no interface called "nosuchinterface"
+      AddNetInterface: no interface "nosuchinterface"
       AddNetInterface: DEVS:NetInterfaces/nosuchinterface: no such
       interface file
 
@@ -1467,7 +1467,7 @@
   reports that and returns a warning:
 
       1> Offline eth0
-      eth0 is already offline: the network is not running.
+      eth0 is offline: network not running.
 
   While an interface is offline nothing it carries reaches the
   network. ping still accepts the request and reports every one of
@@ -1619,7 +1619,7 @@
 
   @{b}Errors@{ub}
 
-      ShowNetStatus: there is no interface called "nosuch"
+      ShowNetStatus: no interface "nosuch"
 
   followed by the interfaces this machine does have. With no stack
   running there is no error. The summary reports the state instead:
@@ -2262,7 +2262,7 @@
   @{b}Symptom@{ub}
 
       1> AddNetInterface eth0
-      AddNetInterface: there is no interface called "eth0"
+      AddNetInterface: no interface "eth0"
       AddNetInterface: DEVS:NetInterfaces/eth0: no such interface file
 
   or

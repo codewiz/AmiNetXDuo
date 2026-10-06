@@ -55,7 +55,7 @@ static BOOL load_interface(const char *name, AmiIfConfig *ifc, BOOL loud)
 
     if (err == AMI_CFG_ERR_IO)
     {
-        tool_error("there is no interface called \"%s\"", (LONG)name);
+        tool_error("no interface \"%s\"", (LONG)name);
         tool_explain_interface_file(name);
     }
     else
@@ -768,7 +768,7 @@ int main(int argc, char **argv)
         if (tool_stack_library_running())
             return switch_live(name, &ifc, FALSE, timeout, rda);
 
-        tool_printf("%s is already offline: the network is not running.\n",
+        tool_printf("%s is offline: network not running.\n",
                     (LONG)name);
 
         FreeArgs(rda);

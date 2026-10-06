@@ -301,9 +301,9 @@ static void t_configurenetinterface(void)
           " this command names");
 
     catchall_excludes("configurenetinterface.c", text,
-                      "has no DHCP client to ask", "CNI_EBUSY");
+                      "has no DHCP client", "CNI_EBUSY");
 
-    CHECK(strstr(text, "already asking a DHCP server") != NULL,
+    CHECK(strstr(text, "DHCP request already in progress") != NULL,
           "configurenetinterface.c: the EBUSY refusal does not say a request"
           " is already in flight");
 
