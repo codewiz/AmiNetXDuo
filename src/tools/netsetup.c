@@ -944,7 +944,10 @@ int main(int argc, char **argv)
 {
     LONG           args[ARG_COUNT];
     struct RDArgs *rda;
-    Plan           plan;
+    /* Static: a Plan is the largest local here, and it would sit on the
+       Shell's 4 KB stack.  Every field is set before use, so the one copy
+       survives the single Process this command runs as. */
+    static Plan    plan;
     Blob          *blob;
     char           ifpath[PATH_LEN];
     BOOL           quiet;
