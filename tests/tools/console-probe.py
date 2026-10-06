@@ -687,6 +687,14 @@ class Screen:
         """One frame, in place.  Returns (seq, tiles, copies)."""
         if len(b) < 5:
             raise Bad("a frame is %d bytes" % len(b))
+        # Header byte 1 bit 0: the ops are zlib-deflated (the ZZ9000 console
+        # encoder sends large frames that way; wire.ts inflates the same).
+        if b[1] & 0x01:
+            try:
+                b = bytes(b[:1]) + bytes([b[1] & 0xFE]) + bytes(b[2:4]) + \
+                    zlib.decompress(bytes(b[4:]))
+            except zlib.error as e:
+                raise Bad("a deflated frame does not inflate: %s" % e)
         if b[0] != RFB_VERSION:
             raise Bad("frame version %d, not %d" % (b[0], RFB_VERSION))
 

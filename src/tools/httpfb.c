@@ -334,6 +334,13 @@ static UBYTE           fb_reset;
    if a band ever fails to offload.  See httpzz.h. */
 static BOOL            fb_offload;
 
+/* What the card's last band held beyond an empty frame (the four-byte header
+   and END).  The host encoder's counters do not move while the card encodes,
+   so this is what the still-screen backoff reads instead. */
+#define FB_OFFLOAD_EMPTY    5L
+#define FB_OFFLOAD_SMALL    64L
+static LONG            fb_zz_extra;
+
 /* Defined below fb_grab_frame(); forward-declared for the offload fallback,
    which drops the host encoder's shadow so its first frame after taking over
    is a full one. */
@@ -1619,6 +1626,8 @@ skip_readback:
             UWORD codec = HTTPZZ_CODEC_NONE;
 
             *encoded = httpzz_encode(ty0, ty1, out, out_cap, &codec);
+            fb_zz_extra = (*encoded > FB_OFFLOAD_EMPTY)
+                          ? *encoded - FB_OFFLOAD_EMPTY : 0L;
             if (*encoded < 0L || codec != HTTPZZ_CODEC_NONE)
             {
                 /* The card could not encode this band.  Give the offload up
@@ -1945,8 +1954,16 @@ static VOID fb_input_close(VOID)
 static VOID fb_write_event(VOID)
 {
     /* Whatever this is, the viewer did it, and the screen is about to answer:
-       an idle backoff in force ends here. */
+       an idle backoff in force ends here -- the count, and the wait already
+       scheduled from it, which otherwise held the answer up to the 500 ms end
+       of the ladder.  A pass in flight sets its own next tick when it ends. */
     fb_quiet = 0;
+    if (fb_next_tick != 0UL)
+    {
+        fb_next_tick = fb_ticks();
+        if (fb_next_tick == 0UL)
+            fb_next_tick = 1UL;
+    }
 
     if (!fb_in_open)
         return;
@@ -2821,10 +2838,14 @@ BOOL http_fb_slice(ULONG now)
             /* Aim each message at ~FB_OFFLOAD_BUDGET wire bytes, from the last
                frame's bytes-per-tile-row.  Cheap frame -> whole in one send;
                photo backdrop -> bounded chunks so the viewer keeps up. */
-            ULONG bpr = (fb_last_frame_bytes != 0UL)
-                        ? (fb_last_frame_bytes / (ULONG)fb_enc.tiles_y) : 0UL;
-            ULONG r   = (bpr != 0UL) ? (FB_OFFLOAD_BUDGET / (bpr ? bpr : 1UL))
-                                     : FB_OFFLOAD_DEFROWS;
+            /* Rows = budget / (bytes per row), without the intermediate
+               division: an empty frame is fewer bytes than there are rows,
+               and bytes per row truncated to 0 used to fall back to
+               FB_OFFLOAD_DEFROWS, five card calls a pass on a still screen. */
+            ULONG r   = (fb_last_frame_bytes != 0UL)
+                        ? (FB_OFFLOAD_BUDGET * (ULONG)fb_enc.tiles_y) /
+                          fb_last_frame_bytes
+                        : FB_OFFLOAD_DEFROWS;
             if (r < 1UL) r = 1UL;
             if (r > (ULONG)fb_enc.tiles_y) r = (ULONG)fb_enc.tiles_y;
             rows = (UWORD)r;
@@ -2878,7 +2899,24 @@ BOOL http_fb_slice(ULONG now)
             fb_hot_have = 1;
             fb_input_left = 0;          /* the viewer has its answer */
         }
-        if (rc == FB_GRAB_OK && !palette_moved &&
+        if (rc == FB_GRAB_OK && !palette_moved && fb_offload)
+        {
+            /* The card's band: a frame longer than empty found something.
+               A short one (a cursor, a clock digit) counts as one tile, so it
+               keeps the still-screen ladder where it is; more is drawing. */
+            if (fb_zz_extra != 0L)
+            {
+                fb_hot_ty0  = ty0;
+                fb_hot_have = 1;
+                fb_input_left = 0;
+                fb_pass_found = 1;
+                fb_pass_tiles += (fb_zz_extra <= FB_OFFLOAD_SMALL)
+                                 ? 1UL : (ULONG)FB_QUIET_SMALL + 1UL;
+            }
+            else if (fb_input_left != 0)
+                fb_input_left--;
+        }
+        else if (rc == FB_GRAB_OK && !palette_moved &&
             (fb_enc.st.tiles_dirty != was_dirty ||
              fb_enc.st.copies != was_copies))
         {
@@ -3115,17 +3153,16 @@ BOOL http_fb_write(ULONG now)
                rate 4.7 a second (7.7% of an Emu68 A1200) instead of two.
                More than FB_QUIET_SMALL tiles is somebody drawing.
 
-               The offload is exempt: the card holds the delta and encodes
-               every pass, so this end never sees fb_enc.st move and would read
-               every offloaded pass as still.  The still-screen backoff keys
-               off the host encoder's counters the offload bypasses; the card's
-               cadence is the duty cycle's (see FB_IDLE_DIVISOR) and not this. */
-            if (fb_offload)
+               The offload takes the same ladder, from the length of what the
+               card sent back (fb_zz_extra) rather than the host encoder's
+               counters, which do not move while the card encodes. */
+            if (fb_pass_found && fb_pass_tiles > (ULONG)FB_QUIET_SMALL)
                 fb_quiet = 0;
-            else if (fb_pass_found && fb_pass_tiles > (ULONG)FB_QUIET_SMALL)
-                fb_quiet = 0;
-            else if (!fb_pass_found && fb_quiet < 255)
-                fb_quiet++;
+            else if (!fb_pass_found && fb_quiet < 255 && fb_input_left == 0)
+                fb_quiet++;     /* not while a key's answer is being chased:
+                                   the chase's empty passes come before the
+                                   answer is drawn, and counting them put the
+                                   pass that finds it at the 500 ms end */
             fb_pass_found = 0;
             fb_pass_tiles = 0;
 

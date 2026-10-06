@@ -5,6 +5,8 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ## Unreleased
 
+- /console on a ZZ9000: an idle screen costs a fraction of the CPU it did,
+  and keystrokes show within 20 ms instead of up to half a second.
 - A long path (round trip at or above TCPGROWRTT) is offered the full TCP
   receive window on a card with little receive memory, such as a 3C589 or
   an X-Surf 100 without flow control, instead of what the card holds.  If
