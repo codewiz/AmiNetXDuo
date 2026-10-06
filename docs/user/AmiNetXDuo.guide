@@ -1312,7 +1312,7 @@
       1> AddNetInterface eth0
       eth0: a2065.device unit 0
       eth0: starting the network...
-      eth0: the network is running, but this machine has no address yet
+      eth0: online, no address
       AddNetInterface: eth0: no address from DHCP
 
   That is a WARN (5) rather than an error. See
@@ -1416,7 +1416,7 @@
   that has none reports it in words:
 
       1> Online eth0
-      eth0 is online but has no address yet
+      eth0: online, no address
       Online: eth0: no address from DHCP
 
 @endnode

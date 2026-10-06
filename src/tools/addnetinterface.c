@@ -971,8 +971,7 @@ int main(int argc, char **argv)
             {
                 if (!quiet)
                 {
-                    tool_printf("%s: the network is running, but this machine "
-                                "has no address yet\n", (LONG)name);
+                    tool_printf("%s: online, no address\n", (LONG)name);
 
                     if (ifc.iptype == AMI_IPTYPE_DHCP)
                         tool_explain_dhcp_waiting(name, timeout);
@@ -1117,8 +1116,7 @@ int main(int argc, char **argv)
             }
             else if (live_addr == 0)
             {
-                tool_printf("%s: online, but it has no address yet\n",
-                            (LONG)name);
+                tool_printf("%s: online, no address\n", (LONG)name);
 
                 if (ifc.iptype == AMI_IPTYPE_DHCP)
                     tool_explain_dhcp_waiting(name, timeout);

@@ -538,10 +538,8 @@ VOID tool_explain_dhcp(const char *name)
    two seconds later was reported as a failure (anxgenet, EAB, beta2). */
 VOID tool_explain_dhcp_waiting(const char *name, ULONG seconds)
 {
-    tool_printf("%s: %s: no lease from DHCP within %lu seconds; it keeps "
-                "asking.\n", (LONG)tool_name, (LONG)name, (LONG)seconds);
-    tool_printf("  ShowNetStatus %s shows the address when it arrives; "
-                "TIMEOUT=%lu waits longer.\n", (LONG)name, (LONG)(seconds * 3UL));
+    tool_printf("%s: %s: no DHCP lease after %lu s; still requesting\n",
+                (LONG)tool_name, (LONG)name, (LONG)seconds);
 }
 
 VOID tool_explain_resolve(const char *name, LONG err)

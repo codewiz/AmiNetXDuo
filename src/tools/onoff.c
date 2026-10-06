@@ -357,7 +357,7 @@ static VOID report_live_online(struct Library *base, const char *name,
     }
     else
     {
-        tool_printf("%s is online but has no address yet\n", (LONG)name);
+        tool_printf("%s: online, no address\n", (LONG)name);
     }
 }
 
@@ -552,7 +552,7 @@ static VOID report_linked_online(const char *name, UWORD index, ULONG addr)
     }
     else
     {
-        tool_printf("%s is online but has no address yet\n", (LONG)name);
+        tool_printf("%s: online, no address\n", (LONG)name);
     }
 }
 #endif
