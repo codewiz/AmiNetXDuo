@@ -166,6 +166,15 @@ ULONG ami_bsd_tcp_window_settle(ULONG created, ULONG maximum, ULONG bps,
 ULONG ami_bsd_tcp_window_fit(ULONG window, ULONG hw_bytes, ULONG mss);
 
 /*
+ * One connection's part of the card's memory when `sharers` connections on
+ * the unit are bounded by it (anxs2ext.h: ANXD_CMD_RX_CAPACITY is per unit,
+ * not per connection).  Two LAN senders each offered the whole ring fill it
+ * twice over.  0 or 1 sharers: all of it; 0 bytes stays 0 (not stated).
+ * Pure arithmetic, host-tested.
+ */
+ULONG ami_bsd_tcp_window_ring_share(ULONG hw_bytes, ULONG sharers);
+
+/*
  * Whether the card has to hold the whole window from the wire at once, and
  * so whether ami_bsd_tcp_window_fit() applies.  On a LAN round trip it does:
  * a peer there puts the window on the wire back to back.  On a long path

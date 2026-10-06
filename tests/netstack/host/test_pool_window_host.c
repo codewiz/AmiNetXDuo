@@ -555,6 +555,20 @@ static void i_the_window_settles_for_the_path_and_the_link(void)
     h_check(ami_bsd_tcp_window_fit(lan, 52UL * 256UL, 0UL) == lan,
             "a zero MSS was not left alone");
 
+    /* The capacity is the unit's: two connections bounded by a 13 KB ring
+       get four segments each, three get two (the floor), one gets all. */
+    h_check(ami_bsd_tcp_window_ring_share(52UL * 256UL, 1UL) == 52UL * 256UL &&
+            ami_bsd_tcp_window_ring_share(52UL * 256UL, 0UL) == 52UL * 256UL,
+            "one connection did not get the whole ring");
+    h_check(ami_bsd_tcp_window_fit(lan, ami_bsd_tcp_window_ring_share(
+                52UL * 256UL, 2UL), 1460UL) == 4UL * 1460UL,
+            "two connections were not offered half the ring each");
+    h_check(ami_bsd_tcp_window_fit(lan, ami_bsd_tcp_window_ring_share(
+                52UL * 256UL, 3UL), 1460UL) == 2UL * 1460UL,
+            "three connections fell below the two-segment floor");
+    h_check(ami_bsd_tcp_window_ring_share(0UL, 4UL) == 0UL,
+            "an unstated capacity became a stated one");
+
     /* TCPWANWINDOW: an X-Surf 100 (13 KB ring, 100 Mbit) on a long path may
        use the interface's opt-in window instead of the eight-segment fit;
        a LAN round trip keeps the fit, an unset value keeps it everywhere,

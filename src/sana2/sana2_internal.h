@@ -889,8 +889,10 @@ struct AmiSana2If
        attach, so its first pass asks). */
     BOOL                rx_capacity_live;
     ULONG               rx_capacity_at;
-    /* Set when an asking found a different answer; the reader's next drain
-       clears it and calls the capacity hook with the IP mutex held. */
+    /* Set when an asking found a different answer, and once a second while
+       a capacity is stated so the TCP layer re-shares it among the unit's
+       connections; the reader's next drain clears it and calls the
+       capacity hook with the IP mutex held. */
     BOOL                rx_capacity_changed;
     /* TCPGROWRTT in ms, 0 = BSD_TCP_WINDOW_GROW_RTT_MS (bsdsocket_window.h). */
     UWORD               tcp_grow_rtt;

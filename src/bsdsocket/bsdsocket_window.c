@@ -75,6 +75,11 @@ ULONG ami_bsd_tcp_window_fit(ULONG window, ULONG hw_bytes, ULONG mss)
     return (fit < window) ? fit : window;
 }
 
+ULONG ami_bsd_tcp_window_ring_share(ULONG hw_bytes, ULONG sharers)
+{
+    return (sharers > 1UL) ? hw_bytes / sharers : hw_bytes;
+}
+
 /* TCPGROWRTT, or the built-in line where the interface sets none. */
 static ULONG bsd_grow_rtt(ULONG grow_rtt_ms)
 {

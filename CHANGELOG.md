@@ -5,6 +5,9 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ## Unreleased
 
+- Connections receiving at once through one card share its memory: each
+  is offered its part of the window the card holds, not all of it, and
+  gets the rest back within a second of the others ending.
 - The httpd /console uses the ZZ9000 console encoder only when it reports
   service version 2; otherwise the host encodes the screen.
 - A received IPv4 frame shorter than its 20-byte header is dropped before

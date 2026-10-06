@@ -94,6 +94,13 @@ static ULONG bsd_udp_queue_max(struct AmiSocketBase *base)
  * every connection the web shell or a fetch has just finished sat in the
  * count for its 2MSL.
  */
+static BOOL bsd_tcp_draws(UINT state)
+{
+    return ((state >= NX_TCP_SYN_SENT && state <= NX_TCP_ESTABLISHED) ||
+            state == NX_TCP_FIN_WAIT_1 || state == NX_TCP_FIN_WAIT_2)
+           ? TRUE : FALSE;
+}
+
 static ULONG bsd_tcp_consumer_count(NX_IP *ip)
 {
     NX_TCP_SOCKET *tcp   = ip->nx_ip_tcp_created_sockets_ptr;
@@ -103,10 +110,7 @@ static ULONG bsd_tcp_consumer_count(NX_IP *ip)
 
     for (i = 0; i < total && tcp != NX_NULL; i++)
     {
-        UINT state = tcp->nx_tcp_socket_state;
-
-        if ((state >= NX_TCP_SYN_SENT && state <= NX_TCP_ESTABLISHED) ||
-            state == NX_TCP_FIN_WAIT_1 || state == NX_TCP_FIN_WAIT_2)
+        if (bsd_tcp_draws(tcp->nx_tcp_socket_state))
             live++;
 
         tcp = tcp->nx_tcp_socket_created_next;
@@ -190,6 +194,38 @@ static ULONG bsd_tcp_window_top(const NX_TCP_SOCKET *tcp)
 }
 
 /*
+ * The settled connections on `sana` whose window the card bounds (still able
+ * to receive, and burst-bound at the round trip they settled at): what
+ * shares the card's memory (ami_bsd_tcp_window_ring_share).  At least 1.
+ */
+static ULONG bsd_tcp_ring_sharers(NX_IP *ip, AmiSana2If *sana)
+{
+    NX_TCP_SOCKET *tcp   = ip->nx_ip_tcp_created_sockets_ptr;
+    ULONG          total = ip->nx_ip_tcp_created_sockets_count;
+    ULONG          bps   = ami_sana2_get_bps(sana);
+    ULONG          grow  = ami_sana2_get_tcp_grow_rtt(sana);
+    ULONG          n     = 0;
+    ULONG          i;
+
+    for (i = 0; i < total && tcp != NX_NULL; i++)
+    {
+        NX_INTERFACE *nxif = tcp->nx_tcp_socket_connect_interface;
+        AmiSocket    *sock = (AmiSocket *)tcp->nx_tcp_socket_reserved_ptr;
+
+        if (nxif != NX_NULL &&
+            (AmiSana2If *)nxif->nx_interface_additional_link_info == sana &&
+            sock != NULL && sock->as_SettleWant != 0 &&
+            bsd_tcp_draws(tcp->nx_tcp_socket_state) &&
+            ami_bsd_tcp_window_burst_bound(bps, sock->as_SettleRtt, grow))
+            n++;
+
+        tcp = tcp->nx_tcp_socket_created_next;
+    }
+
+    return (n != 0) ? n : 1UL;
+}
+
+/*
  * Apply a window the settle chose (`want`, before the card's bound) for the
  * link and round trip the socket has: the card's bound becomes the cap the
  * sender is offered, the buffer goes to what is behind it.  Growth needs the
@@ -200,7 +236,7 @@ static ULONG bsd_tcp_window_top(const NX_TCP_SOCKET *tcp)
  * come off, and the cap alone already keeps the sender within the card.
  */
 static VOID bsd_tcp_window_apply(NX_TCP_SOCKET *tcp, ULONG want, ULONG rtt_ms,
-                                 BOOL fresh)
+                                 BOOL fresh, ULONG sharers)
 {
     NX_INTERFACE *nxif = tcp->nx_tcp_socket_connect_interface;
     AmiSana2If   *sana = (nxif != NX_NULL)
@@ -208,8 +244,9 @@ static VOID bsd_tcp_window_apply(NX_TCP_SOCKET *tcp, ULONG want, ULONG rtt_ms,
                        : NULL;
     ULONG cur  = tcp->nx_tcp_socket_rx_window_default;
 
-    /* ... and never more than the card behind this interface can hold from
-       the wire at once (bsdsocket_window.h, ami_bsd_tcp_window_fit), where
+    /* ... and never more than this connection's part (`sharers`) of what
+       the card behind this interface can hold from the wire at once
+       (bsdsocket_window.h, ami_bsd_tcp_window_fit), where
        the whole window can arrive at once -- a LAN, or a card slower than
        the path (ami_bsd_tcp_window_burst_bound).  The segment size is the
        one the handshake settled: nx_tcp_socket_mss is what the application
@@ -220,7 +257,9 @@ static VOID bsd_tcp_window_apply(NX_TCP_SOCKET *tcp, ULONG want, ULONG rtt_ms,
     if (sana != NULL)
     {
         ULONG bound = ami_bsd_tcp_window_receive_bound(
-                          want, ami_sana2_get_hw_rx_bytes(sana),
+                          want,
+                          ami_bsd_tcp_window_ring_share(
+                              ami_sana2_get_hw_rx_bytes(sana), sharers),
                           tcp->nx_tcp_socket_connect_mss,
                           ami_sana2_get_bps(sana), rtt_ms,
                           ami_sana2_get_tcp_grow_rtt(sana),
@@ -289,7 +328,14 @@ VOID bsd_tcp_window_settle(NX_TCP_SOCKET *tcp, ULONG rtt_ms)
         sock->as_SettleRtt  = rtt_ms;
     }
 
-    bsd_tcp_window_apply(tcp, want, rtt_ms, TRUE);
+    /* The card's memory is the unit's: this connection takes its part, and
+       the others on the unit give up theirs before its data arrives. */
+    bsd_tcp_window_apply(tcp, want, rtt_ms, TRUE,
+                         (sana != NULL)
+                         ? bsd_tcp_ring_sharers(tcp->nx_tcp_socket_ip_ptr, sana)
+                         : 1UL);
+    if (sana != NULL)
+        bsd_tcp_window_recap(tcp->nx_tcp_socket_ip_ptr, sana);
 }
 
 /*
@@ -299,7 +345,9 @@ VOID bsd_tcp_window_settle(NX_TCP_SOCKET *tcp, ULONG rtt_ms)
  * would keep a window sized for the old answer: one sized for a paused link
  * overruns the ring when PAUSE goes.  Every settled connection on this
  * interface takes the window the new answer gives, from the inputs its
- * settle had, and the interface's cap -- what a connection offers before it
+ * settle had and its part of the card among the connections bounded by it
+ * (bsd_tcp_ring_sharers; also run once a second and on every settle, so a
+ * connection that ends gives its part back), and the interface's cap -- what a connection offers before it
  * is settled -- follows the answer too.  The SANA-II reader calls this with
  * nx_ip_protection held (sana2.h, AmiSana2CapacityHook): once when the unit
  * is attached, then on every change.
@@ -308,6 +356,7 @@ AMIGA_ASM_ARGS VOID bsd_tcp_window_recap(NX_IP *ip, AmiSana2If *sana)
 {
     NX_TCP_SOCKET *tcp   = ip->nx_ip_tcp_created_sockets_ptr;
     ULONG          total = ip->nx_ip_tcp_created_sockets_count;
+    ULONG          sharers = bsd_tcp_ring_sharers(ip, sana);
     ULONG          i;
 
     /* The interface's own cap first: what a connection on it offers from
@@ -342,7 +391,7 @@ AMIGA_ASM_ARGS VOID bsd_tcp_window_recap(NX_IP *ip, AmiSana2If *sana)
             sock != NULL && sock->as_SettleWant != 0 &&
             tcp->nx_tcp_socket_state >= NX_TCP_ESTABLISHED)
             bsd_tcp_window_apply(tcp, sock->as_SettleWant, sock->as_SettleRtt,
-                                 FALSE);
+                                 FALSE, sharers);
 
         tcp = tcp->nx_tcp_socket_created_next;
     }

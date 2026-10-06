@@ -2417,14 +2417,19 @@ static VOID ami_sana2_rx_thread(ULONG argument)
          * ANXD_CMD_RX_CAPACITY).  Asked again here, at most once a second
          * and only while this thread is being woken, so what a socket's
          * window settles against is from the last second the interface
-         * carried traffic.  One quick command.
+         * carried traffic.  One quick command.  The same second re-shares
+         * a stated capacity among the connections still using it: one that
+         * finished gives its part back (socket.c, bsd_tcp_ring_sharers).
          */
-        if (iface->rx_capacity_live &&
+        if ((iface->rx_capacity_live || iface->hw_rx_bytes != 0UL) &&
             (ULONG)tx_time_get() - iface->rx_capacity_at >=
                 (ULONG)TX_TIMER_TICKS_PER_SECOND)
         {
             iface->rx_capacity_at = (ULONG)tx_time_get();
-            ami_sana2_refresh_rx_capacity(iface);
+            if (iface->rx_capacity_live)
+                ami_sana2_refresh_rx_capacity(iface);
+            if (iface->hw_rx_bytes != 0UL)
+                iface->rx_capacity_changed = TRUE;
         }
 
         for (r = 0; r < (UWORD)AMI_SANA2_RX_READERS; r++)
