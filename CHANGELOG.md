@@ -5,6 +5,8 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ## Unreleased
 
+- A received IPv4 frame shorter than its 20-byte header is dropped before
+  its length field is read; a 1-byte frame could read past its buffer.
 - SANA-II extension (anxs2ext.h): version 3 only, with a fixed 24-byte
   record; a driver ignores a v1/v2 record and a second record in the same
   taglist.  TxFlags is called only when a transmit feature was accepted.

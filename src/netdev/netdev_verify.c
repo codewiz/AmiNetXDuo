@@ -33,8 +33,8 @@ UBYTE netdev_rx_verify4(const UBYTE *ip, UWORD plen, ULONG sum)
     ULONG acc;
     UWORD i;
 
-    if (ip == NULL || ip[0] != 0x45)
-        return 0;                       /* not IPv4, or options */
+    if (ip == NULL || plen < 20 || ip[0] != 0x45)
+        return 0;                       /* short, not IPv4, or options */
     total = nd_be16(ip + 2);
     if (total != plen || total < 20)
         return 0;                       /* padded, truncated, or short */
@@ -80,8 +80,8 @@ UBYTE netdev_rx_trust4(const UBYTE *ip, UWORD plen, UBYTE verdict)
     UWORD tlen;
     UBYTE proto;
 
-    if (ip == NULL || ip[0] != 0x45)
-        return 0;                       /* not IPv4, or IP options */
+    if (ip == NULL || plen < 20 || ip[0] != 0x45)
+        return 0;                       /* short, not IPv4, or IP options */
     total = nd_be16(ip + 2);
     if (total != plen || total < 20)
         return 0;                       /* padded, truncated, or short */

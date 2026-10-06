@@ -385,9 +385,41 @@ static void test_tx_checksum(void)
            netdev_tx_csum4(frame, len, ANXD_S2_TXF_TCP, &offset) == 0);
 }
 
+/* ANX-005: verify4/trust4 read the total length at ip+2 before checking
+   that the frame holds an IPv4 header at all.  Every length 0..19,
+   starting 0x45 and ending at an inaccessible page, must be refused without
+   reading past its end. */
+static void test_ipv4_short(void)
+{
+    UBYTE *end = guard_frame_end();
+    UWORD  n;
+    int    refused = 1;
+
+    if (end == NULL)
+    {
+        expect("IPv4 short frames: no guard page on this host", GUARD_PAGE == 0);
+        return;
+    }
+    /* Zero bytes: the pointer is the inaccessible page itself. */
+    if (netdev_rx_verify4(end, 0, 0) != 0 || netdev_rx_trust4(end, 0, 2) != 0)
+        refused = 0;
+    for (n = 1; n < 20; n++)
+    {
+        UBYTE *ip = end - n;
+
+        memset(ip, 0, n);
+        ip[0] = 0x45;
+        if (netdev_rx_verify4(ip, n, 0) != 0 ||
+            netdev_rx_trust4(ip, n, 2) != 0)
+            refused = 0;
+    }
+    expect("IPv4 frames shorter than a header are refused in bounds", refused);
+}
+
 int main(void)
 {
     test_ipv4();
+    test_ipv4_short();
     test_ipv6();
     test_ipv6_short();
     test_tx_checksum();
