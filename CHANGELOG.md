@@ -5,6 +5,11 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ## Unreleased
 
+- anxzz9000.device finds the asynchronous send of the current ZZ9000
+  firmware (status at 0x68) and takes its receive window from the firmware
+  (0x6C, 32 frames when absent).  A3000, 68060/50: 22.1 Mbit/s receive,
+  13.0 Mbit/s send.  The firmware completes a TCP/UDP checksum only for a
+  frame whose opener negotiated checksum offload.
 - The X-Surf 100 (and any AX88796B card) offers IEEE 802.3x flow control to
   the switch, and while the switch agrees the TCP receive window grows from 8
   to 32 frames.  On an A3000 with a 68060 at 50 MHz and a switch port with

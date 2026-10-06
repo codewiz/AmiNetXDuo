@@ -592,6 +592,8 @@ static VOID tx_offset2_negotiation(VOID)
     expect((command & (ZZ_TX_ASYNC | ZZ_TX_OFFSET2 | ZZ_TX_LEN_MASK)) ==
            (ZZ_TX_ASYNC | ZZ_TX_OFFSET2 | sizeof(frame)),
            "TX offset2: command selects shifted DMA source");
+    expect((command & ZZ_TX_CSUM) == 0,
+           "TX offset2: without negotiated offload no checksum consent (ANX-004)");
     expect(bulk_calls == 0, "TX offset2: no staging-to-window copy");
     expect(nic.core_stat[ZZ_ST_TX_DIRECT] == 1,
            "TX offset2: direct frame is observable in device statistics");
@@ -638,6 +640,8 @@ static VOID tx_offset2_checksum_owner(VOID)
 
     expect(zz_tx(&nic, direct, sizeof(frame)) == 0,
            "TX checksum: shifted frame accepted");
+    expect((*(UWORD *)(void *)(board.bytes + ZZ_REG_TX) & ZZ_TX_CSUM) != 0,
+           "TX checksum: a negotiated shifted frame carries the consent bit");
     expect(direct[50] == 0x12 && direct[51] == 0x34,
            "TX checksum: driver leaves shifted checksum for ARM preparation");
     expect(nic.core_stat[ZZ_ST_TX_CSUM] == 0,
@@ -650,6 +654,20 @@ static VOID tx_offset2_checksum_owner(VOID)
            "TX checksum: staged frame keeps the driver zeroing path");
     expect(nic.core_stat[ZZ_ST_TX_CSUM] == 1,
            "TX checksum: count only fields actually prepared by the 68k");
+}
+
+/* ANX-019: the capacity comes from the firmware's REG_ZZ_ETH_RX_FRAMES, not
+   from the async-send bit or RX_STATUS's transient reservation count. */
+static VOID rx_capacity_from_firmware_register(VOID)
+{
+    expect(zz_rx_capacity((UWORD)(ZZ_RXF_PRESENT | 56u)) == 56UL * 1514UL,
+           "RX capacity: firmware says 56 frames");
+    expect(zz_rx_capacity((UWORD)(ZZ_RXF_PRESENT | 32u)) == 32UL * 1514UL,
+           "RX capacity: firmware says 32 frames");
+    expect(zz_rx_capacity(0u) == 32UL * 1514UL,
+           "RX capacity: firmware without the register -> the ring's 32");
+    expect(zz_rx_capacity((UWORD)ZZ_RXF_PRESENT) == 32UL * 1514UL,
+           "RX capacity: a present but zero count is not trusted");
 }
 
 int main(void)
@@ -666,6 +684,7 @@ int main(void)
     tx_counter_reclaim();
     tx_offset2_negotiation();
     tx_offset2_checksum_owner();
+    rx_capacity_from_firmware_register();
 
     printf("%s: zz9000 payload alignment, %lu checks, %d failure%s\n",
            failures == 0 ? "PASS" : "FAIL", (unsigned long)checks, failures,

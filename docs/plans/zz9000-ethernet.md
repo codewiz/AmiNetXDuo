@@ -142,7 +142,7 @@ does not make that assumption.
 | # | finding | evidence | fix |
 |---|---|---|---|
 | 1 | a fresh frame's header stays hidden 0.1-4 ms, often longer: the 68k's poll of the empty slot allocated the line in the ARM's **L2**; the ARM's strongly-ordered header write and the GEM's DMA go past L2 to DDR | early-build counters: 20 interrupts per frame, "top halves: Ethernet pending" while the window read serial 0; 3.8 MB download at 2 KB/s | fw `841987a`: invalidate the slot's L2 lines after each header write / clear |
-| 2 | the synchronous send stalls the 68k bus until the GEM has sent (usleep(100) poll): 16 % of the CPU at 4.6 Mbit/s, all ACKs | profile: anxzz9000.device 8-9 % sampled with interrupts on = bus stalls | fw: `REG_ZZ_ETH_TX` bit 15 = async, slot in bits 12..11; `REG_ZZ_ETH_TX_STATUS` 0x8a (low half of the 0x88 longword) bit 15 present, 14..0 frames done; `TXBD_CNT` 4; SendHandler retires every completed BD |
+| 2 | the synchronous send stalls the 68k bus until the GEM has sent (usleep(100) poll): 16 % of the CPU at 4.6 Mbit/s, all ACKs | profile: anxzz9000.device 8-9 % sampled with interrupts on = bus stalls | fw: `REG_ZZ_ETH_TX` bit 15 = async, slot in bits 12..11; `REG_ZZ_ETH_TX_STATUS` 0x68 (its own aligned register; first 0x8a, now upstream's ETH_CONFIG) bit 15 present, 14..0 frames done; `TXBD_CNT` 4; SendHandler retires every completed BD |
 | 3 | the sender was rwnd-limited 99.8 %: the A3000 advertises a 20 KB window (SYN-ACK win 19992, wscale 0) | `ss -ti`; pool = avail/16/1.7 KB ~ 300 packets, TCP budget /8, split among every live socket incl. listeners | `SetEnv ANXDPOOLPACKETS 1024` -> 31 KB window, 8.0 Mbit/s. Stack policy, not driver |
 | 4 | with a bigger window every frame past the **32nd of a burst** is lost in the GEM, nothing counts it (no BUFFNA, no RXOVR, no serial gap) | capture: lost originals at burst positions 32,33,34 of 33-35; 25-275 retransmits / 10 s | fw: `RXBD_CNT` 64, HIGH watermark 120 pending, LOW 96; driver advertises 56 frames (`ZZ_ARM_RING_FRAMES_FORK`) so the window fit stays under the armed descriptors; card rows say 100 Mbit/s so `ami_bsd_tcp_window_burst_bound()` applies the fit |
 | 5 | `Xil_L2CacheInvalidateRange` masks IRQs, disables L2 line fills, syncs per line; a lean INV_PA loop without polling **drops lines** (PL310) -> stale payload, half the frames failed the checksum | 152 of 300 verified | fw: poll INV_PA bit 0 per line, one sync at the end |
@@ -274,7 +274,7 @@ shares that mains.
 3. `RAM:zz9k`: `DEVICE=Workbench:AmiNetXDuo/Devs/Networks/anxzz9000.device`, `UNIT=0`, `CONFIGURE=DHCP`, `MDNS=NO`, `PRIORITY=0`. An `AmiNetXDuo:` assign cannot be assumed on this boot.
 4. Measure: `iperf -s -t 30 -q` on the Amiga, `iperf -c 192.168.1.175 -t 12` here, `ss -tin` for rwnd_limited/retrans, `NetDevStats DEVICE anxzz9000.device`, `netstat -s`, card registers with `RAM:zzreg 8a|8c|8e|ac|a8`.
 5. Firmware: `ZZFwUpdate RAM:BOOT.bin` (the file must be named BOOT.bin), then a power cycle -- a warm reboot does not reload the card, and a warm reboot brings the card's 256 MB Z3 RAM online while a cold one does not (`Avail`), which moves where the pool lands.
-6. Registers added by the fork: 0x8a TX status; 0xa6 checksum capabilities
+6. Registers added by the fork: 0x68 TX status (was 0x8a until the upstream merge made that ETH_CONFIG); 0xa6 checksum capabilities
    (bit 15 RX metadata, bit 14 TX insertion) and current RX verdict in bits
    1..0; 0xa8/0xaa longest service-loop pass and its tag; 0xac/0xae GEM RX
    FIFO overruns and error interrupts.

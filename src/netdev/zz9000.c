@@ -44,9 +44,12 @@
  * 4.6 Mbit/s of receive, all of it ACKs.  This project's firmware
  * (tinic/zz9000-firmware, branch aminetxduo) adds an asynchronous send:
  * bit 15 of the length word names one of the four 2 KB slots of the TX
- * window in bits 12..11 and gets the bus back at once, and +0x8a counts the
+ * window in bits 12..11 and gets the bus back at once, and +0x68 counts the
  * frames finished (bit 15 set says the firmware has the path; MNT's reads
- * the register as 0).  The core takes whichever it finds at attach.
+ * the register as 0).  The core takes whichever it finds at attach.  The
+ * fork first put the status at +0x8a, which upstream has since made
+ * REG_ZZ_ETH_CONFIG; that read never sets bit 15, so a driver looking there
+ * on current firmware falls back to the synchronous send.
  *
  * The interrupt is INT6 (INTB_EXTER) by default, or INT2 (INTB_PORTS) when
  * current firmware reports `int2 = on` in ZZ9000.CFG.  The server only masks
@@ -88,11 +91,14 @@ extern struct ExecBase *SysBase;
 #define ZZ_REG_MAC_MID      0x0086UL
 #define ZZ_REG_MAC_LO       0x0088UL
 #define ZZ_REG_RX_STATUS    0x008cUL
+#define ZZ_REG_RX_FRAMES    0x006cUL    /* firmware: receive capacity, ANX-019 */
+#define ZZ_RXF_PRESENT      0x8000u
+#define ZZ_RXF_COUNT        0x7fffu
 #define ZZ_REG_RX_META      0x00a6UL    /* fork: current GEM RX verdict */
 #define ZZ_REG_CONFIG_KEY   0x00e8UL
 #define ZZ_REG_CONFIG_PRESENT 0x00eaUL
 
-#define ZZ_REG_TX_STATUS    0x008aUL    /* the fork's firmware, else reads 0 */
+#define ZZ_REG_TX_STATUS    0x0068UL    /* the fork's firmware, else reads 0 */
 
 #define ZZ_RX_WINDOW        0x2000UL
 #define ZZ_RX_PAD           4           /* UWORD length, UWORD serial */
@@ -103,6 +109,10 @@ extern struct ExecBase *SysBase;
 /* The length word of an asynchronous send, and the status register. */
 #define ZZ_TX_ASYNC         0x8000u
 #define ZZ_TX_OFFSET2       0x4000u
+/* Shifted frames only: the TCP/UDP checksum field holds the stack's seed and
+   the firmware zeroes it for the GEM.  Without it the frame goes as written
+   (ABI review ANX-004). */
+#define ZZ_TX_CSUM          0x2000u
 #define ZZ_TX_SLOT_SHIFT    11
 #define ZZ_TX_LEN_MASK      0x07ffu
 #define ZZ_TXS_PRESENT      0x8000u
@@ -122,11 +132,11 @@ extern struct ExecBase *SysBase;
 
 /*
  * Frames the ARM holds before it loses one, what the opener's window
- * arithmetic is told (ANXD_CMD_RX_CAPACITY).  MNT's release firmware: a
- * 32-slot ring and 32 receive descriptors.  This project's fork: 128 slots,
- * 64 descriptors armed, and no more armed once 120 are pending (ethernet.c
- * ETH_BACKLOG_HIGH_WATERMARK), so 56 may sit queued for the 68k before the
- * card pauses the wire -- and a pause is not felt in time by a gigabit
+ * arithmetic is told (ANXD_CMD_RX_CAPACITY).  MNT's release firmware and
+ * upstream: 32 receive descriptors.  Firmware arming 64 (this project's
+ * fork, upstream with the 64-descriptor change), no more armed once 120 are
+ * pending (ethernet.c ETH_BACKLOG_HIGH_WATERMARK), so 56 may sit queued for
+ * the 68k before the card pauses the wire -- and a pause is not felt in time by a gigabit
  * sender behind a switch.  What the number buys: a sender on the same
  * switch puts the whole window on the wire back to back, and every frame
  * of that burst past the armed descriptors is lost in the GEM with nothing
@@ -277,6 +287,23 @@ static VOID zz_write_mac(NetdevNic *nic)
     zz_put(nic, ZZ_REG_MAC_LO,  (UWORD)(((UWORD)nic->mac[4] << 8) | nic->mac[5]));
 }
 
+/*
+ * What a sender may put on the wire at once, in bytes, from the firmware's
+ * REG_ZZ_ETH_RX_FRAMES (0x6C): bit 15 present, bits 14..0 the frames it takes
+ * without dropping or pausing (56 on a 64-descriptor build).  Not inferred
+ * from the async-send bit or from REG_ZZ_ETH_RX_STATUS, whose bits 14..8 are
+ * a transient reservation count (ABI review ANX-019).  Firmware without the
+ * register reads 0: MNT's and upstream's 32-frame ring.
+ */
+static ULONG zz_rx_capacity(UWORD rx_frames)
+{
+    UWORD frames = (UWORD)(rx_frames & ZZ_RXF_COUNT);
+
+    if ((rx_frames & ZZ_RXF_PRESENT) == 0 || frames == 0)
+        frames = (UWORD)ZZ_ARM_RING_FRAMES_MNT;
+    return (ULONG)frames * (1500UL + 14UL);
+}
+
 /* -------------------------------------------------------------- attach -- */
 
 static LONG zz_attach(NetdevNic *nic)
@@ -351,10 +378,7 @@ static LONG zz_attach(NetdevNic *nic)
         nic->txb_cnt = fork ? ZZ_TX_SLOTS : 1;
         nic->tx_done = (UWORD)(txs & ZZ_TXS_COUNT);
         nic->tx_next = 0;
-        /* What the ARM holds for us before it drops (or, on the fork,
-           pauses the wire). */
-        nic->rx_capacity = (fork ? ZZ_ARM_RING_FRAMES_FORK
-                                 : ZZ_ARM_RING_FRAMES_MNT) * (1500UL + 14UL);
+        nic->rx_capacity = zz_rx_capacity(zz_get(nic, ZZ_REG_RX_FRAMES));
         ZZ(nic)->rx_meta = (UBYTE)((rxm & ZZ_RXM_PRESENT) != 0);
         nic->tx_at = (fork && (rxm & ZZ_RXM_TX_OFFSET2) != 0)
                    ? zz_tx_at : NULL;
@@ -981,6 +1005,7 @@ static LONG zz_tx(NetdevNic *nic, const UBYTE *frame, UWORD len)
          * benefit of placing the IP payload on an aligned card address. */
         zz_put(nic, ZZ_REG_TX,
                (UWORD)(ZZ_TX_ASYNC | (offset2 ? ZZ_TX_OFFSET2 : 0) |
+                       ((offset2 && nic->tx_csum != 0) ? ZZ_TX_CSUM : 0) |
                        (UWORD)(slot << ZZ_TX_SLOT_SHIFT) | len));
         if (offset2)
             nic->core_stat[ZZ_ST_TX_DIRECT]++;
