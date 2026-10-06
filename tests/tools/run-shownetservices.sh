@@ -225,7 +225,7 @@ says "SYS:ShowNetServices _http" 1 \
 want_rc "SYS:ShowNetServices _http" 1 10 "and returns ERROR"
 
 says "SYS:ShowNetServices _http._tcp ALL" 1 \
-     "^ShowNetServices: ALL browses every type, so it takes no type$" \
+     "^ShowNetServices: ALL takes no TYPE$" \
      "ALL with a type is refused, and says why"
 want_rc "SYS:ShowNetServices _http._tcp ALL" 1 10 "and returns ERROR"
 
@@ -242,23 +242,23 @@ done
 says "SYS:ShowNetServices" 1 "not (running|started)" \
      "with no stack, a browse says the network is not running"
 want_rc "SYS:ShowNetServices" 1 10 "and returns ERROR"
-silent_about "SYS:ShowNetServices" 1 "^Asking " \
+silent_about "SYS:ShowNetServices" 1 "listening [0-9]+ second" \
      "and it never opened a window to listen in"
 
 want_rc "SYS:AddNetInterface eth0" 1 0 "eth0 came up, with MDNS=YES"
 
 says "SYS:ShowNetServices" 2 \
-     "^Asking what this network offers, listening 3 seconds\.\.\.$" \
+     "^listening 3 seconds$" \
      "a browse with no type asks what the network offers, and for how long"
-says "SYS:ShowNetServices" 2 "^Nothing answered in 3 seconds\.$" \
+says "SYS:ShowNetServices" 2 "^no answer in 3 seconds$" \
      "and says that nothing answered, in the same number of seconds"
 want_rc "SYS:ShowNetServices" 2 5 "returning WARN, not an error"
 waited "SYS:ShowNetServices" 2 3 "it listened for its full three seconds"
 
 says "SYS:ShowNetServices SECONDS=1" 1 \
-     "^Asking what this network offers, listening 1 second\.\.\.$" \
+     "^listening 1 second$" \
      "SECONDS=1 is echoed as one second, singular"
-says "SYS:ShowNetServices SECONDS=1" 1 "^Nothing answered in 1 second\.$" \
+says "SYS:ShowNetServices SECONDS=1" 1 "^no answer in 1 second$" \
      "and the answer counts the same second"
 want_rc "SYS:ShowNetServices SECONDS=1" 1 5 "returning WARN"
 waited "SYS:ShowNetServices SECONDS=1" 1 1 "and it waited one second"
@@ -272,25 +272,25 @@ else
          "SECONDS is not what the command waits for"
 fi
 
-silent_about "SYS:ShowNetServices QUIET" 1 "^Asking " \
+silent_about "SYS:ShowNetServices QUIET" 1 "listening [0-9]+ second" \
      "QUIET says nothing about what it is doing"
-says "SYS:ShowNetServices QUIET" 1 "^Nothing answered in 3 seconds\.$" \
+says "SYS:ShowNetServices QUIET" 1 "^no answer in 3 seconds$" \
      "but still answers the question that was asked"
 want_rc "SYS:ShowNetServices QUIET" 1 5 "returning WARN"
 
 says "SYS:ShowNetServices _http._tcp TXT" 1 \
-     "^Asking for _http\._tcp, listening 3 seconds\.\.\.$" \
+     "^_http\._tcp: listening 3 seconds$" \
      "a well-formed type is asked for by name"
 says "SYS:ShowNetServices _http._tcp TXT" 1 \
-     "^Nothing answered for _http\._tcp in 3 seconds\.$" \
+     "^_http\._tcp: no answer in 3 seconds$" \
      "and the empty answer names the type too"
 want_rc "SYS:ShowNetServices _http._tcp TXT" 1 5 "returning WARN"
 waited "SYS:ShowNetServices _http._tcp TXT" 1 3 "after its full window"
 
 says "SYS:ShowNetServices ALL" 1 \
-     "^Asking what this network offers, listening 3 seconds\.\.\.$" \
+     "^listening 3 seconds$" \
      "ALL starts with the same meta-query"
-silent_about "SYS:ShowNetServices ALL" 1 "^Asking after " \
+silent_about "SYS:ShowNetServices ALL" 1 "^[0-9]+ types?, listening " \
      "and does not open a second window when the first found no types"
 want_rc "SYS:ShowNetServices ALL" 1 5 "returning WARN"
 waited "SYS:ShowNetServices ALL" 1 3 "having waited one window and not two"

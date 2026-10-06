@@ -70,54 +70,38 @@ static const char *cnd_why(ULONG why)
     switch (why)
     {
     case ANXDIAG_WHY_CR:
-        return "the command register did not read back as a stopped DP8390. "
-               "Either nothing is decoding at that address, or what is there "
-               "is not a DP8390";
+        return "command register is not a stopped DP8390";
     case ANXDIAG_WHY_ODD:
-        return "the odd-numbered registers did not answer a read, as bytes or "
-               "as words.  A chip is answering at the even addresses and not "
-               "at the odd ones";
+        return "odd registers do not answer (bytes or words)";
     case ANXDIAG_WHY_ODD_BNRY:
-        return "the odd-numbered registers answered a read but did not hold "
-               "a value written to them, as bytes or as words.  Half the "
-               "register file is decoding and half is not";
+        return "odd registers do not hold a written value (bytes or words)";
     case ANXDIAG_WHY_BUFFER:
-        return "a 32-byte pattern written through the data port did not read "
-               "back, so the data port itself is wrong";
+        return "data port failed a 32-byte pattern";
     case ANXDIAG_WHY_MEM:
-        return "the data port works: a 32-byte pattern went through it and "
-               "came back. A full pass over the 16 KB packet buffer did not, "
-               "so the buffer RAM behind it is bad";
+        return "packet buffer RAM failed (16 KB pattern)";
     case ANXDIAG_WHY_ED_MEM:
-        return "the mapped packet buffer did not read back the pattern "
-               "written to it; check the card RAM and address window";
+        return "mapped packet buffer failed the pattern test";
     case ANXDIAG_WHY_ADDRESS:
         return "the card offered no usable station address";
     case ANXDIAG_WHY_REGS:
-        return "the register file did not answer a write followed by a read";
+        return "register file failed write/read";
     case ANXDIAG_WHY_CSR:
         return "CSR0 did not read back as a stopped LANCE";
     case ANXDIAG_WHY_MFGID:
-        return "the manufacturer ID read back as neither $6d50 nor $506d, so "
-               "no EtherLink III is decoding at that address";
+        return "manufacturer ID is neither $6d50 nor $506d";
     case ANXDIAG_WHY_EEPROM:
-        return "the card's EEPROM never reported itself ready, so no station "
-               "address was read out of it";
+        return "EEPROM never ready; no station address";
     case ANXDIAG_WHY_REV:
-        return "the GENET version register does not describe a v5 part, so "
-               "whatever the device tree pointed at is not the MAC this core "
-               "drives";
+        return "GENET version register is not v5";
     case ANXDIAG_WHY_NOMEM:
-        return "no fast RAM could be allocated for the GENET's rings";
+        return "no fast RAM for the GENET rings";
     case ANXDIAG_WHY_NODMA:
-        return "the RAM allocated for the GENET's rings lies outside what the "
-               "device tree calls physical memory, so the MAC's DMA could not "
-               "have reached it";
+        return "GENET ring RAM outside device-tree physical memory";
     default:
         break;
     }
 
-    return "the chip core refused it and did not say why";
+    return "refused, no reason given";
 }
 
 static const char *cnd_macsource(ULONG src)
@@ -131,7 +115,7 @@ static const char *cnd_macsource(ULONG src)
     case ANXDIAG_MAC_CIS:
         return "the CIS (a LAN node ID)";
     case ANXDIAG_MAC_DERIVED:
-        return "this machine: the PROM was blank";
+        return "derived (PROM blank)";
     case ANXDIAG_MAC_SERIAL:
         return "the autoconfig serial number";
     case ANXDIAG_MAC_DTREE:
@@ -140,36 +124,36 @@ static const char *cnd_macsource(ULONG src)
         break;
     }
 
-    return "somewhere this command does not know about";
+    return "unknown";
 }
 
 static const char *cnd_chip(ULONG chip)
 {
     switch (chip)
     {
-    case 0:  return "a DP8390 reached through a remote-DMA port (NE2000)";
-    case 1:  return "a DP8390 with a memory-mapped packet buffer";
-    case 2:  return "an Am7990 LANCE, which masters the bus itself";
-    case 3:  return "a 3Com EtherLink III, windowed, with PIO FIFOs";
-    case 4:  return "a Broadcom GENET v5, the Pi 4's own MAC, a bus master";
-    case 5:  return "an MNT ZZ9000, its Zynq's MAC behind the card's firmware";
+    case 0:  return "DP8390, remote-DMA port (NE2000)";
+    case 1:  return "DP8390, memory-mapped buffer";
+    case 2:  return "Am7990 LANCE, bus master";
+    case 3:  return "3Com EtherLink III, PIO FIFOs";
+    case 4:  return "Broadcom GENET v5 (Pi 4), bus master";
+    case 5:  return "MNT ZZ9000 (Zynq MAC via firmware)";
     default: break;
     }
 
-    return "a chip this command does not know about";
+    return "unknown chip";
 }
 
 static const char *cnd_dmode(ULONG mode)
 {
     switch (mode)
     {
-    case 0:  return "8-bit, one byte at a time";
-    case 1:  return "16-bit through the word data port";
-    case 2:  return "32-bit through the mirrored window";
+    case 0:  return "8-bit";
+    case 1:  return "16-bit word port";
+    case 2:  return "32-bit mirrored window";
     default: break;
     }
 
-    return "a mode this command does not know about";
+    return "unknown mode";
 }
 
 /* ------------------------------------------------------------ the report -- */
@@ -197,92 +181,81 @@ static VOID cnd_step(const AnxDiagStep *st)
     {
     /* ---- the machine ---- */
     case ANXDIAG_START:
-        say("  The probe began.  This driver knows %lu card types.\n", v);
+        say("  Probe started, %lu card types.\n", v);
         return;
     case ANXDIAG_EXPANSION:
         if (v == 0)
         {
-            say("  expansion.library did not open.  Without it no Zorro board\n"
-                "  can be found.  Only the PCMCIA slot and the fixed-address\n"
-                "  cards were examined.\n");
+            say("  expansion.library did not open; Zorro not probed.\n");
             return;
         }
-        say("  expansion.library opened at $%08lx.\n", v);
+        say("  expansion.library at $%08lx.\n", v);
         return;
     case ANXDIAG_BOARDS:
         if (v == 0)
         {
-            say("  There are no autoconfig boards in this machine at all.\n");
+            say("  No autoconfig boards.\n");
             return;
         }
-        say("  %lu autoconfig board(s) on the bus were examined.\n", v);
+        say("  %lu autoconfig board(s) examined.\n", v);
         return;
     case ANXDIAG_NOMATCH:
-        say("  A board with manufacturer %lu product %lu is not a card this\n"
-            "  driver supports.  It was left alone.\n",
+        say("  Board %lu/%lu: not supported.\n",
             (v >> 16) & 0xffffUL, v & 0xffUL);
         return;
     case ANXDIAG_UNITS_FULL:
-        say("  This card is supported but there was no unit left for it:\n"
-            "  the driver holds %lu at a time.\n", v);
+        say("  Supported card, no free unit (limit %lu).\n", v);
         return;
     case ANXDIAG_DONE:
-        say("  The probe finished.  %lu card(s) came up.\n", v);
+        say("  Probe finished, %lu card(s) up.\n", v);
         return;
 
     /* ---- one card ---- */
     case ANXDIAG_ZORRO_FOUND:
-        say("  Found by autoconfig, board memory at $%08lx.\n", v);
+        say("  Autoconfig, board at $%08lx.\n", v);
         return;
     case ANXDIAG_FIXED_TRY:
-        say("  Looked for at its fixed address $%08lx.  This card has no\n"
-            "  autoconfig record, so it is probed rather than found.\n", v);
+        say("  Fixed address $%08lx (no autoconfig).\n", v);
         return;
     case ANXDIAG_NO_CORE:
-        say("  This driver has no chip core for chip type %lu, so the card\n"
-            "  cannot be driven even though it was recognised.\n", v);
+        say("  No chip core for chip type %lu.\n", v);
         return;
     case ANXDIAG_DTREE_FOUND:
-        say("  Named by the device tree: register window at $%08lx.\n", v);
+        say("  Device tree: registers at $%08lx.\n", v);
         return;
     case ANXDIAG_GENET_REV:
         say("  GENET version register $%08lx (major %lu, minor %lu).\n",
             v, (v >> 24) & 0x0fUL, (v >> 16) & 0x0fUL);
         return;
     case ANXDIAG_GENET_MEM:
-        say("  Receive buffers at $%08lx, fast RAM the MAC's DMA reaches.\n",
-            v);
+        say("  RX buffers at $%08lx (DMA-reachable fast RAM).\n", v);
         return;
     case ANXDIAG_GENET_IRQ:
         if (v == 0)
-            say("  The tree named no interrupt; the unit will be polled.\n");
+            say("  No interrupt in device tree; polled.\n");
         else
             say("  GIC interrupt %lu (SPI %lu), through gic400.library.\n",
                 v, v - 32UL);
         return;
     case ANXDIAG_GENET_GIC:
         if (v == 0)
-            say("  No GIC-400 distributor in the tree: the workaround that\n"
-                "  clears a line found dead is off; a cold start clears one.\n");
+            say("  No GIC-400 distributor; dead-line workaround off.\n");
         else
-            say("  GIC-400 distributor at $%08lx: workaround on -- the line's\n"
-                "  pending/active state is cleared at start and whenever frames\n"
-                "  wait with no interrupt (NetDevStats counts both).\n", v);
+            say("  GIC-400 distributor at $%08lx; dead-line workaround on.\n",
+                v);
         return;
     case ANXDIAG_NE_NODEID_PORT:
-        say("  AX88796 node ID, first four bytes, through the 16-bit port:\n"
-            "  $%08lx.\n", v);
+        say("  AX88796 node ID bytes 0-3 (16-bit port): $%08lx.\n", v);
         return;
     case ANXDIAG_CACHE_GUARD:
         {
             static const char *const how[] =
             {
-                "not used (CPU is not a 68030 or no coherence "
-                "probe is available)",
+                "not used (not a 68030, or no coherence probe)",
                 "TT0 marks the board's block cache-inhibited",
                 "TT1 marks the board's block cache-inhibited",
                 "the data cache is OFF while the driver holds the board",
-                "NOTHING made it coherent; attach will say what it saw"
+                "NONE, board not coherent"
             };
 
             say("  Zorro III cache guard: %s.\n",
@@ -290,69 +263,57 @@ static VOID cnd_step(const AnxDiagStep *st)
         }
         return;
     case ANXDIAG_CACHE_WHY:
-        say("  The transparent-translation registers were passed over:%s%s%s%s%s.\n",
-            (LONG)((v & 0x01UL) ? " Exec memory shares the 16 MB block" : ""),
-            (LONG)((v & 0x02UL) ? " TT0 is in use" : ""),
-            (LONG)((v & 0x04UL) ? " TT1 is in use" : ""),
-            (LONG)((v & 0x08UL) ? " TT0 set did not help" : ""),
-            (LONG)((v & 0x10UL) ? " TT1 set did not help" : ""));
+        say("  TT registers skipped:%s%s%s%s%s.\n",
+            (LONG)((v & 0x01UL) ? " Exec RAM in block" : ""),
+            (LONG)((v & 0x02UL) ? " TT0 in use" : ""),
+            (LONG)((v & 0x04UL) ? " TT1 in use" : ""),
+            (LONG)((v & 0x08UL) ? " TT0 ineffective" : ""),
+            (LONG)((v & 0x10UL) ? " TT1 ineffective" : ""));
         return;
     case ANXDIAG_GENET_DMA:
-        say("  Receive DMA control read $%08lx at attach: the engine was %s\n"
-            "  across the reboot.\n", v,
-            (LONG)((v & 1UL) != 0 ? "STILL RUNNING into its old buffers"
-                                  : "stopped"));
+        say("  RX DMA control $%08lx at attach: %s.\n", v,
+            (LONG)((v & 1UL) != 0 ? "running across reboot" : "stopped"));
         return;
     case ANXDIAG_GENET_PHY:
         if (v == 0xffffffffUL)
-            say("  The PHY did not answer on the MDIO bus.\n");
+            say("  PHY: no MDIO answer.\n");
         else
             say("  PHY identifier $%08lx (OUI bits $%06lx, model $%02lx,\n"
                 "  revision %lu).\n", v, v >> 10, (v >> 4) & 0x3fUL,
                 v & 0x0fUL);
         return;
     case ANXDIAG_CR_READ:
-        say("  Detection read the command register as $%02lx.\n", v);
+        say("  Command register read $%02lx.\n", v);
         return;
     case ANXDIAG_ODD_RETRY:
-        say("  Odd-numbered registers did not read as bytes, so the\n"
-            "  word-read path some Fast-Ethernet clones need was tried.\n");
+        say("  Odd registers failed as bytes; trying words.\n");
         return;
     case ANXDIAG_CR_RETRY:
-        say("  The chip did not come out of reset, and the reset port is an\n"
-            "  odd-numbered register.  A card that answers only 16-bit I/O\n"
-            "  cycles never sees the byte read that strobes it, so the port\n"
-            "  was strobed again through the word-read path and the command\n"
-            "  register was read a second time.  The reading below is that\n"
-            "  second one.\n");
+        say("  No reset; reset port strobed via word read, command register "
+            "re-read.\n");
         return;
     case ANXDIAG_ODD_PLAIN:
     case ANXDIAG_ODD_WORD:
-        say("  Odd registers read as %s: ISR $%02lx, and $5a/$a5 written to\n"
-            "  BNRY came back $%02lx/$%02lx.  ISR must have bit 7 set after a\n"
-            "  reset, and BNRY must return what was written.\n",
+        say("  Odd registers as %s: ISR $%02lx, BNRY $5a/$a5 -> $%02lx/$%02lx.\n",
             (LONG)((st->ds_Code == (UWORD)ANXDIAG_ODD_PLAIN)
                        ? "bytes" : "words"),
             (v >> 16) & 0xffUL, (v >> 8) & 0xffUL, v & 0xffUL);
         return;
     case ANXDIAG_BUF_SEEN:
-        say("  The first byte that came back wrong was at buffer offset\n"
-            "  $%04lx: $%02lx was written there and $%02lx read back.\n",
+        say("  First bad buffer byte at $%04lx: wrote $%02lx, read $%02lx.\n",
             (v >> 16) & 0xffffUL, (v >> 8) & 0xffUL, v & 0xffUL);
         return;
     case ANXDIAG_ODDWIN:
         if (v == 0)
         {
-            say("  This card's registers are one contiguous block.  It has no\n"
-                "  separate window for the odd-numbered ones.\n");
+            say("  Registers: one contiguous block.\n");
             return;
         }
-        say("  Odd-numbered registers are reached through a second window at\n"
-            "  $%08lx, which is how Gayle splits PCMCIA I/O.\n", v);
+        say("  Odd registers via second window at $%08lx (Gayle split).\n", v);
         return;
     case ANXDIAG_CHIP:
         cnd_chip_seen = (UWORD)v;
-        say("  The chip is %s.\n", (LONG)cnd_chip(v));
+        say("  Chip: %s.\n", (LONG)cnd_chip(v));
         return;
     case ANXDIAG_ATTACH_OK:
         /*
@@ -367,78 +328,69 @@ static VOID cnd_step(const AnxDiagStep *st)
             say("  ATTACHED.\n");
             return;
         }
-        say("  ATTACHED.  Packet data moves %s.\n", (LONG)cnd_dmode(v));
+        say("  ATTACHED.\n  Data path: %s.\n", (LONG)cnd_dmode(v));
         return;
     case ANXDIAG_ATTACH_FAIL:
-        say("  REFUSED, and this is why:\n");
+        say("  REFUSED:\n");
         tool_wrap(4, cnd_why(v));
         return;
     case ANXDIAG_MAC_SOURCE:
-        say("  The station address came from %s.\n", (LONG)cnd_macsource(v));
+        say("  MAC source: %s.\n", (LONG)cnd_macsource(v));
         return;
     case ANXDIAG_GETODD:
         if (v != 0)
         {
-            say("  Odd-numbered registers are read as words.  This card only\n"
-                "  decodes 16-bit I/O cycles, and the driver measured that\n"
-                "  by itself.\n");
+            say("  Odd registers read as words (16-bit I/O only, measured).\n");
             return;
         }
-        say("  Odd-numbered registers are read as bytes, which is normal.\n");
+        say("  Odd registers read as bytes.\n");
         return;
     case ANXDIAG_UNIT:
-        say("  This card is unit %lu of %s.\n", v, (LONG)cnd_device);
+        say("  Unit %lu of %s.\n", v, (LONG)cnd_device);
         return;
 
     /* ---- the PCMCIA slot ---- */
     case ANXDIAG_PC_RESOURCE:
         if (v == 0)
         {
-            say("  There is no card.resource on this machine, so it has no\n"
-                "  PCMCIA slot.\n");
+            say("  No card.resource; no PCMCIA slot.\n");
             return;
         }
-        say("  card.resource is at $%08lx: this machine has a PCMCIA slot.\n",
-            v);
+        say("  card.resource at $%08lx (PCMCIA slot).\n", v);
         return;
     case ANXDIAG_PC_OWN:
         if (v == 0)
         {
-            say("  OwnCard() gave us the slot.\n");
+            say("  OwnCard(): granted.\n");
             return;
         }
         if (v == 0xffffffffUL)
         {
-            say("  OwnCard() answered -1: there is nothing in the slot.\n");
+            say("  OwnCard(): -1, slot empty.\n");
             return;
         }
-        say("  OwnCard() refused: another driver already owns the slot, and\n"
-            "  its CardHandle is at $%08lx.  Nothing further was tried.\n", v);
+        say("  OwnCard() refused: slot owned by CardHandle $%08lx.\n", v);
         return;
     case ANXDIAG_PC_FUNCID:
         if (v == ANXDIAG_ABSENT)
         {
-            say("  The card has no CISTPL_FUNCID tuple.  Many real cards do\n"
-                "  not have one.  It was assumed to be a network card.\n");
+            say("  No CISTPL_FUNCID; assumed LAN.\n");
             return;
         }
         if (v == 6)
         {
-            say("  CISTPL_FUNCID says function 6, a LAN adapter.\n");
+            say("  CISTPL_FUNCID 6 (LAN).\n");
             return;
         }
         say("  CISTPL_FUNCID says function %lu.\n", v);
         return;
     case ANXDIAG_PC_NOTLAN:
-        say("  That is not a LAN adapter, so the slot was given straight\n"
-            "  back.  Driving an IDE adapter as a network card writes to\n"
-            "  the disk behind it.\n");
+        say("  Not a LAN adapter; slot released.\n");
         return;
     case ANXDIAG_PC_MANFID:
         if (v == ANXDIAG_ABSENT)
         {
-            say("  The card has no CISTPL_MANFID tuple, so it does not say\n"
-                "  who made it.\n");
+            say("  No CISTPL_MANFID.\n");
             return;
         }
         say("  CISTPL_MANFID: manufacturer $%04lx, product $%04lx.\n",
@@ -447,117 +399,77 @@ static VOID cnd_step(const AnxDiagStep *st)
     case ANXDIAG_PC_FUNCE:
         if (v == ANXDIAG_ABSENT)
         {
-            say("  The card has no CISTPL_FUNCE tuple, so its CIS carries no\n"
-                "  station address.\n");
+            say("  No CISTPL_FUNCE; no station address in CIS.\n");
             return;
         }
         if (v == 4)
         {
-            say("  CISTPL_FUNCE subtuple 4: the CIS carries a LAN node ID.\n");
+            say("  CISTPL_FUNCE subtuple 4 (LAN node ID).\n");
             return;
         }
-        say("  CISTPL_FUNCE subtuple %lu, which is not the node ID.  Only\n"
-            "  the first FUNCE tuple can be read, so a node ID behind it\n"
-            "  cannot be seen.\n", v);
+        say("  CISTPL_FUNCE subtuple %lu, not a node ID.\n", v);
         return;
     case ANXDIAG_PC_NODEID:
         if (v != 0)
         {
-            say("  The node ID in the CIS is a usable station address.\n");
+            say("  CIS node ID usable.\n");
             return;
         }
-        say("  The node ID in the CIS is not a usable station address and\n"
-            "  was ignored.\n");
+        say("  CIS node ID unusable, ignored.\n");
         return;
     case ANXDIAG_PC_NOCONFIG:
-        say("  The card has no CISTPL_CONFIG tuple, so there is no way to\n"
-            "  know which register configures it.  The slot was given back.\n");
+        say("  No CISTPL_CONFIG; slot released.\n");
         return;
     case ANXDIAG_PC_CFGBASE:
-        say("  CISTPL_CONFIG puts the configuration registers at $%08lx in\n"
-            "  the card's attribute memory.\n", v);
+        say("  CISTPL_CONFIG: registers at $%08lx (attribute memory).\n", v);
         return;
     case ANXDIAG_PC_NOCFTABLE:
-        say("  The card has no CISTPL_CFTABLE_ENTRY tuple, so there is no\n"
-            "  configuration index to write.  The slot was given back.\n");
+        say("  No CISTPL_CFTABLE_ENTRY; slot released.\n");
         return;
     case ANXDIAG_PC_INDEX:
-        say("  Configuration index %lu.  This is the byte written to the\n"
-            "  card's Configuration Option Register, and it is what puts the\n"
-            "  card into the configuration chosen above.\n", v);
+        say("  Configuration index %lu.\n", v);
         return;
     case ANXDIAG_PC_CFCOUNT:
-        say("  %lu configuration table %s read.  The walk can go past the\n"
-            "  first -- an entry can describe a memory configuration, or an\n"
-            "  access width this driver cannot use -- and stops at the first\n"
-            "  usable 8-bit I/O entry, the end of the table or its limit of\n"
-            "  32, so the card may offer more than were read.\n",
-            v, (ULONG)(APTR)(v == 1 ? "entry was" : "entries were"));
+        say("  %lu configuration %s read (limit 32).\n",
+            v, (ULONG)(APTR)(v == 1 ? "entry" : "entries"));
         return;
     case ANXDIAG_PC_CFPICK:
         if (v == ANXDIAG_ABSENT)
         {
-            say("  None of those entries parsed into a configuration this\n"
-                "  driver could name, so the first entry's index was written\n"
-                "  anyway.  A card that does not answer after that has a CIS\n"
-                "  this driver does not understand -- send the CIS bytes\n"
-                "  printed above with the report.\n");
+            say("  No entry parsed; first entry's index written.\n");
             return;
         }
-        say("  Entry index %lu was chosen: it decodes %lu address line(s) and\n"
-            "  its descriptor flags are $%02lx.\n",
+        say("  Entry index %lu chosen: %lu address line(s), flags $%02lx.\n",
             v & 0x3f, (v >> 8) & 0xff, (v >> 16) & 0xff);
         if (((v >> 24) & 0xffUL) == 1)
-        {
-            say("  No entry read offers 8-bit I/O: the best of them asks for\n"
-                "  16-bit accesses while refusing 8-bit ones.  Every register\n"
-                "  path here is byte-wide, so a card that answers nothing\n"
-                "  below is refusing the width, not the address.\n");
-        }
+            say("  No 8-bit I/O entry; best requires 16-bit.\n");
         return;
     case ANXDIAG_PC_IOWIN:
-        say("  Its I/O window is %lu byte(s) at $%04lx in the card's own I/O\n"
-            "  space.\n", v & 0xffff, (v >> 16) & 0xffff);
+        say("  I/O window %lu byte(s) at $%04lx.\n",
+            v & 0xffff, (v >> 16) & 0xffff);
         return;
     case ANXDIAG_PC_IOOFF:
-        say("  The registers were looked for at offset $%04lx in the slot's\n"
-            "  I/O space.  $0300 is the card row's assumption and holds for\n"
-            "  any card that leaves its placement to the machine; anything\n"
-            "  else came out of the entry above, which named its own base.\n",
-            v);
+        say("  Registers at slot I/O offset $%04lx.\n", v);
         return;
     case ANXDIAG_PC_MFC:
-        say("  The card is a MULTIFUNCTION card: its CIS has a\n"
-            "  CISTPL_LONGLINK_MFC tuple naming %lu function chain(s).\n"
-            "  card.resource's CopyTuple() follows CISTPL_LONGLINK_A and\n"
-            "  CISTPL_LONGLINK_C and no other link, so none of those chains\n"
-            "  is reachable through it and the driver read the CIS itself.\n",
-            (v >> 16) & 0xffffUL);
+        say("  MULTIFUNCTION: CISTPL_LONGLINK_MFC, %lu chain(s); CIS read "
+            "directly.\n", (v >> 16) & 0xffffUL);
         if ((v & 0xffffUL) == 0)
         {
-            say("  That walk found no LAN function in them.\n");
+            say("  No LAN function.\n");
             return;
         }
-        say("  That walk reached a LAN function, and everything below came\n"
-            "  out of that function's own chain.\n");
+        say("  LAN function found.\n");
         return;
     case ANXDIAG_PC_MFCFUNC:
-        say("  Its CIS chain starts at CIS offset $%06lx and states\n"
-            "  CISTPL_FUNCID %lu.\n", v & 0x00ffffffUL, (v >> 24) & 0xffUL);
+        say("  Chain at CIS offset $%06lx, CISTPL_FUNCID %lu.\n",
+            v & 0x00ffffffUL, (v >> 24) & 0xffUL);
         return;
     case ANXDIAG_PC_MFCNOLAN:
-        say("  The shared chain says the card is multifunction and no chain\n"
-            "  of it is a LAN function this driver can configure: either no\n"
-            "  function states CISTPL_FUNCID 6, or the one that does offers\n"
-            "  no I/O configuration a byte-wide register path can drive.\n"
-            "  The card is refused here rather than half-configured.\n");
+        say("  Multifunction card, no configurable LAN function; refused.\n");
         return;
     case ANXDIAG_PC_MFCIOBASE:
-        say("  The function was TOLD where to decode: $%04lx was written\n"
-            "  into its IOBASE_0 and IOBASE_1 configuration registers, so\n"
-            "  the card uses that base and not the one its own CIS named.\n"
-            "  A single-function card has no such registers and is placed by\n"
-            "  the entry's own window instead.\n", v);
+        say("  IOBASE_0/IOBASE_1 set to $%04lx.\n", v);
         return;
     case ANXDIAG_PC_IOMODE:
         say("  The socket was put into I/O mode (CardMiscControl $%02lx).\n",
@@ -566,18 +478,14 @@ static VOID cnd_step(const AnxDiagStep *st)
     case ANXDIAG_PC_MISC:
         if ((v & 0x0aUL) == 0x0aUL)
         {
-            say("  card.resource answered $%02lx: the socket took both bits,\n"
-                "  so it is in I/O mode with hardware write protect off.\n", v);
+            say("  card.resource answered $%02lx: I/O mode, write protect "
+                "off.\n", v);
             return;
         }
-        say("  card.resource answered $%02lx, and a bit missing from that is\n"
-            "  a bit this machine does not support.  Without $08 the socket\n"
-            "  is still write-protected, and it accepts the write below\n"
-            "  without an error.  Without $02 it is still a memory socket.\n",
-            v);
+        say("  card.resource answered $%02lx: $08 or $02 not supported.\n", v);
         return;
     case ANXDIAG_PC_COR:
-        say("  The configuration option register was written at $%08lx.\n", v);
+        say("  Option register written at $%08lx.\n", v);
         return;
     case ANXDIAG_PC_CORVAL:
         /* Bit 6 is the COR's level-mode interrupt request, left clear: Gayle
@@ -588,169 +496,113 @@ static VOID cnd_step(const AnxDiagStep *st)
             /* A multifunction card's COR is not the configuration index:
                bits 2..0 are the three enables and only bits 5..3 of the
                index survive. */
-            say("  The byte written there was $%02lx, a MULTIFUNCTION card's\n"
-                "  option register: index bits $%02lx, function enable,\n"
-                "  interrupt enable%s%s.\n",
+            say("  Wrote $%02lx (multifunction): index bits $%02lx, function "
+                "and interrupt enable%s%s.\n",
                 v, v & 0x38UL,
                 (v & 0x02UL) ? ", address decode" : "",
                 (v & 0x40UL) ? ", level-mode interrupt" : "");
             return;
         }
-        say("  The byte written there was $%02lx: configuration index %lu,\n"
-            "  and bit 6 clear, so the card was not asked for a level-mode\n"
-            "  interrupt.\n",
+        say("  Wrote $%02lx: configuration index %lu, edge interrupt.\n",
             v, v & 0x3fUL);
         return;
     case ANXDIAG_PC_RESET:
-        /* WITHOUT THIS ARM the step fell through to the unknown-step message,
-           which tells the reader their command is older than the driver --
-           about a step defined in the same tree, carrying the one number the
-           PCMCIA reset is measured in. */
-        say("  The slot's reset line was held for %lu ms before the CIS was\n"
-            "  walked.  Gayle never asserts CC_RESET to the socket itself,\n"
-            "  which is the documented A1200 bug, so the driver holds it\n"
-            "  through Gayle's latch instead; PC Cards require 100-200 ms.\n"
-            "  This is the length that was ASKED FOR.  What it costs is\n"
-            "  paced by the delay clock below, and a machine whose spins per\n"
-            "  raster line are far under a line's worth holds it longer than\n"
-            "  this rather than shorter.\n", v);
+        /* WITHOUT THIS ARM the step fell through to the unknown-step message
+           -- about a step defined in the same tree, carrying the one number
+           the PCMCIA reset is measured in. */
+        say("  Slot reset held %lu ms (requested).\n", v);
         return;
     case ANXDIAG_CLOCK:
         if (v == 0)
         {
-            say("  No raster beam could be read on this machine, so the\n"
-                "  driver's waits are counted loops rather than measured\n"
-                "  time.  On anything faster than a stock CPU they will be\n"
-                "  shorter than they are meant to be.\n");
+            say("  No raster beam; waits are counted loops.\n");
             return;
         }
-        say("  The delay clock measured %lu spin(s) per raster line.  Tens of\n"
-            "  them is a stock CPU; tens of thousands is an accelerator, and\n"
-            "  that ratio is the whole reason a wait here is timed against the\n"
-            "  beam rather than counted in bus reads.  A counted loop measures\n"
-            "  the CPU, not the time.\n", v);
+        say("  Delay clock measured %lu spin(s) per raster line.\n", v);
         return;
     case ANXDIAG_CLOCK_LINE:
         if (v == 0)
-        {
-            say("  No beam, so no line to price -- see above.\n");
-            return;
-        }
+            return;             /* no beam: ANXDIAG_CLOCK said so */
         if (v == 63)
         {
-            say("  A scan line was measured at 63 us, so this machine is in a\n"
-                "  15 kHz PAL or NTSC mode.  Every wait in the driver is\n"
-                "  counted in lines at that price.\n");
+            say("  Scan line measured at 63 us (15 kHz).\n");
             return;
         }
         if (v == 31)
         {
-            say("  A scan line was measured at 31 us, so this machine is in a\n"
-                "  31 kHz multiscan mode.  Every wait in the driver is counted\n"
-                "  in lines at that price.\n");
+            say("  Scan line measured at 31 us (31 kHz).\n");
             return;
         }
-        say("  A scan line was costed at %lu us because counting the lines in\n"
-            "  a field did not give a length any Amiga display mode has.  The\n"
-            "  beam still runs, so the waits are still measured, but they come\n"
-            "  out about twice as long as they ask for.  Harmless, and worth\n"
-            "  reporting: it means the field count is wrong on this machine.\n",
-            v);
+        say("  Scan line costed at %lu us (field count fits no mode; waits "
+            "about 2x).\n", v);
         return;
     case ANXDIAG_PC_SETTLE:
         if (v == 0)
         {
-            say("  The chip answered immediately after that write.\n");
+            say("  Chip answered at once.\n");
             return;
         }
-        say("  The card was given %lu round(s) of 2 ms after that write\n"
-            "  before it answered, or before the wait ran out.\n", v);
+        say("  Waited %lu x 2 ms for the chip.\n", v);
         return;
     case ANXDIAG_PC_CR:
         if (v == 0xffUL)
         {
-            say("  The command register read back $ff: the bus is floating.\n"
-                "  Nothing is decoding at that address.\n");
+            say("  Command register read $ff: bus floating.\n");
             return;
         }
         if (v == 0)
         {
-            say("  The command register read back $00: nothing is decoding\n"
-                "  at that address.\n");
+            say("  Command register read $00: nothing decoding.\n");
             return;
         }
         if ((v & ~0x02UL) == 0x21UL)
         {
-            say("  The command register read back $%02lx: a DP8390 answered.\n",
-                v);
+            say("  Command register read $%02lx: DP8390 answered.\n", v);
             return;
         }
         if (v == ANXDIAG_CR_DECOY)
         {
-            say("  The command register read back $%02lx, which is the byte the\n"
-                "  probe wrote at a DIFFERENT register just before reading it.\n"
-                "  The socket is echoing whatever was last driven on the bus\n"
-                "  rather than holding a value, so the slot is empty.\n", v);
+            say("  Command register read $%02lx (echo of last write): slot "
+                "empty.\n", v);
             return;
         }
-        say("  The command register read back $%02lx, which is not what a\n"
-            "  stopped DP8390 answers ($21, or $23 on a clone with a stuck\n"
-            "  START bit).\n", v);
-        return;
-    case ANXDIAG_PC_COR2:
-        say("  Nothing answered, so the option register was written again at\n"
-            "  $%08lx, in case this card's CIS meant a doubled address.\n", v);
-        return;
-    case ANXDIAG_PC_CR2:
-        say("  After the second write the command register read back $%02lx.\n",
+        say("  Command register read $%02lx: not a stopped DP8390 ($21/$23).\n",
             v);
         return;
+    case ANXDIAG_PC_COR2:
+        say("  No answer; option register rewritten at $%08lx.\n", v);
+        return;
+    case ANXDIAG_PC_CR2:
+        say("  Second write: command register read $%02lx.\n", v);
+        return;
     case ANXDIAG_PC_SILENT:
-        say("  No chip answered at $%08lx after either write, with 40 ms of\n"
-            "  settling time allowed for each, so the slot was given back.\n"
-            "  Either the card is not an NE2000 clone, or it needs a\n"
-            "  configuration entry other than the first, or the socket never\n"
-            "  left memory mode.  The card.resource answer above says which\n"
-            "  of those it is.\n", v);
+        say("  No chip at $%08lx after two writes (40 ms each); slot "
+            "released.\n", v);
         return;
     case ANXDIAG_PC_NOROW:
-        say("  The card in the slot says manufacturer $%04lx product $%04lx,\n"
-            "  and this driver has no PCMCIA card row for it and no fallback\n"
-            "  row either.  The slot was given back.\n",
+        say("  Card $%04lx/$%04lx: no card row; slot released.\n",
             (v >> 16) & 0xffffUL, v & 0xffffUL);
         return;
     case ANXDIAG_PC_IRQMODE:
-        say("  The card's interrupt was enabled through card.resource V%lu.\n",
-            v);
+        say("  Card interrupt enabled (card.resource V%lu).\n", v);
         return;
     case ANXDIAG_PC_IRQSKIP:
-        say("  card.resource is V%lu.  The card's interrupt is left at the\n"
-            "  resource's own default, which already passes it: OwnCard()\n"
-            "  enables BSY/IRQ on every version.  Asking for it again\n"
-            "  rewrites the socket's mode register and turns the socket off.\n",
-            v);
+        say("  card.resource V%lu: interrupt left at default.\n", v);
         return;
     case ANXDIAG_PC_CLAIMED:
-        say("  The slot is claimed.  The chip's registers are at $%08lx.\n", v);
+        say("  Slot claimed; registers at $%08lx.\n", v);
         return;
     case ANXDIAG_PC_CARD:
-        say("  The card in the slot was identified from its CIS as card row\n"
-            "  %lu.  The slot lines printed under THIS MACHINE above happened\n"
-            "  before that, so they belong to no card.\n", v);
+        say("  CIS: card row %lu.\n", v);
         return;
     case ANXDIAG_PC_CFTABLE:
-        say("  The first configuration table entry begins $%02lx $%02lx $%02lx\n"
-            "  $%02lx.  It is printed raw because it is the one tuple whose\n"
-            "  meaning depends on every byte before the byte you want.\n",
+        say("  First CFTABLE entry: $%02lx $%02lx $%02lx $%02lx.\n",
             (v >> 24) & 0xff, (v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff);
         return;
 
     /* ---- the ISA Plug and Play bridge ---- */
     case ANXDIAG_PNP_VENDOR:
-        say("  The card behind the ISA Plug and Play bridge identified itself\n"
-            "  as vendor and device $%08lx.  $4a8c8019 is a Realtek RTL8019,\n"
-            "  which is what an X-Surf carries.  $00000000 means the isolation\n"
-            "  reads found nothing driving the bus.\n", v);
+        say("  ISA PnP vendor/device $%08lx.\n", v);
         return;
     case ANXDIAG_PNP_SERIAL:
         say("  Its serial number is $%08lx.\n", v);
@@ -758,88 +610,65 @@ static VOID cnd_step(const AnxDiagStep *st)
     case ANXDIAG_PNP_CSUM:
         if (((v >> 8) & 0xffUL) == (v & 0xffUL))
         {
-            say("  The identifier's checksum is $%02lx and that is what it\n"
-                "  computes to, so the isolation read a real card.\n",
-                v & 0xffUL);
+            say("  Identifier checksum $%02lx: valid.\n", v & 0xffUL);
             return;
         }
-        say("  The identifier's checksum came back $%02lx and computes to\n"
-            "  $%02lx.  The bytes above are not a card's serial identifier,\n"
-            "  so the configuration below was written blind -- report this\n"
-            "  line with the two above it.\n",
+        say("  Identifier checksum $%02lx, computed $%02lx: invalid; "
+            "configured blind.\n",
             (v >> 8) & 0xffUL, v & 0xffUL);
         return;
     case ANXDIAG_PNP_IO:
-        say("  The chip was told to decode 32 ports at ISA $%04lx, which is\n"
-            "  where this card's row says its registers are.\n", v);
+        say("  Chip set to decode 32 ports at ISA $%04lx.\n", v);
         return;
     case ANXDIAG_PNP_SETTLE:
         if (v == 0)
         {
-            say("  The chip answered immediately after it was activated.\n");
+            say("  Chip answered at once after activation.\n");
             return;
         }
-        say("  The chip was given %lu round(s) of 2 ms after it was activated\n"
-            "  before it answered, or before the wait ran out.  Nothing\n"
-            "  documents a settling time for this.  Report a non-zero number\n"
-            "  here.\n", v);
+        say("  Waited %lu x 2 ms after activation.\n", v);
         return;
     case ANXDIAG_PNP_CR:
         if ((v & ~0x02UL) == 0x21UL)
         {
-            say("  The command register read back $%02lx: the chip is there.\n",
-                v);
+            say("  Command register read $%02lx: chip present.\n", v);
             return;
         }
         if (v == ANXDIAG_CR_DECOY)
         {
-            say("  The command register read back $%02lx, the byte the probe\n"
-                "  wrote at a different register just before reading it: the\n"
-                "  bus is echoing writes, so no chip is decoding there.\n", v);
+            say("  Command register read $%02lx (echo of last write): no "
+                "chip.\n", v);
             return;
         }
-        say("  The command register read back $%02lx, which is not what a\n"
-            "  stopped DP8390 answers ($21, or $23 on a clone with a stuck\n"
-            "  START bit).  $ff is a floating bus.\n", v);
+        say("  Command register read $%02lx: not a stopped DP8390 ($21/$23).\n",
+            v);
         return;
     case ANXDIAG_PNP_SILENT:
-        say("  Nothing answered at $%08lx after the Plug and Play sequence,\n"
-            "  with 250 ms allowed for it, so the board was not made a unit.\n"
-            "  The identifier above says whether the bridge answered at all:\n"
-            "  a good checksum with no chip means the sequence ran and the\n"
-            "  chip was left somewhere else.\n", v);
+        say("  No answer at $%08lx after PnP sequence (250 ms); not a unit.\n",
+            v);
         return;
     case ANXDIAG_PNP_OK:
-        say("  The Plug and Play sequence finished and the chip is decoding\n"
-            "  at $%08lx.\n", v);
+        say("  PnP done; chip at $%08lx.\n", v);
         return;
 
     /* ---- the EtherLink III ---- */
     case ANXDIAG_EL3_MFG:
-        say("  The manufacturer ID read back as $%04lx.  It is $6d50 on every\n"
-            "  EtherLink III.  $506d means the register window exchanges the\n"
-            "  halves of a word.  Anything else means no such card answered.\n",
-            v);
+        say("  Manufacturer ID $%04lx.\n", v);
         return;
     case ANXDIAG_EL3_ORDER:
         if (v == 0)
-            say("  Register words arrive as the chip holds them.  There is\n"
-                "  no swap.\n");
+            say("  Register words: no swap.\n");
         else
-            say("  The register window exchanges the halves of every word, and\n"
-                "  the driver measured that rather than being told it.\n");
+            say("  Register words: halves swapped (measured).\n");
         return;
     case ANXDIAG_EL3_MEDIA:
-        say("  The card was built with:%s%s%s\n",
+        say("  Media:%s%s%s\n",
             (LONG)((v & 0x0200) != 0 ? " 10BASE-T" : ""),
             (LONG)((v & 0x1000) != 0 ? " 10BASE2" : ""),
             (LONG)((v & 0x2000) != 0 ? " AUI" : ""));
         return;
     case ANXDIAG_EL3_FIFO:
-        say("  The empty transmit FIFO reported %lu bytes free; the product ID\n"
-            "  word is $%04lx.  A 1514-byte frame costs 1520 of that FIFO, so\n"
-            "  this is how many whole frames the card can hold ahead of the\n"
-            "  wire: %lu.\n",
+        say("  TX FIFO %lu bytes free, product ID $%04lx, %lu full frames.\n",
             (ULONG)(v >> 16), (ULONG)(v & 0xffff),
             (ULONG)((v >> 16) / 1520UL));
         return;
@@ -848,9 +677,7 @@ static VOID cnd_step(const AnxDiagStep *st)
         break;
     }
 
-    say("  Step %lu, value $%08lx: this command does not know that step.  It\n"
-        "  is older than the driver that recorded it.\n",
-        (ULONG)st->ds_Code, v);
+    say("  Step %lu, value $%08lx: unknown.\n", (ULONG)st->ds_Code, v);
 }
 
 /*
@@ -982,9 +809,7 @@ int main(int argc, char **argv)
     {
         tool_fault(IoErr());
         tool_usage("[DEVICE <name>] [NOLOAD] [RAW]",
-                   "Say what anxnet.device (or DEVICE anxgenet.device) found "
-                   "when it probed this machine, and why any card it did not "
-                   "take was refused.");
+                   "Report what the driver found at probe.");
         return RETURN_ERROR;
     }
 
@@ -1005,19 +830,14 @@ int main(int argc, char **argv)
         status = cnd_read(device);
     }
 
-    say("%s: what %s found on this machine\n", (LONG)tool_name, (LONG)device);
+    say("%s: %s probe record\n", (LONG)tool_name, (LONG)device);
 
     if (status == CND_BAD_VERSION)
     {
-        tool_error("the driver publishes a probe record this command cannot "
-                   "read");
-        say("\n  The record says version %lu, %lu bytes.  This command was\n"
-            "  built for version %lu, %lu bytes.  DEVS:Networks/%s\n"
-            "  and C:%s ship together, so one of the two is from a different\n"
-            "  release.  Update both.\n",
-            (ULONG)cnd_mark.ad_Version, (ULONG)cnd_mark.ad_Size,
-            (ULONG)ANXDIAG_VERSION, (ULONG)sizeof(AnxDiagMark),
-            (LONG)device, (LONG)tool_name);
+        tool_error("probe record version %lu (%lu bytes), expected %lu "
+                   "(%lu bytes)",
+                   (ULONG)cnd_mark.ad_Version, (ULONG)cnd_mark.ad_Size,
+                   (ULONG)ANXDIAG_VERSION, (ULONG)sizeof(AnxDiagMark));
         FreeArgs(rda);
         return RETURN_ERROR;
     }
@@ -1025,17 +845,6 @@ int main(int argc, char **argv)
     if (status == CND_ABSENT)
     {
         tool_error("no probe record: %s is not loaded", (LONG)device);
-        say("\n");
-        tool_wrap(2,
-            "Nothing was found under the name the driver publishes, so the "
-            "driver has not run on this machine since it was booted. That is "
-            "not a fault by itself: the driver is loaded when something opens "
-            "it.");
-        say("\n");
-        tool_wrap(2,
-            "Check that the driver exists in DEVS:Networks. Then run this "
-            "command again without NOLOAD, which loads the driver so it can "
-            "probe.");
         FreeArgs(rda);
         return RETURN_ERROR;
     }
@@ -1043,8 +852,7 @@ int main(int argc, char **argv)
     say("\n");
     if (cnd_mark.ad_Lost != 0)
     {
-        say("%lu step(s) recorded.  %lu more than the record holds were\n"
-            "dropped.\n",
+        say("%lu step(s) recorded, %lu dropped.\n",
             (ULONG)cnd_mark.ad_Used, (ULONG)cnd_mark.ad_Lost);
     }
     else
@@ -1057,15 +865,12 @@ int main(int argc, char **argv)
     say("\nVERDICT\n");
     if (cnd_mark.ad_Units == 0)
     {
-        tool_wrap(2,
-            "No card came up. Every card this driver looked at is above, "
-            "with the step it stopped at. Nothing will open the driver "
-            "until one of them attaches.");
+        say("  No card attached.\n");
         rc = RETURN_WARN;
     }
     else
     {
-        say("  %lu card(s) attached and can be opened.\n",
+        say("  %lu card(s) attached.\n",
             (ULONG)cnd_mark.ad_Units);
         rc = RETURN_OK;
     }
@@ -1073,10 +878,7 @@ int main(int argc, char **argv)
     if (cnd_mark.ad_Dropped != 0)
     {
         say("\n");
-        tool_wrap(2,
-            "One or more supported cards were found after the driver had "
-            "run out of units. Remove a card, or open the attached cards "
-            "by name.");
+        say("  Supported card(s) found with no unit left.\n");
         rc = RETURN_WARN;
     }
 

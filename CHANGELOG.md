@@ -5,6 +5,11 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ## Unreleased
 
+- Every network command's messages rewritten short: about 790 messages in
+  40 commands, the config-file warnings, httpd's error pages and the
+  /console refusal reasons.  Explanations and next-step hints after a
+  message are gone; CheckNetDevice reports one line per finding;
+  GetNetStatus prints KEYWORD yes/no without a description column.
 - Online attaches an interface defined in DEVS:NetInterfaces that the
   running stack does not have yet, instead of refusing it; ShowNetStatus
   reports such an interface as "not attached", not "offline".

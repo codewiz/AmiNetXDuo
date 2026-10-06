@@ -201,15 +201,15 @@ EOF
 boot "$STAGE1" "${AMINETXDUO_RUN_TAG:-hostname}-a"
 booted_once "SYS:AddNetInterface eth0"
 
-says "SYS:hostname" 1 "This machine has no name" \
+says "SYS:hostname" 1 "^no host name set" \
      "a machine nothing named says so, rather than inventing one"
 want_rc "SYS:hostname" 1 5 "and returns WARN"
 
-says "SYS:hostname not_a_name" 1 "is not a host name" \
+says "SYS:hostname not_a_name" 1 "is not a valid host name" \
      "an underscore is refused"
 want_rc "SYS:hostname not_a_name" 1 10 "and returns ERROR"
 
-says "SYS:hostname -leadinghyphen" 1 "is not a host name" \
+says "SYS:hostname -leadinghyphen" 1 "is not a valid host name" \
      "a label starting with a hyphen is refused"
 want_rc "SYS:hostname -leadinghyphen" 1 10 "and returns ERROR"
 
@@ -221,7 +221,7 @@ says "SYS:hostname beast" 1 "^beast" "and the name is echoed back"
 says "SYS:hostname beast" 1 "named by ENV:HOSTNAME" \
      "and it says which of the four sources now names the machine"
 says "SYS:hostname beast" 1 "written to ENV:HOSTNAME and ENVARC:HOSTNAME" \
-     "and which files it wrote, and what outranks them at the next boot"
+     "and which files it wrote"
 
 says "SYS:hostname" 2 "^beast" "reading it back gives the name"
 says "SYS:hostname" 2 "named by ENV:HOSTNAME" "with its source"
@@ -288,7 +288,7 @@ says "SYS:hostname beast" 1 "^fixedname" \
      "and reports the name the machine still has, not the one that was asked for"
 says "SYS:hostname beast" 1 "named by name_resolution" \
      "and names the source that outranked the request"
-says "SYS:hostname beast" 1 "beast is in ENV:HOSTNAME and ENVARC:HOSTNAME" \
+says "SYS:hostname beast" 1 "beast saved to ENV:HOSTNAME and ENVARC:HOSTNAME" \
      "and says the file was written anyway, and what that is worth"
 
 says "SYS:hostname" 2 "^fixedname" "the machine is still fixedname afterwards"

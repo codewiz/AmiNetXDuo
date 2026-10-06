@@ -583,15 +583,14 @@ BOOL http_rtg_describe(struct BitMap *bm, UWORD visible_w, HttpRtgScreen *s,
     if (!answered)
     {
         if (why != NULL)
-            *why = "the front screen is not a bitmap this can read: it has no "
-                   "bitplanes and neither Picasso96 nor CyberGraphX claims it";
+            *why = "front screen: no bitplanes, not Picasso96 or CyberGraphX";
         return FALSE;
     }
 
     if (w < 1UL || w > 16384UL || h < 1UL || h > 16384UL)
     {
         if (why != NULL)
-            *why = "the front screen's size does not fit the wire format";
+            *why = "front screen: size out of range";
         return FALSE;
     }
 
@@ -605,15 +604,12 @@ BOOL http_rtg_describe(struct BitMap *bm, UWORD visible_w, HttpRtgScreen *s,
         if (why != NULL)
         {
             if (is_p96 && native == RGBFB_NONE)
-                *why = "the front screen is a planar bitmap Picasso96 is "
-                       "holding, so there are no chunky pixels here to read";
+                *why = "front screen: planar Picasso96 bitmap";
             else if (is_p96 && (native == RGBFB_Y4U2V2 ||
                                 native == RGBFB_Y4U1V1))
-                *why = "the front screen is a YUV overlay screen. The console "
-                       "serves palette and truecolour RTG screens";
+                *why = "front screen: YUV overlay not supported";
             else
-                *why = "the front screen is an RTG screen in a pixel format "
-                       "this cannot read";
+                *why = "front screen: unsupported RTG pixel format";
         }
         return FALSE;
     }

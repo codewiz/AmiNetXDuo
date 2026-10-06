@@ -198,8 +198,7 @@ BOOL tool_bpf_start(ToolBpfChan *c, struct Library *base, const char *iface,
     if (c->channel < 0)
     {
         c->channel = 0;
-        tool_error("bpf_open failed: either this bsdsocket.library is not "
-                   "ours, or it was built without BPF");
+        tool_error("bpf_open failed: no BPF in this bsdsocket.library");
         return FALSE;
     }
     c->open = TRUE;
@@ -459,22 +458,19 @@ BOOL tool_bpf_warn(const ToolBpfChan *c)
 
     if (c->out.failed)
     {
-        tool_error("the trace file was truncated, perhaps because the disk "
-                   "is full");
+        tool_error("trace file truncated");
         said = TRUE;
     }
 
     if (c->drop != 0)
     {
-        tool_error("%lu frames were seen and not written: the trace has holes",
-                   (LONG)c->drop);
+        tool_error("%lu frames not written", (LONG)c->drop);
         said = TRUE;
     }
 
     if (c->left != 0UL)
     {
-        tool_error("%lu bytes were still buffered at the end of the trace",
-                   (LONG)c->left);
+        tool_error("%lu bytes unwritten at end of trace", (LONG)c->left);
         said = TRUE;
     }
 

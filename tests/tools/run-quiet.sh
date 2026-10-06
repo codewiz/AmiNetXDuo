@@ -265,12 +265,12 @@ fi
 # messages and printed the whole report anyway -- the opposite of what QUIET
 # means here.  It is back with the tree's own rule applied to it: the data and
 # the errors are kept, the commentary is dropped.  On this command the
-# commentary is the "What to look at" block, which is why both claims below
+# commentary is the "Problems" block, which is why both claims below
 # read the report AND the advice, not one of them.
-# The advice is the "What to look at" block when there is something to say and
+# The advice is the "Problems" block when there is something to say and
 # "No problems found" when there is not; one of the two is always printed, and
 # QUIET drops whichever it would have been.
-ADVICE='What to look at|No problems found'
+ADVICE='^Problems|No problems found'
 
 if block "SYS:ShowNetStatus" 1 | grep -Eq "$ADVICE"; then
     pass "the loud run has advice under it, so QUIET has something to drop"

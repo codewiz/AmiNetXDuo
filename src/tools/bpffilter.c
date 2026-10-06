@@ -531,10 +531,9 @@ const char *tool_bpf_error(ToolBpfResult why)
     case TOOL_BPF_ERR_PORT:
         return "the port must be between 0 and 65535";
     case TOOL_BPF_ERR_IMPOSSIBLE:
-        return "no frame can satisfy that combination, so it would capture "
-               "nothing";
+        return "filter matches nothing";
     case TOOL_BPF_ERR_SPACE:
-        return "the filter did not fit in the program buffer";
+        return "filter too long";
     }
 
     return "the filter was refused";

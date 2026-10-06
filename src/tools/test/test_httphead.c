@@ -74,8 +74,7 @@ static void test_request_line(void)
     /* The version is part of the framing. */
     fresh(&h);
     CHECK(parse(&h, "GET /\r\n\r\n") == 400UL);
-    CHECK(strcmp(h.reason, "that is not an HTTP version this server reads")
-          == 0);
+    CHECK(strcmp(h.reason, "unsupported HTTP version") == 0);
     fresh(&h);
     CHECK(parse(&h, "GET / HTTP/1.1junk\r\n\r\n") == 400UL);
     fresh(&h);
@@ -84,7 +83,7 @@ static void test_request_line(void)
     /* No method at all. */
     fresh(&h);
     CHECK(parse(&h, " / HTTP/1.1\r\n\r\n") == 400UL);
-    CHECK(strcmp(h.reason, "that is not a request line") == 0);
+    CHECK(strcmp(h.reason, "malformed request line") == 0);
 
     /* A method the buffer cannot hold is 501, and it is refused before the
        version is read, so the connection's state is left as it was. */
@@ -92,7 +91,7 @@ static void test_request_line(void)
     h.keepalive = 1;
     h.http11    = 1;
     CHECK(parse(&h, "ABCDEFGHIJKLMNOPQRSTUVWX / HTTP/1.1\r\n\r\n") == 501UL);
-    CHECK(strcmp(h.reason, "that is not a method this server has") == 0);
+    CHECK(strcmp(h.reason, "unsupported method") == 0);
     CHECK(h.keepalive == 1 && h.http11 == 1);
 
     /* Twenty-three characters fit. */
@@ -113,8 +112,7 @@ static void test_request_line(void)
 
         fresh(&h);
         CHECK(parse(&h, head) == 414UL);
-        CHECK(strcmp(h.reason, "that address is longer than this server "
-                               "will read") == 0);
+        CHECK(strcmp(h.reason, "URI too long") == 0);
     }
 }
 
@@ -142,7 +140,7 @@ static void test_framing(void)
     fresh(&h);
     CHECK(parse(&h, "PUT /f HTTP/1.1\r\nContent-Length: 5abc\r\n\r\n")
           == 400UL);
-    CHECK(strcmp(h.reason, "that is not a Content-Length") == 0);
+    CHECK(strcmp(h.reason, "invalid Content-Length") == 0);
     CHECK(h.note != 0 && strcmp(h.note, http_frame_error(HTTP_FRAME_JUNK))
           == 0);
 
@@ -161,8 +159,7 @@ static void test_framing(void)
     fresh(&h);
     CHECK(parse(&h, "PUT /f HTTP/1.1\r\nTransfer-Encoding: gzip\r\n\r\n")
           == 501UL);
-    CHECK(strcmp(h.reason, "that is not a transfer encoding this server can "
-                           "undo") == 0);
+    CHECK(strcmp(h.reason, "unsupported transfer encoding") == 0);
 
     fresh(&h);
     CHECK(parse(&h, "PUT /f HTTP/1.1\r\nTransfer-Encoding: chunked\r\n"
@@ -173,8 +170,7 @@ static void test_framing(void)
     fresh(&h);
     CHECK(parse(&h, "PUT /f HTTP/1.1\r\nContent-Length: 3\r\n"
                     "Transfer-Encoding: chunked\r\n\r\n") == 400UL);
-    CHECK(strcmp(h.reason, "a body cannot have both a length and an "
-                           "encoding") == 0);
+    CHECK(strcmp(h.reason, "both Content-Length and Transfer-Encoding") == 0);
     fresh(&h);
     CHECK(parse(&h, "PUT /f HTTP/1.1\r\nTransfer-Encoding: chunked\r\n"
                     "Content-Length: 3\r\n\r\n") == 400UL);
@@ -200,7 +196,7 @@ static void test_connection(void)
     fresh(&h);
     CHECK(parse(&h, "PROPFIND / HTTP/1.1\r\nConnection: close\r\n"
                     "Depth: 2\r\n\r\n") == 400UL);
-    CHECK(strcmp(h.reason, "that is not a Depth this server has") == 0);
+    CHECK(strcmp(h.reason, "invalid Depth") == 0);
     CHECK(h.keepalive == 0 && h.http11 == 1);
 
     fresh(&h);
@@ -286,8 +282,7 @@ static void test_webdav_headers(void)
 
         fresh(&h);
         CHECK(parse(&h, head) == 414UL);
-        CHECK(strcmp(h.reason, "that destination is longer than this server "
-                               "will read") == 0);
+        CHECK(strcmp(h.reason, "Destination too long") == 0);
     }
 
     fresh(&h);
@@ -312,8 +307,7 @@ static void test_webdav_headers(void)
 
         fresh(&h);
         CHECK(parse(&h, head) == 431UL);
-        CHECK(strcmp(h.reason, "that If: is longer than this server will "
-                               "read") == 0);
+        CHECK(strcmp(h.reason, "If header too long") == 0);
         CHECK(h.ifhdr[0] == '\0');
     }
 
@@ -369,8 +363,7 @@ static void test_conditions(void)
     CHECK(h.expect == 1);
     fresh(&h);
     CHECK(parse(&h, "PUT /f HTTP/1.1\r\nExpect: 200-ok\r\n\r\n") == 417UL);
-    CHECK(strcmp(h.reason, "that is not an expectation this server can meet")
-          == 0);
+    CHECK(strcmp(h.reason, "unsupported expectation") == 0);
 
     fresh(&h);
     CHECK(parse(&h, "GET /shell HTTP/1.1\r\n"
@@ -395,8 +388,7 @@ static void test_conditions(void)
     CHECK(parse(&h, "PUT /f HTTP/1.1\r\n"
                     "If-Match: \"1-2-3-4\", \"5-6-7-8\", \"9-10-11-12\", "
                     "\"13-14-15-16\", \"17-18-19-20\"\r\n\r\n") == 431UL);
-    CHECK(strcmp(h.reason, "that If-Match list is longer than this server "
-                           "reads") == 0);
+    CHECK(strcmp(h.reason, "If-Match too long") == 0);
 }
 
 static void test_head_shape(void)
@@ -409,7 +401,7 @@ static void test_head_shape(void)
 
     fresh(&h);
     CHECK(parse(&h, "GET / HTTP/1.1\r\nNoColonHere\r\n\r\n") == 400UL);
-    CHECK(strcmp(h.reason, "that is not an HTTP header") == 0);
+    CHECK(strcmp(h.reason, "malformed header") == 0);
 
     /* A folded continuation is not a header this server reads. */
     fresh(&h);
@@ -464,8 +456,7 @@ static void test_head_shape(void)
         strcpy(&head[n], "\r\n\r\n");
         fresh(&h);
         CHECK(parse(&h, head) == 431UL);
-        CHECK(strcmp(h.reason, "that If-None-Match list is longer than this "
-                               "server reads") == 0);
+        CHECK(strcmp(h.reason, "If-None-Match too long") == 0);
     }
 }
 

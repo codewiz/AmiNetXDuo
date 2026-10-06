@@ -52,7 +52,7 @@ addifup_verdict() {
         *)               _av_fail "address_not_a_quad_$addr" ;;
     esac
 
-    if grep -q "handed out by DHCP when the interface comes up" "$report"; then
+    if grep -q "address     DHCP" "$report"; then
         echo "addifup_dhcp_placeholder=present"
         _av_fail lease_never_arrived
     else

@@ -182,7 +182,7 @@ static LONG pay_connect(struct Library *sb, const ToolAddr *addr,
 
         if ((ami_millis() - started) / 1000UL >= timeout)
         {
-            tool_error("port %ld never answered within %lu seconds: %s",
+            tool_error("port %ld: no answer in %lu s: %s",
                        (LONG)port, timeout, (LONG)tool_sock_errstr(why));
             return -1;
         }
@@ -354,7 +354,7 @@ static LONG pay_run(struct Library *sb, const PayOptions *opt)
             idle++;
             if (idle >= opt->timeout * 5UL)     /* 200 ms per tick */
             {
-                tool_error("nothing moved for %lu seconds", opt->timeout);
+                tool_error("stalled for %lu seconds", opt->timeout);
                 for (i = 0; i < opt->conns; i++)
                     if (!pay_conns[i].done)
                         pay_conns[i].failed = TRUE;
@@ -426,8 +426,7 @@ int main(int argc, char **argv)
     {
         tool_fault(IoErr());
         tool_usage("[-4|-6] <host> <port> [LEN n] [SEED s] [SEND] [CONNS k]",
-                   "Moves a seeded byte pattern and prints the CRC of what "
-                   "actually crossed, so the two ends can be compared.");
+                   "Transfer a seeded byte pattern and print its CRC.");
         return RETURN_ERROR;
     }
 
@@ -465,7 +464,7 @@ int main(int argc, char **argv)
 
     if (opt.send && opt.len == 0)
     {
-        tool_error("SEND needs LEN: a sender must know how much to make");
+        tool_error("SEND requires LEN");
         FreeArgs(rda);
         return RETURN_ERROR;
     }
@@ -480,7 +479,7 @@ int main(int argc, char **argv)
 
     if (opt.send && !opt.verify)
     {
-        tool_error("SEND needs SEED: the pattern is the point");
+        tool_error("SEND requires SEED");
         FreeArgs(rda);
         return RETURN_ERROR;
     }
@@ -514,7 +513,7 @@ int main(int argc, char **argv)
 
     if (port + opt.conns - 1 > 65535)
     {
-        tool_error("CONNS %ld runs past the last port", opt.conns);
+        tool_error("CONNS %ld exceeds the port range", opt.conns);
         FreeArgs(rda);
         return RETURN_ERROR;
     }

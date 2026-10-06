@@ -159,7 +159,7 @@ check() {
         fail "guest $tag: \`hostname\` did not print $want"
     fi
 
-    if grep -q "not named by anything" "$report"; then
+    if grep -qE "named after the card's hardware address|default name" "$report"; then
         echo "guest_${tag}_source=derived"
     else
         echo "guest_${tag}_source=OTHER"
@@ -180,11 +180,11 @@ check() {
         fail "guest $tag: $want.local did not resolve"
     fi
 
-    if grep -q "^Known here as: *amiga.local" "$report"; then
+    if grep -q "^mDNS name: *amiga.local" "$report"; then
         echo "guest_${tag}_claimed=amiga.local"
         fail "guest $tag: the responder still claimed amiga.local"
     else
-        echo "guest_${tag}_claimed=$(sed -n 's/^Known here as: *\([^ ]*\).*/\1/p' \
+        echo "guest_${tag}_claimed=$(sed -n 's/^mDNS name: *\([^ ]*\).*/\1/p' \
                                      "$report" | head -1)"
     fi
 }

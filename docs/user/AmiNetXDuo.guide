@@ -1321,21 +1321,20 @@
   An interface whose file says STATE=DOWN was never asked for an
   address, and the report says that instead:
 
-      eth0: the network is running, and eth0 is configured down
+      eth0: configured down
 
   RemoveNetInterface takes an interface off the network even when its
   device does not return every request at once. The device then stays
   open, the command reports
 
-      eth0 was removed. Its device still holds requests and stays open
+      eth0: removed; device still open
 
   and returns WARN (5). The stack releases the device when it returns
   the requests; until then bsdsocket.library stays in memory. An
   AddNetInterface for the same device and unit in that state is
   refused before the device is opened again, and names the unit:
 
-      a2065.device unit 0 still holds requests from an interface
-      removed earlier.
+      a2065.device unit 0: requests pending from a removed interface
 
   A different device or unit can take the freed slot at once.
 
@@ -1358,7 +1357,7 @@
   line reaches it too.
 
       AddNetInterface: the network did not start
-        There is no nosuch.device on this machine.
+        nosuch.device not found
 
   The stack did not come up. The lines under the message name the
   cause. There are four:
@@ -1406,10 +1405,10 @@
   @{b}Example@{ub}
 
       1> Online eth0
-      eth0 is online, address 10.0.2.15
+      eth0: online, 10.0.2.15
 
       1> Online eth0
-      eth0 is already online
+      eth0: already online
 
   As with @{"AddNetInterface" link ADDNETINTERFACE}, that address is the
   one the interface holds and not the one in the file. An interface
@@ -1446,7 +1445,7 @@
 
       1> Offline a2065.device UNIT 0
       a2065.device unit 0 is interface eth0.
-      eth0 is offline
+      eth0: offline
 
   A driver that no interface uses has nothing here to switch, even when
   the card is fitted. The message then lists the interfaces this
@@ -1455,17 +1454,17 @@
   @{b}Example@{ub}
 
       1> Offline eth0
-      eth0 is offline
+      eth0: offline
 
       1> Offline eth0
-      eth0 is already offline
+      eth0: already offline
 
   Unlike Online, Offline never starts the stack. An interface on a
   machine with no stack running is already offline, so the command
   reports that and returns a warning:
 
       1> Offline eth0
-      eth0 is offline: network not running.
+      eth0: offline, network not running
 
   While an interface is offline nothing it carries reaches the
   network. ping still accepts the request and reports every one of
@@ -1520,7 +1519,7 @@
               each of them has open. NetShutdown waits on this list.
               A program listed here must close its sockets before the
               network can be stopped.
-  @{b}EVENTS@{ub}      What the network did: the interfaces that came up and
+  @{b}EVENTS@{ub}      The interfaces that came up and
               the ones that did not, the devices that refused a
               command, and what a shutdown reached and what it left
               behind. The library keeps the last few dozen of these
@@ -1538,7 +1537,7 @@
               and prints the table instead.
   @{b}REPEAT@{ub}      Print the report again every second, clearing the
               screen first, until Ctrl-C.
-  @{b}QUIET@{ub}       Drop the "What to look at" advice under the report.
+  @{b}QUIET@{ub}       Drop the "Problems" list under the report.
               The report itself and every error are still printed, and
               the return code is unchanged. GetNetStatus answers the
               same questions with a return code and prints nothing.
@@ -1570,7 +1569,7 @@
                  from: name_resolution, DHCP, ENV:HOSTNAME or
                  interface ID. "(derived)" means nothing named this
                  machine. See @{"The machine's name" link HOSTNAME}.
-  @{b}Known here as@{ub}  The .local name other machines can use. Printed only
+  @{b}mDNS name@{ub}      The .local name other machines can use. Printed only
                  on a machine whose responder is answering. See
                  @{"Being found by name" link DNSSD}.
   @{b}state@{ub}          online or offline: whether the interface has been
@@ -1624,10 +1623,9 @@
 
       Network stack:  not started
 
-  and the list of things to examine at the end of the report carries
+  and the "Problems" list at the end of the report carries
 
-      * The network has not been started.
-        Start it with:   AddNetInterface eth0
+      * network not started
 
 @endnode
 
@@ -1933,26 +1931,25 @@
 
       1> CheckNetDevice
       CARD "pcmcia"
-        card.resource is at $00209010: this machine has a PCMCIA slot.
-        OwnCard() gave us the slot.
-        CISTPL_FUNCID says function 6, a LAN adapter.
-        Configuration index 32, from the first CISTPL_CFTABLE_ENTRY.
+        card.resource at $00209010 (PCMCIA slot).
+        OwnCard(): granted.
+        CISTPL_FUNCID 6 (LAN).
+        Configuration index 32.
         The socket was put into I/O mode (CardMiscControl $0a).
-        The command register read back $21: a DP8390 answered.
-        The slot is claimed.  The chip's registers are at $00a20300.
-        ATTACHED.  Packet data moves 8-bit, one byte at a time.
+        Command register read $21: DP8390 answered.
+        Slot claimed; registers at $00a20300.
+        ATTACHED.
+        Data path: 8-bit.
         Station address 3e:24:11:93:e8:8b.
-        This card is unit 0 of anxnet.device.
+        Unit 0 of anxnet.device.
 
   A card that was found and refused is reported with the reason:
 
       CARD "ariadne2"
-        Found by autoconfig, board memory at $00e90000.
-        Detection read the command register as $00.
-        REFUSED, and this is why:
-          the command register did not read back as a stopped DP8390.
-          Either nothing is decoding at that address, or what is there
-          is not a DP8390
+        Autoconfig, board at $00e90000.
+        Command register read $00.
+        REFUSED:
+          command register is not a stopped DP8390
 
   @{b}DEVICE@{ub}    The driver to ask about. Default anxnet.device; use
             anxgenet.device for the Raspberry Pi Ethernet report.
@@ -2205,16 +2202,13 @@
       1> ShowNetStatus
       Network stack:  not started
       ...
-      * The network has not been started.
-        Start it with:   AddNetInterface eth0
+      * network not started
 
   A command that needs the network stops instead:
 
       1> fetch http://www.aminet.net/
       fetch: the network did not start
       fetch: network not started
-        AddNetInterface <interface> starts it and says why it will
-        not start. CheckNetConfig reads the configuration files.
 
   @{b}What it means@{ub}
 
@@ -2291,7 +2285,7 @@
   @{b}A text editor saved it somewhere else.@{ub} Check the contents of the
   drawer with "list DEVS:NetInterfaces".
 
-  @{b}"cannot be used as it stands" usually means no DEVICE line.@{ub} Every
+  @{b}"invalid" usually means no DEVICE line.@{ub} Every
   interface file must name a driver. Add one:
 
       DEVICE = a2065.device
@@ -2317,7 +2311,7 @@
       eth0: nosuch.device unit 0
       eth0: starting the network...
       AddNetInterface: the network did not start
-        There is no nosuch.device on this machine.
+        nosuch.device not found
             a2065.device             (DEVS:)
 
   The first line names the driver the file asked for, which is often
@@ -2390,8 +2384,8 @@
         configured  DHCP
 
   An address of 0.0.0.0 means the interface has no address at all. An
-  interface that never attached prints "address     handed out by DHCP
-  when the interface comes up" in place of the address line.
+  interface that never attached prints "address     DHCP" in place of
+  the address line.
 
   @{b}What it means@{ub}
 

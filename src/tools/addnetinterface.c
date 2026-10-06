@@ -37,7 +37,7 @@ static STRPTR addif_names[AMI_CFG_MAX_ATTACHED + 1];
 
 static VOID advise_out_of_memory(ULONG freemem)
 {
-    tool_printf("  %lu bytes are free. The stack needs about 450K.\n", freemem);
+    tool_printf("  %lu bytes free; about 450K needed\n", freemem);
 }
 
 /*
@@ -150,8 +150,7 @@ static BOOL load_interface(const char *name, AmiIfConfig *ifc, BOOL again)
     }
     else if (err == AMI_CFG_ERR_SYNTAX)
     {
-        tool_error("DEVS:NetInterfaces/%s cannot be used as it stands",
-                   (LONG)name);
+        tool_error("DEVS:NetInterfaces/%s: invalid", (LONG)name);
     }
     else
     {
@@ -193,8 +192,6 @@ static BOOL add_expanded_name(const char *path, ULONG *count)
     {
         tool_error("attach: more than %ld interface definitions matched",
                    (LONG)AMI_CFG_MAX_ATTACHED);
-        tool_hint("Name %ld or fewer; the rest can stay in "
-                  "DEVS:NetInterfaces.", (LONG)AMI_CFG_MAX_ATTACHED);
         return FALSE;
     }
 
@@ -392,11 +389,8 @@ static VOID report_refused_gateway(struct Library *base, const char *name,
         return;
 
     ami_config_format_ip(asked_for, text, sizeof(text));
-    tool_printf("%s: is up, and the default route %s was refused: that "
-                "address is on no network this machine is on.\n",
+    tool_printf("%s: gateway %s not on a local network\n",
                 (LONG)name, (LONG)text);
-    tool_printf("%s: check the GATEWAY line in DEVS:NetInterfaces/%s.\n",
-                (LONG)name, (LONG)name);
 }
 
 /*
@@ -502,7 +496,7 @@ static VOID explain_no_slot(struct Library *base, const char *name)
     LONG i;
     LONG shown = 0;
 
-    tool_printf("  %s cannot come up: all %ld interface slots are in use",
+    tool_printf("  %s: all %ld interface slots in use",
                 (LONG)name, (LONG)NX_MAX_PHYSICAL_INTERFACES);
 
     n = tool_netstatus_query(base, NETSTATUS_INTERFACES, &addif_ifaces,
@@ -518,8 +512,7 @@ static VOID explain_no_slot(struct Library *base, const char *name)
         shown++;
     }
 
-    tool_printf(".\n");
-    tool_printf("  Take one down first:  RemoveNetInterface <name>\n");
+    tool_printf("\n");
 }
 
 /* Why the add was refused, in the words the rest of this command uses. */
@@ -541,8 +534,7 @@ static VOID explain_add_failure(struct Library *base, LONG err,
             break;
 
         case EEXIST:
-            tool_printf("  %s is already part of the running network.\n",
-                        (LONG)name);
+            tool_printf("  %s: already attached\n", (LONG)name);
             break;
 
         case ENOSPC:
@@ -550,8 +542,8 @@ static VOID explain_add_failure(struct Library *base, LONG err,
             break;
 
         case EBUSY:
-            tool_printf("  %s unit %lu still holds requests from an interface "
-                        "removed earlier.\n", (LONG)ifc->device, ifc->unit);
+            tool_printf("  %s unit %lu: requests pending from a removed "
+                        "interface\n", (LONG)ifc->device, ifc->unit);
             break;
 
         case ENOBUFS:
@@ -804,8 +796,7 @@ int main(int argc, char **argv)
 
         if (base == NULL)
         {
-            tool_error("bsdsocket.library did not open, so the network did "
-                       "not start");
+            tool_error("bsdsocket.library did not open");
             explain_library_failure(&ifc, freemem, largest, resident);
             FreeArgs(rda);
             return RETURN_FAIL;
@@ -836,8 +827,7 @@ int main(int argc, char **argv)
 
             if (where == -2)
             {
-                tool_error("the network did not say which interfaces it "
-                           "has");
+                tool_error("cannot read the interface list");
                 tool_explain_no_netstatus(base);
                 tool_stack_release(base);
                 FreeArgs(rda);
@@ -906,7 +896,7 @@ int main(int argc, char **argv)
 
                 if (!tool_stack_hold(base))
                 {
-                    tool_error("the library could not keep the network running");
+                    tool_error("cannot hold the network open");
                     rc = RETURN_FAIL;
                     continue;
                 }
@@ -916,8 +906,7 @@ int main(int argc, char **argv)
                 where = running_index(base, name, &addr);
                 if (where == -2)
                 {
-                    tool_error("the network did not say which interfaces it "
-                               "has");
+                    tool_error("cannot read the interface list");
                     tool_explain_no_netstatus(base);
                     tool_stack_release(base);
                     FreeArgs(rda);
@@ -964,8 +953,7 @@ int main(int argc, char **argv)
             else if (!ifc.up)
             {
                 if (!quiet)
-                    tool_printf("%s: the network is running, and %s is "
-                                "configured down\n", (LONG)name, (LONG)name);
+                    tool_printf("%s: configured down\n", (LONG)name);
             }
             else
             {
@@ -1035,8 +1023,7 @@ int main(int argc, char **argv)
         if (!ifc.up)
         {
             if (!quiet)
-                tool_printf("%s: the network is running, and %s is "
-                            "configured down\n", (LONG)name, (LONG)name);
+                tool_printf("%s: configured down\n", (LONG)name);
             continue;
         }
 

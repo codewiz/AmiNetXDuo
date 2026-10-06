@@ -278,7 +278,7 @@ static VOID nt_wire(struct Library *base, ToolBpfChan *cap, const ToolAddr *addr
 
         if (*p != '\0')
         {
-            tool_error("the path is too long for a request buffer of %ld bytes",
+            tool_error("PATH longer than %ld bytes",
                        (LONG)sizeof(req));
             (VOID)tool_sock_close(base, s);
             return;
@@ -312,7 +312,7 @@ static VOID nt_wire(struct Library *base, ToolBpfChan *cap, const ToolAddr *addr
         if (n <= 0)
         {
             if (n == 0)
-                tool_error("the peer went quiet after %lu bytes", (LONG)total);
+                tool_error("peer stalled after %lu bytes", (LONG)total);
             break;
         }
 
@@ -428,7 +428,7 @@ int main(int argc, char **argv)
     /* LOOPBACK is the default, so it only ever has to say no to the other. */
     if (args[ARG_LOOPBACK] != 0 && wire)
     {
-        tool_error("LOOPBACK and WIRE are alternatives, and HOST means WIRE");
+        tool_error("LOOPBACK cannot be used with WIRE or HOST");
         FreeArgs(rda);
         return RETURN_ERROR;
     }

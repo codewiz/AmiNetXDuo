@@ -98,14 +98,14 @@ static const char *tftp_error_name(UWORD code)
 {
     switch (code)
     {
-        case 1:  return "there is no such file on the server";
-        case 2:  return "the server will not allow that";
-        case 3:  return "the server has no room for it";
-        case 4:  return "the server did not understand the request";
-        case 5:  return "the server does not know that transfer";
-        case 6:  return "there is already a file of that name there";
-        case 7:  return "the server has no such user";
-        default: return "the server refused the transfer";
+        case 1:  return "file not found";
+        case 2:  return "access violation";
+        case 3:  return "disk full";
+        case 4:  return "illegal TFTP operation";
+        case 5:  return "unknown transfer ID";
+        case 6:  return "file already exists";
+        case 7:  return "no such user";
+        default: return "transfer refused";
     }
 }
 
@@ -377,7 +377,7 @@ static LONG tftp_get(TftpXfer *x, const char *remote, const char *local)
     len = tftp_build_request(TFTP_RRQ, remote);
     if (len == 0)
     {
-        tool_error("\"%s\" is too long a name for TFTP", (LONG)remote);
+        tool_error("\"%s\": name too long", (LONG)remote);
         return RETURN_ERROR;
     }
 
@@ -418,7 +418,7 @@ static LONG tftp_get(TftpXfer *x, const char *remote, const char *local)
         }
         if (n == 0)
         {
-            tool_error("the server stopped answering after %lu bytes",
+            tool_error("no answer after %lu bytes",
                        x->total);
             Close(out);
             DeleteFile((CONST_STRPTR)local);
@@ -482,7 +482,7 @@ static LONG tftp_put(TftpXfer *x, const char *local, const char *remote)
     len = tftp_build_request(TFTP_WRQ, remote);
     if (len == 0)
     {
-        tool_error("\"%s\" is too long a name for TFTP", (LONG)remote);
+        tool_error("\"%s\": name too long", (LONG)remote);
         Close(in);
         return RETURN_ERROR;
     }
@@ -513,7 +513,7 @@ static LONG tftp_put(TftpXfer *x, const char *local, const char *remote)
         }
         if (n == 0)
         {
-            tool_error("the server stopped answering after %lu bytes",
+            tool_error("no answer after %lu bytes",
                        x->total);
             Close(in);
             return RETURN_ERROR;
@@ -609,8 +609,7 @@ int main(int argc, char **argv)
     if ((get == NULL) == (put == NULL))
     {
         tool_error((get == NULL) ? "GET or PUT must name a file"
-                                 : "GET and PUT are opposite directions. "
-                                   "Use one of them");
+                                 : "GET and PUT are mutually exclusive");
         tool_usage("<host> GET <file>  |  <host> PUT <file>",
                    "Fetches a file from a TFTP server, or sends one to it.");
         FreeArgs(rda);
@@ -621,7 +620,7 @@ int main(int argc, char **argv)
                ? (ULONG)(*(LONG *)args[ARG_PORT]) : (ULONG)TFTP_PORT;
     if (port == 0 || port > 65535UL)
     {
-        tool_error("port %lu is not a port anything listens on", port);
+        tool_error("port %lu out of range", port);
         FreeArgs(rda);
         return RETURN_ERROR;
     }

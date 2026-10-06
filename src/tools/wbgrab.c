@@ -106,8 +106,7 @@ static BOOL open_libraries(VOID)
     if (GfxBase != NULL && IntuitionBase != NULL && LayersBase != NULL)
         return TRUE;
 
-    tool_error("this needs Kickstart 3.0 or later: graphics, intuition and "
-               "layers must all answer OpenLibrary() at version 39");
+    tool_error("requires Kickstart 3.0 (V39 graphics, intuition, layers)");
     return FALSE;
 }
 
@@ -152,23 +151,22 @@ static BOOL geometry_of(struct BitMap *bm, Geometry *g)
 
     if ((flags & BMF_STANDARD) == 0)
     {
-        tool_error("the Workbench screen is not a standard planar bitmap "
-                   "(BMA_FLAGS=0x%lx), so it has no bitplanes to read. This "
-                   "grabs planar screens only", (LONG)flags);
+        tool_error("Workbench screen is not planar (BMA_FLAGS=0x%lx)",
+                   (LONG)flags);
         return FALSE;
     }
 
     if (depth < 1 || depth > PFS_MAX_DEPTH)
     {
-        tool_error("the Workbench screen is %ld planes deep. This handles "
-                   "1 to %ld", (LONG)depth, (LONG)PFS_MAX_DEPTH);
+        tool_error("Workbench screen depth %ld; supported 1 to %ld",
+                   (LONG)depth, (LONG)PFS_MAX_DEPTH);
         return FALSE;
     }
 
     if (width < 1 || width > 65535 || height < 1 || height > 65535)
     {
-        tool_error("the Workbench screen is %ldx%ld, which does not fit the "
-                   "file format", (LONG)width, (LONG)height);
+        tool_error("Workbench screen %ldx%ld does not fit the file format",
+                   (LONG)width, (LONG)height);
         return FALSE;
     }
 
@@ -181,8 +179,8 @@ static BOOL geometry_of(struct BitMap *bm, Geometry *g)
     {
         if (stride == 0 || (stride % depth) != 0)
         {
-            tool_error("interleaved bitmap with BytesPerRow=%ld over %ld "
-                       "planes, which does not divide", (LONG)stride,
+            tool_error("interleaved bitmap: BytesPerRow=%ld not divisible "
+                       "by %ld planes", (LONG)stride,
                        (LONG)depth);
             return FALSE;
         }
@@ -195,8 +193,8 @@ static BOOL geometry_of(struct BitMap *bm, Geometry *g)
 
     if ((ULONG)g->row_bytes * 8UL < width)
     {
-        tool_error("bitmap says %ld bytes a row for %ld pixels, which is too "
-                   "few. This will not read past the plane", (LONG)g->row_bytes,
+        tool_error("bitmap BytesPerRow %ld too small for %ld pixels",
+                   (LONG)g->row_bytes,
                    (LONG)width);
         return FALSE;
     }
@@ -303,8 +301,7 @@ static BOOL grab_frame(const Geometry *want, UBYTE *buf, BOOL *changed)
     sc = LockPubScreen((CONST_STRPTR)PUBSCREEN_NAME);
     if (sc == NULL)
     {
-        tool_error("there is no Workbench screen: LockPubScreen(\"%s\") "
-                   "found nothing", (LONG)PUBSCREEN_NAME);
+        tool_error("LockPubScreen(\"%s\") failed", (LONG)PUBSCREEN_NAME);
         return FALSE;
     }
 
@@ -406,8 +403,7 @@ int main(int argc, char **argv)
 
         if (n < 1 || n > 65535)
         {
-            tool_error("FRAMES is %ld. The file format counts 1 to 65535",
-                       (LONG)n);
+            tool_error("FRAMES %ld out of range 1 to 65535", (LONG)n);
             FreeArgs(rda);
             return RETURN_ERROR;
         }
@@ -420,7 +416,7 @@ int main(int argc, char **argv)
 
         if (n < 0)
         {
-            tool_error("DELAY is %ld. Ticks cannot be negative", (LONG)n);
+            tool_error("DELAY cannot be negative");
             FreeArgs(rda);
             return RETURN_ERROR;
         }
@@ -441,8 +437,7 @@ int main(int argc, char **argv)
     sc = LockPubScreen((CONST_STRPTR)PUBSCREEN_NAME);
     if (sc == NULL)
     {
-        tool_error("there is no Workbench screen: LockPubScreen(\"%s\") "
-                   "found nothing", (LONG)PUBSCREEN_NAME);
+        tool_error("LockPubScreen(\"%s\") failed", (LONG)PUBSCREEN_NAME);
         goto done;
     }
 

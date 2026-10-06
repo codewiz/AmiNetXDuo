@@ -267,14 +267,14 @@ says "$WRITE1" 1 "^Wrote DEVS:Internet/routes$" \
 says "$WRITE1" 1 "^Wrote DEVS:Internet/name_resolution$" \
      "DNS writes the resolver file"
 
-silent_about "$WRITE1" 1 "The network is up" \
+silent_about "$WRITE1" 1 "Network up" \
      "NOONLINE does not say the network came up"
 no_iface_yet 2 "and netstat agrees nothing was started"
 
 want_rc "$WRITE2" 1 0 "FORCE ONLINE rewrites the file and starts the network"
 says "$WRITE2" 1 "^AddNetInterface eth0$" \
      "it starts it by running the real command"
-says "$WRITE2" 1 "^The network is up.$" "and reports it came up"
+says "$WRITE2" 1 "^Network up\. S:User-Startup line:$" "and reports it came up"
 if ifaces 3 | grep -Eq '^eth0 +[0-9]+ +10\.0\.2\.15 +up'; then
     pass "netstat -i shows eth0 up on the address NetSetup wrote"
 else
@@ -320,10 +320,8 @@ says "$LCALL" 1 "NetSetup: set up a network interface" \
 
 DEFCALL="SYS:NetSetup eth4 DEVICE=a2065.device UNIT=0 DHCP"
 want_rc "$DEFCALL" 1 0 "a call naming neither ONLINE nor NOONLINE writes"
-says "$DEFCALL" 1 "AddNetInterface eth4" \
-     "and tells the user how to start it"
-silent_about "$LCALL" 1 "Start the network with" \
-     "where NOONLINE does not offer even that"
+silent_about "$DEFCALL" 1 "AddNetInterface eth4" \
+     "and does not start it"
 
 file_says "$IFDIR/eth0" "^DEVICE += a2065\.device$" \
           "eth0 names the driver it was given"

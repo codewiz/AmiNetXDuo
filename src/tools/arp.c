@@ -351,40 +351,20 @@ static const char *default_router6(BOOL have_routes)
 }
 
 /* Why an address is not in the neighbour cache: the IPv6 half of
-   explain_absence() below, and the same two reasons. */
-static VOID explain_absence6(const ULONG addr[4], const char *text,
-                             BOOL have_routes)
+   explain_absence() below.  On-link needs no words: neighbour entries age
+   out, so an absence is "nothing has spoken to it lately", not a fault. */
+static VOID explain_absence6(const ULONG addr[4], BOOL have_routes)
 {
     const char *router;
 
-    if (off_link6(addr, have_routes))
-    {
-        tool_printf("  It is not on this machine's link, so nothing ever asks "
-                    "for its hardware address. Packets to it go to the "
-                    "router.\n");
-
-        router = default_router6(have_routes);
-        if (router != NULL)
-        {
-            tool_printf("  The router is %s, and its entry is the one to "
-                        "check:\n", (LONG)router);
-            tool_printf("      arp %s\n", (LONG)router);
-        }
+    if (!off_link6(addr, have_routes))
         return;
-    }
 
-    /*
-     * On this machine's link, or a machine that could not tell. Neighbour
-     * entries age out, so an absence is "nothing has spoken to it lately"
-     * rather than a fault.
-     */
-    if (have_routes)
-        tool_printf("  It is on this machine's link, so an entry appears as "
-                    "soon as something sends to it:\n");
+    router = default_router6(have_routes);
+    if (router != NULL)
+        tool_printf("  off-link, router %s\n", (LONG)router);
     else
-        tool_printf("  An entry appears as soon as something sends to it:\n");
-
-    tool_printf("      ping %s\n", (LONG)text);
+        tool_printf("  off-link\n");
 }
 
 /* TRUE when `addr` is on the network of an interface this machine has up. */
@@ -410,42 +390,27 @@ static BOOL on_our_network(ULONG addr, BOOL have_snapshot)
 }
 
 /*
- * Why an address is not in the cache, and there are two distinct reasons. ARP
- * is only spoken to machines on this machine's own network; an address anywhere
- * else never appears here however much traffic goes to it.
+ * Why an address is not in the cache. ARP is only spoken to machines on this
+ * machine's own network; an address anywhere else never appears here however
+ * much traffic goes to it.  On-net needs no words: an absence there means
+ * nothing has sent to it since the stack came up.
  */
-static VOID explain_absence(ULONG addr, const char *text, BOOL have_snapshot)
+static VOID explain_absence(ULONG addr, BOOL have_snapshot)
 {
     char gw[16];
 
-    if (!on_our_network(addr, have_snapshot))
-    {
-        tool_printf("  It is not on this machine's network, so nothing ever "
-                    "sends it an ARP request. Packets to it go to the "
-                    "router.\n");
-
-        if (arp_snap.have_gateway && arp_snap.gateway != 0)
-        {
-            ami_config_format_ip(arp_snap.gateway, gw, sizeof(gw));
-            tool_printf("  The router is %s, and its entry is the one to "
-                        "check:\n", (LONG)gw);
-            tool_printf("      arp %s\n", (LONG)gw);
-        }
+    if (on_our_network(addr, have_snapshot))
         return;
+
+    if (arp_snap.have_gateway && arp_snap.gateway != 0)
+    {
+        ami_config_format_ip(arp_snap.gateway, gw, sizeof(gw));
+        tool_printf("  off-net, router %s\n", (LONG)gw);
     }
-
-    /*
-     * On this machine's network, or a machine that could not tell. Nothing ages
-     * out on this side, so an absence means nothing has sent to it since the
-     * stack came up. That is not a fault, which is why it needs saying.
-     */
-    if (have_snapshot)
-        tool_printf("  It is on this machine's network, so an entry appears "
-                    "as soon as something sends to it:\n");
     else
-        tool_printf("  An entry appears as soon as something sends to it:\n");
-
-    tool_printf("      ping %s\n", (LONG)text);
+    {
+        tool_printf("  off-net\n");
+    }
 }
 
 /*
@@ -456,7 +421,7 @@ static VOID print_stats(const ToolStats *s)
 {
     if (!s->have_arp)
     {
-        tool_printf("This stack does not keep ARP counters.\n");
+        tool_printf("no ARP counters\n");
         return;
     }
 
@@ -569,11 +534,7 @@ int main(int argc, char **argv)
 
         if (!has6)
         {
-            /* The address itself is granted in the same breath as the refusal,
-               or the answer reads as a verdict on what was typed. */
-            tool_error("%s is a well-formed IPv6 address, but the running "
-                       "stack has no IPv6", (LONG)address_text);
-            tool_no_ipv6_note();
+            tool_error("%s: stack has no IPv6", (LONG)address_text);
             FreeArgs(rda);
             return RETURN_FAIL;
         }
@@ -605,8 +566,7 @@ int main(int argc, char **argv)
      */
     if (args[ARG_SET] != 0 && !want_one6 && args[ARG_UNIT] != 0)
     {
-        tool_error("the IPv4 ARP cache is one table for the whole machine, "
-                   "so UNIT cannot choose an interface");
+        tool_error("UNIT cannot be used with an IPv4 SET");
         FreeArgs(rda);
         return RETURN_ERROR;
     }
@@ -684,7 +644,7 @@ int main(int argc, char **argv)
 
             tool_format_mac(mac, text, sizeof(text));
             if (!quiet)
-                tool_printf("%s is now permanently %s.\n",
+                tool_printf("%s: %s, permanent\n",
                             (LONG)address_text, (LONG)text);
         }
         else
@@ -702,8 +662,7 @@ int main(int argc, char **argv)
             }
 
             if (!quiet)
-                tool_printf("%s forgotten. The next packet to it will ask "
-                            "again.\n", (LONG)address_text);
+                tool_printf("%s: deleted\n", (LONG)address_text);
         }
 
         tool_netstatus_close(base);
@@ -784,13 +743,13 @@ int main(int argc, char **argv)
         {
             tool_printf("%s is not in the neighbour cache.\n",
                         (LONG)address_text);
-            explain_absence6(want6, address_text, have_routes6);
+            explain_absence6(want6, have_routes6);
             rc = RETURN_WARN;
         }
         else if (want_one)
         {
             tool_printf("%s is not in the cache.\n", (LONG)address_text);
-            explain_absence(want, address_text, have_snapshot);
+            explain_absence(want, have_snapshot);
             rc = RETURN_WARN;
         }
         else
@@ -809,17 +768,12 @@ int main(int argc, char **argv)
         tool_printf("\n");
 
         if (arp_stats.arp_truncated)
-            tool_printf("The address cache has more than %ld entries and only "
-                        "the first %ld are shown.\n",
-                        (LONG)TOOL_MAX_ARP, (LONG)TOOL_MAX_ARP);
+            tool_printf("address cache: first %ld entries shown\n",
+                        (LONG)TOOL_MAX_ARP);
 
         if (arp_nd.truncated)
-            tool_printf("The neighbour cache has more than %ld entries and "
-                        "only the first %ld are shown.\n",
-                        (LONG)TOOL_MAX_ND, (LONG)TOOL_MAX_ND);
-
-        tool_printf("Name one address to see just that entry:\n");
-        tool_printf("      arp 192.168.1.1\n");
+            tool_printf("neighbour cache: first %ld entries shown\n",
+                        (LONG)TOOL_MAX_ND);
     }
 
     FreeArgs(rda);

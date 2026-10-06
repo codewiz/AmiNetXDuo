@@ -312,7 +312,7 @@ static VOID browse_device(VOID)
 
     if (prefix >= sizeof(drawer))
     {
-        requester("The current device path is too long for the requester.");
+        requester("Device path too long.");
         return;
     }
     if (prefix != 0)
@@ -326,7 +326,7 @@ static VOID browse_device(VOID)
     AslBase = OpenLibrary("asl.library", 37);
     if (AslBase == NULL)
     {
-        requester("asl.library is needed to browse for a device.");
+        requester("asl.library V37 required.");
         return;
     }
     tags[0].ti_Tag = ASLFR_Window;         tags[0].ti_Data = (ULONG)np.window;
@@ -437,14 +437,14 @@ static char *read_file(const char *path, ULONG *length, BOOL missing_ok)
     if (size < 0 || (ULONG)size > NP_FILE_MAX)
     {
         Close(fh);
-        requester("The file is too large to edit safely.");
+        requester("File too large.");
         return NULL;
     }
     data = (char *)ami_alloc((ULONG)size + 1UL);
     if (data == NULL)
     {
         Close(fh);
-        requester("There is not enough free memory to edit this file.");
+        requester("Not enough memory.");
         return NULL;
     }
     got = Read(fh, data, size);
@@ -649,9 +649,7 @@ static BOOL set_boot_state(const char *name, BOOL enabled, BOOL removing)
 
     if (!enabled && wildcard_active && !removing)
     {
-        requester("S:Network-Startup starts every interface with a wildcard.\n"
-                  "NetPrefs will not rewrite that policy implicitly. Edit the\n"
-                  "wildcard line first if this one interface must be excluded.");
+        requester("S:Network-Startup uses a wildcard line; not changed.");
         goto fail;
     }
     if (enabled && !exact && !wildcard_active)
@@ -669,8 +667,7 @@ static BOOL set_boot_state(const char *name, BOOL enabled, BOOL removing)
 
     if (!replace_file("S:Network-Startup", out, used))
     {
-        requester("S:Network-Startup could not be updated.\n"
-                  "The interface definition itself is unchanged.");
+        requester("S:Network-Startup could not be updated.");
         goto fail;
     }
     ami_free(out);
@@ -826,7 +823,7 @@ static VOID clear_form(VOID)
     set_attr(np.g_arprequests, GTIN_Number, 0);
     set_attr(np.g_writerequests, GTIN_Number, 0);
     np.selected = -1;
-    set_status("New interface: enter a name and device, then Save.");
+    set_status("New interface.");
     show_panel(restore < NP_PANEL_COUNT ? restore : NP_PANEL_GENERAL);
 }
 
@@ -857,8 +854,7 @@ static VOID load_form(LONG index)
     {
         set_attr(np.g_interface, GTLV_Selected,
                  np.selected >= 0 ? (ULONG)np.selected : (ULONG)~0UL);
-        requester("This interface definition could not be parsed.\n"
-                  "Run CheckNetConfig for the exact line and reason.");
+        requester("Interface definition could not be parsed.");
         return;
     }
     np.selected = index;
@@ -928,8 +924,7 @@ static VOID load_form(LONG index)
     set_attr(np.g_iprequests, GTIN_Number, cfg.ip_requests);
     set_attr(np.g_arprequests, GTIN_Number, cfg.arp_requests);
     set_attr(np.g_writerequests, GTIN_Number, cfg.write_requests);
-    set_status(wildcard ? "Starts at boot through the all-interface wildcard."
-                        : "Loaded. Unknown settings and comments are preserved.");
+    set_status(wildcard ? "Starts at boot (wildcard)." : "Loaded.");
     show_panel(restore < NP_PANEL_COUNT ? restore : NP_PANEL_GENERAL);
 }
 
@@ -984,15 +979,14 @@ static BOOL save_form(BOOL apply)
     if (!sane_name(name))
     {
         select_panel(NP_PANEL_GENERAL);
-        requester("Start the interface name with a letter or digit; then use\n"
-                  "only letters, digits, dot, underscore or hyphen. The\n"
-                  "maximum length is 15 characters.");
+        requester("Name: letter or digit first, then letters, digits, . _ or -;\n"
+                  "at most 15 characters.");
         return FALSE;
     }
     if (string_value(np.g_device)[0] == '\0')
     {
         select_panel(NP_PANEL_DEVICE);
-        requester("Choose a SANA-II device before saving.");
+        requester("No SANA-II device.");
         return FALSE;
     }
     if (integer_value(np.g_unit) < 0)
@@ -1013,9 +1007,8 @@ static BOOL save_form(BOOL apply)
         writerequests_n < 0 || writerequests_n > AMI_CFG_WRITEREQUESTS_MAX)
     {
         select_panel(NP_PANEL_TUNING);
-        requester("Tuning values must be zero (automatic) or positive. MTU must\n"
-                  "be at least 68; read queues may not exceed 128, and the\n"
-                  "write queue may not exceed this build's limit.");
+        requester("Tuning: 0 (automatic) or positive; MTU at least 68;\n"
+                  "read queues at most 128; write queue within the build limit.");
         return FALSE;
     }
     if (string_value(np.g_hwaddress)[0] != '\0' &&
@@ -1080,8 +1073,8 @@ static BOOL save_form(BOOL apply)
             return FALSE;
         }
         if (gateway != 0 && (gateway & mask) != (address & mask) &&
-            !confirm("The gateway is outside this interface's network.\n"
-                     "That is usually a typing error. Save it anyway?", "Save"))
+            !confirm("Gateway is outside this interface's network. Save anyway?",
+                     "Save"))
             return FALSE;
     }
 
@@ -1095,7 +1088,7 @@ static BOOL save_form(BOOL apply)
     fields = (NpTextField *)ami_alloc(NP_SAVE_FIELDS * sizeof(*fields));
     if (fields == NULL)
     {
-        requester("There is not enough free memory to prepare the new definition.");
+        requester("Not enough memory.");
         return FALSE;
     }
 #define FIELD(key_, value_) do { \
@@ -1185,13 +1178,13 @@ static BOOL save_form(BOOL apply)
     ami_free(old);
     if (patched == NULL)
     {
-        requester("There is not enough free memory to prepare the new definition.");
+        requester("Not enough memory.");
         return FALSE;
     }
     if (!replace_file(path, patched, newlen))
     {
         ami_free(patched);
-        requester("The interface file could not be replaced. The old file was kept.");
+        requester("Interface file not replaced; old file kept.");
         return FALSE;
     }
     ami_free(patched);
@@ -1200,7 +1193,7 @@ static BOOL save_form(BOOL apply)
     if (old_boot != checked(np.g_boot) &&
         !set_boot_state(name, checked(np.g_boot), FALSE))
     {
-        requester("The definition was saved, but its boot setting was not changed.");
+        requester("Saved; boot setting unchanged.");
         return FALSE;
     }
     scan_interfaces();
@@ -1220,14 +1213,13 @@ static BOOL save_form(BOOL apply)
         if (existed) (VOID)run_command("RemoveNetInterface", name, TRUE);
         if (run_command("AddNetInterface", name, TRUE) != 0)
         {
-            requester("The definition was saved, but the interface did not start.\n"
-                      "Run AddNetInterface from Shell to see the detailed reason.");
+            requester("Saved; AddNetInterface failed.");
             return FALSE;
         }
-        set_status("Saved and applied. The interface was restarted.");
+        set_status("Saved and restarted.");
     }
     else
-        set_status("Saved. Use Save & Start to restart with these settings.");
+        set_status("Saved.");
     return TRUE;
 }
 
@@ -1263,8 +1255,7 @@ static VOID restore_live_interface(const char *name, LONG prior_state)
 
     if (run_command("AddNetInterface", name, TRUE) != 0)
     {
-        requester("The definition was restored, but its live interface could\n"
-                  "not be restored. Run AddNetInterface from Shell.");
+        requester("Definition restored; AddNetInterface failed.");
         return;
     }
 
@@ -1274,8 +1265,7 @@ static VOID restore_live_interface(const char *name, LONG prior_state)
     else if (prior_state == NP_LIVE_OFFLINE && current == NP_LIVE_ONLINE)
         command = "Offline";
     if (command != NULL && run_command(command, name, FALSE) != 0)
-        requester("The definition and interface were restored, but its prior\n"
-                  "online state could not be restored.");
+        requester("Definition restored; previous online state not restored.");
 }
 
 static VOID remove_form(VOID)
@@ -1294,35 +1284,31 @@ static VOID remove_form(VOID)
     tool_copy_string(path + text_len(path), sizeof(path) - text_len(path), name);
     if (!tool_exists(path))
     {
-        requester("Save this interface before removing it.");
+        requester("Interface not saved.");
         return;
     }
     if (!parked_path_for(path, parked, sizeof(parked)))
     {
-        requester("There are too many parked backups for this interface.\n"
-                  "Move or remove an old .disabled.*.info file first.");
+        requester("Too many .disabled backups for this interface.");
         return;
     }
-    if (!confirm("Remove this interface definition?\n\n"
-                 "It will be taken offline and parked as an ignored .info\n"
-                 "backup, not deleted.", "Remove")) return;
+    if (!confirm("Remove this interface?\n"
+                 "It is taken offline and kept as a .disabled backup.",
+                 "Remove")) return;
     if (!query_boot_state(name, &boot_enabled, NULL, &exact)) return;
 
     prior_state = live_state_of(name);
     if (prior_state == NP_LIVE_UNAVAILABLE ||
         prior_state == NP_LIVE_UNKNOWN || prior_state == NP_LIVE_NOT_SAVED)
     {
-        requester("The live interface state could not be checked, so nothing\n"
-                  "was changed. Try again after checking ShowNetStatus.");
+        requester("Live interface state unknown; nothing changed.");
         return;
     }
     if (prior_state == NP_LIVE_ONLINE || prior_state == NP_LIVE_OFFLINE)
     {
         if (run_command("RemoveNetInterface", name, TRUE) != 0)
         {
-            requester("The live interface could not be removed, so nothing\n"
-                      "was changed. Close its connections or run\n"
-                      "RemoveNetInterface from Shell for the exact reason.");
+            requester("RemoveNetInterface failed; nothing changed.");
             return;
         }
         detached = TRUE;
@@ -1341,8 +1327,8 @@ static VOID remove_form(VOID)
     {
         if (!Rename((CONST_STRPTR)parked, (CONST_STRPTR)path))
         {
-            requester("The boot setting was not changed, but the definition\n"
-                      "could not be restored. Its parked .info backup is intact.");
+            requester("Boot setting unchanged; definition not restored;\n"
+                      ".disabled backup intact.");
             return;
         }
         if (detached) restore_live_interface(name, prior_state);
@@ -1351,7 +1337,7 @@ static VOID remove_form(VOID)
     scan_interfaces();
     set_attr(np.g_interface, GTLV_Selected, (ULONG)~0UL);
     clear_form();
-    set_status("Removed. A .disabled backup stays beside the drawer.");
+    set_status("Removed (.disabled backup kept).");
 }
 
 static LONG live_state_of(const char *name)
@@ -2006,7 +1992,7 @@ static VOID event_loop(VOID)
                             set_status("Interface is offline.");
                         else if (np.live_state == NP_LIVE_OFFLINE ||
                                  np.live_state == NP_LIVE_ONLINE)
-                            requester("The state change failed. Run Online or Offline from Shell for details.");
+                            requester("State change failed.");
                         break;
                     case GID_REMOVE: remove_form(); break;
                     case GID_CLOSE: done = TRUE; break;
@@ -2087,9 +2073,8 @@ static int netprefs_run(void)
     scan_interfaces();
     if (!make_window())
     {
-        requester("NetPrefs could not open its window. It needs a public\n"
-                  "Workbench screen at least 640 by 200 pixels and the\n"
-                  "standard OS 2.04 Intuition, Graphics and GadTools libraries.");
+        requester("Cannot open window: needs a 640x200 Workbench screen and "
+                  "OS 2.04.");
         close_ui();
         CloseLibrary(GadToolsBase);
         CloseLibrary((struct Library *)GfxBase);

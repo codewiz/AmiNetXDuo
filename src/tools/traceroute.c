@@ -501,7 +501,7 @@ int main(int argc, char **argv)
     }
     if (tos < 0 || tos > 255)
     {
-        tool_error("TOS is a single byte, so 0 to 255");
+        tool_error("TOS must be 0 to 255");
         FreeArgs(rda);
         return RETURN_ERROR;
     }
@@ -570,7 +570,7 @@ int main(int argc, char **argv)
                              v6 ? TOOL_IPV6_TCLASS : TOOL_IP_TOS, &tos,
                              (LONG)sizeof(tos)) != 0)
     {
-        tool_error("this stack will not set the type of service: %s",
+        tool_error("cannot set TOS: %s",
                    (LONG)tool_sock_errstr(tool_sock_errno(sb)));
         (VOID)tool_sock_close(sb, sock);
         CloseLibrary(sb);
@@ -626,7 +626,7 @@ int main(int argc, char **argv)
                                  &ttlval, (LONG)sizeof(ttlval)) != 0)
         {
             tool_printf("\n");
-            tool_error("this stack will not set the time-to-live: %s",
+            tool_error("cannot set TTL: %s",
                        (LONG)tool_sock_errstr(tool_sock_errno(sb)));
             rc = RETURN_FAIL;
             break;

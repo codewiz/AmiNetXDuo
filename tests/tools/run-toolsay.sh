@@ -163,15 +163,9 @@ says() { # banner nth regex what
 
 says "SYS:arp 10.77.0.50" 1 'is not in the cache' \
      "arp says the address is not there"
-says "SYS:arp 10.77.0.50" 1 "on this machine's network" \
-     "and says why an address on this network can be missing"
-says "SYS:arp 10.77.0.50" 1 '^ +ping 10\.77\.0\.50' \
-     "and names the command that would make an entry"
 
-says "SYS:arp $OFFNET" 1 "not on this machine's network" \
-     "arp says an off-network address is never asked for"
-says "SYS:arp $OFFNET" 1 "The router is $GW" \
-     "and names the router entry to look at instead"
+says "SYS:arp $OFFNET" 1 "^  off-net, router $GW" \
+     "arp says an off-network address is never asked for, and names the router"
 
 says "SYS:NetTrace WIRE HOST 127.0.0.1 PORT 21 NOCAPTURE" 1 \
      'cannot connect to 127\.0\.0\.1 port 21' \

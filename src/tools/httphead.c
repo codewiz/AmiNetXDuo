@@ -153,7 +153,7 @@ unsigned long http_head_parse(HttpHead *h, const unsigned char *in,
     while (i < headlen && in[i] != ' ' && in[i] != '\r' && in[i] != '\n')
     {
         if (n + 1UL >= sizeof(h->method))
-            return hh_refuse(h, 501, "that is not a method this server has");
+            return hh_refuse(h, 501, "unsupported method");
         h->method[n++] = (char)in[i++];
     }
     h->method[n] = '\0';
@@ -165,8 +165,7 @@ unsigned long http_head_parse(HttpHead *h, const unsigned char *in,
     while (i < headlen && in[i] != ' ' && in[i] != '\r' && in[i] != '\n')
     {
         if (n + 1UL >= target_max)
-            return hh_refuse(h, 414, "that address is longer than this server "
-                                     "will read");
+            return hh_refuse(h, 414, "URI too long");
         target[n++] = (char)in[i++];
     }
     target[n] = '\0';
@@ -185,8 +184,7 @@ unsigned long http_head_parse(HttpHead *h, const unsigned char *in,
 
         version = http_frame_version((const char *)&in[start], i - start);
         if (version == HTTP_VERSION_BAD)
-            return hh_refuse(h, 400, "that is not an HTTP version this server "
-                                     "reads");
+            return hh_refuse(h, 400, "unsupported HTTP version");
 
         h->http11 = (version == HTTP_VERSION_11) ? 1 : 0;
     }
@@ -198,7 +196,7 @@ unsigned long http_head_parse(HttpHead *h, const unsigned char *in,
     i++;
 
     if (h->method[0] == '\0' || target[0] == '\0')
-        return hh_refuse(h, 400, "that is not a request line");
+        return hh_refuse(h, 400, "malformed request line");
 
     /* ---- the headers ------------------------------------------------- */
 
@@ -227,7 +225,7 @@ unsigned long http_head_parse(HttpHead *h, const unsigned char *in,
 
             if (!http_frame_field_name((const char *)&in[start], i - start,
                                        &colon))
-                return hh_refuse(h, 400, "that is not an HTTP header");
+                return hh_refuse(h, 400, "malformed header");
 
             j = start;
 
@@ -268,9 +266,9 @@ unsigned long http_head_parse(HttpHead *h, const unsigned char *in,
                next request. */
             if (cut || bad != HTTP_FRAME_OK)
             {
-                h->note = cut ? "longer than this server reads"
+                h->note = cut ? "too long"
                               : http_frame_error(bad);
-                return hh_refuse(h, 400, "that is not a Content-Length");
+                return hh_refuse(h, 400, "invalid Content-Length");
             }
 
             /* RFC 7230 3.3.3: two of them that disagree is the same hazard as
@@ -292,7 +290,7 @@ unsigned long http_head_parse(HttpHead *h, const unsigned char *in,
             else if (value[0] == '0' && value[1] == '\0')
                 h->depth = 0;
             else
-                return hh_refuse(h, 400, "that is not a Depth this server has");
+                return hh_refuse(h, 400, "invalid Depth");
         }
         else if (hh_equal(name, "Connection"))
         {
@@ -346,8 +344,7 @@ unsigned long http_head_parse(HttpHead *h, const unsigned char *in,
                 return hh_refuse(h, 400, "two Transfer-Encodings");
 
             if (cut || te == HTTP_TE_UNSUPPORTED)
-                return hh_refuse(h, 501, "that is not a transfer encoding "
-                                         "this server can undo");
+                return hh_refuse(h, 501, "unsupported transfer encoding");
 
             if (te == HTTP_TE_CHUNKED)
                 http_chunk_start(&h->chunk);
@@ -361,8 +358,7 @@ unsigned long http_head_parse(HttpHead *h, const unsigned char *in,
             /* curl sends this on every PUT over a certain size and waits a
                second for the answer.  The Windows redirector waits too. */
             if (cut || !http_frame_token_is(value, "100-continue"))
-                return hh_refuse(h, 417, "that is not an expectation this "
-                                         "server can meet");
+                return hh_refuse(h, 417, "unsupported expectation");
 
             h->expect = 1;
         }
@@ -380,15 +376,13 @@ unsigned long http_head_parse(HttpHead *h, const unsigned char *in,
                can erase the validator that says a write must not happen. */
             if (cut || !http_frame_list_add(h->ifnone, sizeof(h->ifnone),
                                             value))
-                return hh_refuse(h, 431, "that If-None-Match list is longer "
-                                         "than this server reads");
+                return hh_refuse(h, 431, "If-None-Match too long");
         }
         else if (hh_equal(name, "If-Match"))
         {
             if (cut || !http_frame_list_add(h->ifmatch, sizeof(h->ifmatch),
                                             value))
-                return hh_refuse(h, 431, "that If-Match list is longer than "
-                                         "this server reads");
+                return hh_refuse(h, 431, "If-Match too long");
         }
         else if (hh_equal(name, "Host"))
         {
@@ -402,8 +396,7 @@ unsigned long http_head_parse(HttpHead *h, const unsigned char *in,
             /* A truncated Destination still resolves, to a shorter path,
                and Overwrite defaults to T.  Nothing is guessed here. */
             if (cut || hh_len(value) + 1UL >= sizeof(h->dest_url))
-                return hh_refuse(h, 414, "that destination is longer than "
-                                         "this server will read");
+                return hh_refuse(h, 414, "Destination too long");
 
             hh_copy(h->dest_url, sizeof(h->dest_url), value);
         }
@@ -432,8 +425,7 @@ unsigned long http_head_parse(HttpHead *h, const unsigned char *in,
                and the half that survives the cut can be the one that says
                yes. */
             if (cut || hh_len(value) + 1UL >= sizeof(h->ifhdr))
-                return hh_refuse(h, 431, "that If: is longer than this server "
-                                         "will read");
+                return hh_refuse(h, 431, "If header too long");
 
             hh_copy(h->ifhdr, sizeof(h->ifhdr), value);
             (void)http_request_lock_tokens(
@@ -446,7 +438,7 @@ unsigned long http_head_parse(HttpHead *h, const unsigned char *in,
             const char *p = value;
 
             if (cut)
-                return hh_refuse(h, 400, "that is not a lock token");
+                return hh_refuse(h, 400, "invalid lock token");
 
             while (*p != '\0' && *p != '<')
                 p++;
@@ -474,8 +466,7 @@ unsigned long http_head_parse(HttpHead *h, const unsigned char *in,
        read differently, which is the whole of request smuggling.  Refused
        rather than resolved: a proxy in front can disagree about precedence. */
     if (seen_te && seen_len)
-        return hh_refuse(h, 400, "a body cannot have both a length and an "
-                                 "encoding");
+        return hh_refuse(h, 400, "both Content-Length and Transfer-Encoding");
 
     return 0;
 }

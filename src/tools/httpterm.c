@@ -804,8 +804,7 @@ VOID http_term_service(VOID)
                 now - term_stop_at >= (ULONG)TERM_ABANDON_TICKS)
             {
                 term_abandoned = 1;
-                tool_printf("httpd: the terminal's Shell will not stop. "
-                            "It is abandoned, so the next visitor gets one\n");
+                tool_printf("httpd: terminal Shell did not stop; abandoned\n");
                 (VOID)Flush(Output());
             }
         }
@@ -1759,8 +1758,7 @@ VOID http_term_shutdown(VOID)
         if (!warned && waited >= TERM_STOP_WARN_TICKS)
         {
             warned = TRUE;
-            tool_error("a terminal Shell is still running; waiting because "
-                       "its runner still uses httpd's code");
+            tool_error("waiting for the terminal Shell to exit");
         }
     }
 
@@ -1773,8 +1771,7 @@ VOID http_term_shutdown(VOID)
         if (!warned && waited >= TERM_STOP_WARN_TICKS)
         {
             warned = TRUE;
-            tool_error("a terminal runner is still active; waiting because "
-                       "httpd cannot unload live runner code");
+            tool_error("waiting for the terminal runner to exit");
         }
     }
 

@@ -3,9 +3,9 @@
 # without an emulator.
 # SPDX-License-Identifier: MIT
 
-HANGUP_LEGIBLE='the connection is closed|the server stopped answering|the server did not complete a TLS handshake|the network connection failed|the server broke off the connection|closed the connection without answering|stopped answering after|did not answer with HTTP|did not answer within'
+HANGUP_LEGIBLE='the connection is closed|the server stopped answering|the server did not complete a TLS handshake|the network connection failed|the server broke off the connection|closed the connection without answering|stopped answering after|did not answer with HTTP|did not answer within|no answer after'
 
-HANGUP_TIMEOUT_WORDS='the server stopped answering|stopped answering after|did not answer within'
+HANGUP_TIMEOUT_WORDS='the server stopped answering|stopped answering after|did not answer within|no answer after'
 
 # hangup_verdict REPORT HANG_TIMEOUT [PEERLOG] -> 0 pass, 1 fail
 hangup_verdict() {

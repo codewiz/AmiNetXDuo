@@ -333,7 +333,7 @@ says "SYS:ConfigureNetInterface eth0 ADDRESS 10.0.2.20/24" 1 \
      "and reports what the interface now has, read back from the stack"
 
 if block "SYS:ConfigureNetInterface eth0 ADDRESS 10.0.2.20/24" 1 |
-   grep -q "uses DHCP"; then
+   grep -q ": DHCP; next lease"; then
     fail "the DHCP warning was printed for a STATIC interface"
 else
     pass "and says nothing about DHCP, which this interface does not use"

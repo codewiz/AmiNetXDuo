@@ -658,29 +658,28 @@ const char *fetch_url_error(FetchUrlResult why)
     switch (why)
     {
         case FETCH_URL_OK:
-            return "that URL is fine";
+            return "OK";
         case FETCH_URL_SCHEME:
-            return "that is not an http: or https: URL";
+            return "not an http: or https: URL";
         case FETCH_URL_NO_HOST:
-            return "that URL has no host name in it";
+            return "no host name";
         case FETCH_URL_HOST_LONG:
-            return "the host name in that URL is too long";
+            return "host name too long";
         case FETCH_URL_PATH_LONG:
-            return "the path in that URL is too long";
+            return "path too long";
         case FETCH_URL_BRACKET:
-            return "the address in that URL has no closing bracket";
+            return "missing ']'";
         case FETCH_URL_PORT:
-            return "the port number in that URL is not a number";
+            return "port not a number";
         case FETCH_URL_PORT_RANGE:
-            return "the port number in that URL is out of range";
+            return "port out of range";
         case FETCH_URL_USERINFO:
-            return "that URL carries a user name, which this command does not "
-                   "send and which is how a phishing link hides where it goes";
+            return "user name in URL not supported";
         default:
             break;
     }
 
-    return "that URL cannot be used";
+    return "invalid URL";
 }
 
 

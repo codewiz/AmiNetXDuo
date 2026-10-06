@@ -473,7 +473,7 @@ if has_arm identity; then
                 in_s && /^CARD "/ { exit }
                 in_s              { print }' "$REPORT")
             PROBE_UNIT=$(printf "%s\n" "$PROBED" |
-                         sed -n "s/.*This card is unit \([0-9][0-9]*\) of.*/\1/p" |
+                         sed -n "s/^  Unit \([0-9][0-9]*\) of .*/\1/p" |
                          head -1)
             if printf "%s\n" "$PROBED" | grep -qx "  ATTACHED."; then
                 echo "card_probe_attached=yes"

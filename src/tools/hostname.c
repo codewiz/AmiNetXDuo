@@ -98,12 +98,9 @@ static VOID say_source(UWORD source, const char *name)
     if (from != NULL)
         tool_printf("  named by %s\n", (LONG)from);
     else if (tool_stricmp(name, "amiga") == 0)
-        tool_printf("  not named by anything. No card gave a hardware "
-                    "address to name it after, so every other machine in the "
-                    "same state has this name\n");
+        tool_printf("  default name\n");
     else
-        tool_printf("  not named by anything. The name comes from the card's "
-                    "hardware address\n");
+        tool_printf("  named after the card's hardware address\n");
 }
 
 int main(int argc, char **argv)
@@ -146,9 +143,7 @@ int main(int argc, char **argv)
         if (!live && !configured_name(name, sizeof(name), &source))
         {
             if (!hn_quiet)
-                tool_printf("This machine has no name: nothing in "
-                            "DEVS:NetInterfaces, ENV:HOSTNAME or "
-                            "DEVS:Internet/name_resolution sets one.\n");
+                tool_printf("no host name set\n");
             FreeArgs(rda);
             return RETURN_WARN;
         }
@@ -166,7 +161,7 @@ int main(int argc, char **argv)
             if (configured_name(onfile, sizeof(onfile), &filesource) &&
                 tool_stricmp(onfile, name) != 0)
             {
-                tool_printf("  the files on this drive say %s, from %s\n",
+                tool_printf("  configured %s, from %s\n",
                             (LONG)onfile,
                             (LONG)ami_config_hostname_source_text(filesource));
             }
@@ -180,9 +175,9 @@ int main(int argc, char **argv)
 
     if (!ami_config_hostname_valid(wanted))
     {
-        tool_error("\"%s\" is not a host name: letters, digits and hyphens, "
-                   "no hyphen at either end of a label, and less than %ld "
-                   "characters", (LONG)wanted, (LONG)AMI_CFG_NAME_LEN);
+        tool_error("\"%s\" is not a valid host name (letters, digits, "
+                   "hyphens; under %ld characters)",
+                   (LONG)wanted, (LONG)AMI_CFG_NAME_LEN);
         FreeArgs(rda);
         return RETURN_ERROR;
     }
@@ -195,8 +190,7 @@ int main(int argc, char **argv)
                 LV_VAR | GVF_GLOBAL_ONLY | GVF_SAVE_VAR))
     {
         tool_fault(IoErr());
-        tool_error("ENV:HOSTNAME was not written, so the name is "
-                   "unchanged");
+        tool_error("cannot write ENV:HOSTNAME");
         FreeArgs(rda);
         return RETURN_FAIL;
     }
@@ -250,9 +244,8 @@ int main(int argc, char **argv)
                 say_source(source, name);
             }
             if (!hn_quiet)
-                tool_printf("  %s is in ENV:HOSTNAME and ENVARC:HOSTNAME, and "
-                            "will name this machine when the stronger source "
-                            "no longer supplies one\n", (LONG)wanted);
+                tool_printf("  %s saved to ENV:HOSTNAME and ENVARC:HOSTNAME, "
+                            "overridden\n", (LONG)wanted);
 
             FreeArgs(rda);
             return RETURN_WARN;
@@ -274,9 +267,7 @@ int main(int argc, char **argv)
 
     if (!hn_quiet)
     {
-        tool_printf("  written to ENV:HOSTNAME and ENVARC:HOSTNAME. DHCP "
-                    "option 12 and DEVS:Internet/name_resolution both outrank "
-                    "it at the next boot\n");
+        tool_printf("  written to ENV:HOSTNAME and ENVARC:HOSTNAME\n");
 
         /* Said only where there is a responder to be out of step with. */
         {
@@ -286,8 +277,8 @@ int main(int argc, char **argv)
                 (sys.nss_Flags & NETSTATUS_SYS_MDNS) != 0 &&
                 sys.nss_MdnsName[0] != '\0')
             {
-                tool_printf("  .local is still %s until the network "
-                            "restarts\n", (LONG)sys.nss_MdnsName);
+                tool_printf("  .local name %s until restart\n",
+                            (LONG)sys.nss_MdnsName);
             }
         }
     }

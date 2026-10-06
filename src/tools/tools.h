@@ -62,7 +62,6 @@ VOID tool_say(const char *fmt, ...);       /* tool_printf, flushed at once   */
 VOID tool_error(const char *fmt, ...);     /* "<tool>: ..." + newline        */
 VOID tool_hint(const char *fmt, ...);      /* ONE line under a refusal       */
 VOID tool_fault(LONG code);                /* PrintFault(code, tool_name)    */
-VOID tool_no_ipv6_note(VOID);              /* why, after "no IPv6" refusals  */
 
 /*
  * THE IDENTIFIER, not a translation of it.
@@ -428,7 +427,7 @@ BOOL tool_netstatus_system(NetStatusSystem *out);
 BOOL diag_is_resident(const char *device);
 
 /*
- * The message for "the stack did not report on itself". It separates a foreign
+ * The message for "no status from the stack". It separates a foreign
  * bsdsocket.library (Roadshow, AmiTCP, an emulator's own) from ours being too
  * old for these vectors. The two need different advice.
  */

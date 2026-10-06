@@ -236,7 +236,7 @@ netstat_addr() { # netstat text, name
 
 lease_router() { # ShowNetStatus text -> the router the DHCP lease named
     printf '%s\n' "$1" |
-    awk '$1 == "it" && $2 == "offered" && $3 == "router" { print $4; exit }'
+    awk '$1 == "offered" && $2 == "router" { print $3; exit }'
 }
 
 hw_addr() { # ShowNetStatus text -> the interface's MAC, lower case

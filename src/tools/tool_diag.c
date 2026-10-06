@@ -563,20 +563,17 @@ VOID tool_explain_no_stack(VOID)
 {
     if (tool_stack_library_running())
     {
-        tool_printf("%s: the running stack does not report its state\n",
-                    (LONG)tool_name);
+        tool_printf("%s: no status from the stack\n", (LONG)tool_name);
         return;
     }
 
     /*
-     * A pointer and not a second diagnosis: tool_explain_device() lives in
+     * One line and not a diagnosis: tool_explain_device() lives in
      * tool_devdiag.c so its driver table and prose stay out of the commands
      * that cannot reach them. Calling it here would put 3.8 KB into every
      * binary.
      */
     tool_printf("%s: network not started\n", (LONG)tool_name);
-    tool_printf("  AddNetInterface <interface> starts it and says why it will\n");
-    tool_printf("  not start. CheckNetConfig reads the configuration files.\n");
 }
 
 /* ------------------------------------------------------------ stack state, */
@@ -1315,7 +1312,7 @@ VOID tool_explain_no_netstatus(struct Library *base)
      * The library is not too old here: tool_netstatus_open() checks lib_Revision
      * and reports that itself before any call is made.
      */
-    tool_printf("%s: the stack did not report on itself\n", (LONG)tool_name);
+    tool_printf("%s: no status from the stack\n", (LONG)tool_name);
 }
 
 struct Library *tool_netstatus_open(BOOL quiet)
@@ -1350,10 +1347,7 @@ struct Library *tool_netstatus_open(BOOL quiet)
     if (!tool_stack_is_ours(base))
     {
         if (!quiet)
-        {
-            tool_error("the network is up, but it is not this stack");
             tool_explain_foreign_stack(base);
-        }
         CloseLibrary(base);
         return NULL;
     }

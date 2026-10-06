@@ -220,7 +220,7 @@ has "$EV" 2 "the stack came up" \
 # ---- 3: it answers with the stack DOWN, which is the point ---------------
 has "$EV" 3 "the stack began shutting down" \
     "the shutdown is readable after the stack has gone"
-has "$EV" 3 "the reference that keeps the network standing was given back" \
+has "$EV" 3 "network hold released" \
     "and so is the release half of it"
 
 # Reading it must not have restarted anything.

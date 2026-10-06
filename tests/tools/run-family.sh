@@ -169,22 +169,22 @@ host/none|0|SYS:host $DUAL|+has
 host/v4|0|SYS:host $DUAL -4|+has address $V4RE|-has IPv6 address
 host/v6|0|SYS:host $DUAL -6|+has IPv6 address $V6RE|-has address $V4RE
 host/v4-only-name|0|SYS:host $V4ONLY_NAME -4|+has address $V4ONLY_ADDR
-host/no-aaaa|10|SYS:host $V4ONLY_NAME -6|+$V4ONLY_NAME has no IPv6 address, and -6 was given
-host/nxdomain|10|SYS:host no.such.host.invalid -6|+cannot resolve|-has no IPv6 address
+host/no-aaaa|10|SYS:host $V4ONLY_NAME -6|+$V4ONLY_NAME: no IPv6 address
+host/nxdomain|10|SYS:host no.such.host.invalid -6|+cannot resolve|-: no IPv6 address
 host/both|10|SYS:host $DUAL -4 -6|+-4 and -6 cannot both be given
 # A literal already declares its own family, so a flag that contradicts it is
 # an error about the argument and not about any name server.  These two rows
 # reach no resolver at all, which is why they belong here: they stay green on a
 # wire with no DNS and they are the only rows that isolate the tool half of
 # -4/-6 from everything underneath it.
-literal/v4-under-6|10|SYS:ping $V4ONLY_ADDR -c 1 -t 10 -6|+$V4ONLY_ADDR is an IPv4 address, and -6 was given
-literal/v6-under-4|10|SYS:ping $DUAL_V6 -c 1 -t 10 -4|+$DUAL_V6 is an IPv6 address, and -4 was given
+literal/v4-under-6|10|SYS:ping $V4ONLY_ADDR -c 1 -t 10 -6|+$V4ONLY_ADDR: IPv4 address with -6
+literal/v6-under-4|10|SYS:ping $DUAL_V6 -c 1 -t 10 -4|+$DUAL_V6: IPv6 address with -4
 # And the IPv6 datapath itself, by literal, so a -6 arm that fails above can be
 # told apart from a machine that cannot send an IPv6 packet at all.
 literal/v6-ping|0|SYS:ping $DUAL_V6 -c 2 -t 20|+bytes from|+0% packet loss
 ping/v4|0|SYS:ping $DUAL -c 2 -t 25 -4|+bytes from $V4RE:|+0% packet loss
 ping/v6|0|SYS:ping $DUAL -c 2 -t 25 -6|+bytes from $V6RE|+0% packet loss
-ping/no-aaaa|10|SYS:ping $V4ONLY_NAME -c 1 -t 10 -6|+$V4ONLY_NAME has no IPv6 address, and -6 was given
+ping/no-aaaa|10|SYS:ping $V4ONLY_NAME -c 1 -t 10 -6|+$V4ONLY_NAME: no IPv6 address
 ping/both|10|SYS:ping $DUAL -c 1 -t 10 -4 -6|+-4 and -6 cannot both be given
 traceroute/v4|*|SYS:traceroute $DUAL -m 1 -q 1 -w 5 -n -4|+traceroute to $DUAL \\($V4RE\\)
 traceroute/v6|*|SYS:traceroute $DUAL -m 1 -q 1 -w 5 -n -6|+traceroute to $DUAL \\($V6FULL\\)
@@ -205,7 +205,7 @@ traceroute/v6-hop|*|SYS:traceroute $DUAL -m 3 -q 1 -w 5 -n -6|+^ 1 .*$V6RE
 # finishes" was.  The stars are not ours to fix; stopping at the destination
 # is, and that is what this measures.
 traceroute/v6-arrives|0|SYS:traceroute $GOOG -m 30 -q 2 -w 2 -n -6|+^ 1 .*$V6RE
-traceroute/no-aaaa|10|SYS:traceroute $V4ONLY_NAME -m 1 -q 1 -w 5 -n -6|+has no IPv6 address, and -6 was given
+traceroute/no-aaaa|10|SYS:traceroute $V4ONLY_NAME -m 1 -q 1 -w 5 -n -6|+: no IPv6 address
 traceroute/both|10|SYS:traceroute $DUAL -m 1 -q 1 -w 5 -n -4 -6|+-4 and -6 cannot both be given
 # CTRL-C HAS TO STOP IT.  Over IPv4 on purpose: the break has nothing to do
 # with the address family, and running it over IPv4 means it is exercised on
@@ -218,31 +218,31 @@ traceroute/both|10|SYS:traceroute $DUAL -m 1 -q 1 -w 5 -n -4 -6|+-4 and -6 canno
 traceroute/break|0|SYS:TrBreak SECONDS 8 CEILING 3 SYS:traceroute 192.0.2.1 -m 30 -q 3 -w 2 -n -4|+alive_at_break=yes|+result=broke|+child_rc=5|-^ *[0-9]+ *$
 fetch/v4|0|SYS:fetch http://$ECHO/ TIMEOUT 40 TO DH0:f4.txt -4|+HTTP/1.[01] 200
 fetch/v6|0|SYS:fetch http://$ECHO/ TIMEOUT 40 TO DH0:f6.txt -6|+HTTP/1.[01] 200
-fetch/no-aaaa|10|SYS:fetch http://$V4ONLY_NAME/ TIMEOUT 10 -6|+has no IPv6 address, and -6 was given
+fetch/no-aaaa|10|SYS:fetch http://$V4ONLY_NAME/ TIMEOUT 10 -6|+: no IPv6 address
 fetch/both|10|SYS:fetch http://$ECHO/ TIMEOUT 10 -4 -6|+-4 and -6 cannot both be given
 nc/v4|0|SYS:nc -z $DUAL 80 -v -w 20 -4|+$V4RE port 80 open
 nc/v6|0|SYS:nc -z $DUAL 80 -v -w 20 -6|+$V6RE.* port 80 open
-nc/no-aaaa|10|SYS:nc -z $V4ONLY_NAME 80 -v -w 5 -6|+has no IPv6 address, and -6 was given
+nc/no-aaaa|10|SYS:nc -z $V4ONLY_NAME 80 -v -w 5 -6|+: no IPv6 address
 nc/both|10|SYS:nc -z $DUAL 80 -v -w 10 -4 -6|+-4 and -6 cannot both be given
 telnet/v4|*|SYS:telnet $DUAL 80 -4 <DH0:telnetin.txt|+Trying $V4RE port 80
 telnet/v6|*|SYS:telnet $DUAL 80 -6 <DH0:telnetin.txt|+Trying $V6RE.* port 80
-telnet/no-aaaa|10|SYS:telnet $V4ONLY_NAME 80 -6|+has no IPv6 address, and -6 was given
+telnet/no-aaaa|10|SYS:telnet $V4ONLY_NAME 80 -6|+: no IPv6 address
 telnet/both|10|SYS:telnet $DUAL 80 -4 -6 <DH0:telnetin.txt|+-4 and -6 cannot both be given
 tftp/v4|*|SYS:tftp $DUAL GET nosuchfile TIMEOUT 2 -4|+getting nosuchfile from $V4RE
 tftp/v6|*|SYS:tftp $DUAL GET nosuchfile TIMEOUT 2 -6|+getting nosuchfile from $V6RE
-tftp/no-aaaa|10|SYS:tftp $V4ONLY_NAME GET nosuchfile TIMEOUT 2 -6|+has no IPv6 address, and -6 was given
+tftp/no-aaaa|10|SYS:tftp $V4ONLY_NAME GET nosuchfile TIMEOUT 2 -6|+: no IPv6 address
 tftp/both|10|SYS:tftp $DUAL GET nosuchfile TIMEOUT 2 -4 -6|+-4 and -6 cannot both be given
 whois/v4|0|SYS:whois example.com -4|+IANA WHOIS server|+domain: *EXAMPLE.COM
 whois/v6|0|SYS:whois example.com -6|+IANA WHOIS server|+domain: *EXAMPLE.COM
-whois/no-aaaa|10|SYS:whois example.com SERVER $V4ONLY_NAME PORT 43 -6|+has no IPv6 address, and -6 was given
+whois/no-aaaa|10|SYS:whois example.com SERVER $V4ONLY_NAME PORT 43 -6|+: no IPv6 address
 whois/both|10|SYS:whois example.com -4 -6|+-4 and -6 cannot both be given
 sntp/v4|0|SYS:sntp $NTP SHOW TIMEOUT 20 -4|+\\($V4RE\\): stratum
 sntp/v6|0|SYS:sntp $NTP SHOW TIMEOUT 20 -6|+\\($V6RE.*\\): stratum
-sntp/no-aaaa|10|SYS:sntp $V4ONLY_NAME TIMEOUT 5 -6|+has no IPv6 address, and -6 was given
+sntp/no-aaaa|10|SYS:sntp $V4ONLY_NAME TIMEOUT 5 -6|+: no IPv6 address
 sntp/both|10|SYS:sntp $NTP SHOW TIMEOUT 10 -4 -6|+-4 and -6 cannot both be given
 iperf/v4|*|SYS:iperf $DUAL -p 80 -n 32 -4|+TCP to $V4RE port 80
 iperf/v6|*|SYS:iperf $DUAL -p 80 -n 32 -6|+TCP to $V6RE.* port 80
-iperf/no-aaaa|10|SYS:iperf $V4ONLY_NAME -p 80 -n 32 -6|+has no IPv6 address, and -6 was given
+iperf/no-aaaa|10|SYS:iperf $V4ONLY_NAME -p 80 -n 32 -6|+: no IPv6 address
 iperf/both|10|SYS:iperf $DUAL -p 80 -n 32 -4 -6|+-4 and -6 cannot both be given
 EOF
 }

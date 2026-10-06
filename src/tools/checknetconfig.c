@@ -83,7 +83,7 @@ static VOID finding(const char *file, ULONG line, UWORD severity)
         cnc_warnings++;
 
     if ((UWORD)(cnc_errors + cnc_warnings) == 1)
-        say("\nWhat is wrong\n");
+        say("\nProblems\n");
 
     if (line > 0)
         say("\n  %s, line %lu:\n", (LONG)file, line);
@@ -159,11 +159,7 @@ static VOID show_notes(VOID)
     if (cnc_notes == 0)
         return;
 
-    say("\nLines that are read and do nothing\n");
-    note("These are correct as written.  This stack reads them so that a "
-         "Roadshow configuration file works here unchanged, and then acts on "
-         "none of them.  Nothing below needs fixing, and no other command "
-         "mentions it.");
+    say("\nIgnored (Roadshow compatibility)\n");
 
     for (i = 0; i < shown; i++)
     {
@@ -315,7 +311,7 @@ static VOID check_device(const char *path, const AmiIfConfig *ifc)
         line = truncated ? 0 : ami_cfg_interface_device_line_file(path, ifc->device);
 
         finding(src, line, AMI_CFG_PROBLEM_ERROR);
-        say("      this names %s, and %s cannot come up without it\n",
+        say("      %s not found; %s cannot come up\n",
             (LONG)ifc->device, (LONG)ifc->name);
 
         if (!cnc_quiet)
@@ -336,8 +332,7 @@ static VOID check_device(const char *path, const AmiIfConfig *ifc)
         line = truncated ? 0 : ami_cfg_interface_unit_line_file(path, ifc->unit);
 
     finding(src, line, AMI_CFG_PROBLEM_ERROR);
-    say("      %s will not come up with this configuration\n",
-        (LONG)ifc->name);
+    say("      %s cannot come up\n", (LONG)ifc->name);
 
     if (!cnc_quiet)
         tool_explain_device(ifc->device, ifc->unit, ifc->card);
@@ -383,28 +378,21 @@ static VOID check_addressing(const char *path, const AmiIfConfig *ifc)
     if ((ifc->address >> 24) == 127UL)
     {
         finding(where, addressing_line(path, ifc, ifc->address, FALSE), AMI_CFG_PROBLEM_ERROR);
-        note("this is a loopback address. It always means \"this machine\", "
-             "so no other machine can reach an interface that has one.");
-        note("Use an address on the local network, usually 192.168.x.y, or "
-             "set CONFIGURE = DHCP to be given one.");
+        note("loopback address");
         return;
     }
 
     if ((ifc->address >> 24) >= 224UL)
     {
         finding(where, addressing_line(path, ifc, ifc->address, FALSE), AMI_CFG_PROBLEM_ERROR);
-        note("addresses from 224.0.0.0 upwards are reserved for multicast "
-             "and for future use. A machine cannot have one.");
+        note("multicast or reserved address (224.0.0.0 and up)");
         return;
     }
 
     if (ifc->netmask == 0)
     {
         finding(where, 0, AMI_CFG_PROBLEM_ERROR);
-        note("the interface has an address and no NETMASK. Without a netmask "
-             "the stack cannot tell which machines are on this network.");
-        note("Add  NETMASK = 255.255.255.0, which is correct on almost "
-             "every home network.");
+        note("no NETMASK");
         return;
     }
 
@@ -415,10 +403,7 @@ static VOID check_addressing(const char *path, const AmiIfConfig *ifc)
         ami_config_format_ip(ifc->netmask, text, sizeof(text));
 
         finding(where, addressing_line(path, ifc, ifc->netmask, TRUE), AMI_CFG_PROBLEM_ERROR);
-        say("      %s is not a netmask: a netmask is all ones and then\n",
-            (LONG)text);
-        say("      all zeroes, with nothing mixed in between\n");
-        note("The usual ones are 255.255.255.0, 255.255.0.0 and 255.0.0.0.");
+        say("      %s is not a netmask\n", (LONG)text);
         return;
     }
 
@@ -428,31 +413,22 @@ static VOID check_addressing(const char *path, const AmiIfConfig *ifc)
     if (prefix >= 31)
     {
         finding(where, addressing_line(path, ifc, ifc->netmask, TRUE), AMI_CFG_PROBLEM_WARN);
-        say("      a /%ld netmask leaves no room for anything else on this\n",
+        say("      /%ld netmask: no other hosts on this network\n",
             (LONG)prefix);
-        say("      network, so nothing here can be reached directly\n");
-        note("255.255.255.0 is correct on almost every home network.");
         return;
     }
 
     if (host_bits == 0)
     {
         finding(where, addressing_line(path, ifc, ifc->address, FALSE), AMI_CFG_PROBLEM_ERROR);
-        note("this is the network's own address rather than a machine's, "
-             "because every bit the netmask leaves free is zero. Nothing can "
-             "reach it.");
-        note("Raise the last part of the address. The router is usually .1, "
-             "so use .10 or higher.");
+        note("network address, not a host address");
         return;
     }
 
     if (host_bits == (~ifc->netmask & 0xffffffffUL))
     {
         finding(where, addressing_line(path, ifc, ifc->address, FALSE), AMI_CFG_PROBLEM_ERROR);
-        note("this is the broadcast address of its own network. That address "
-             "reaches every machine at once, so it cannot belong to one. "
-             "Nothing answers it.");
-        note("Lower the last part of the address. Use .10 or higher.");
+        note("broadcast address, not a host address");
         return;
     }
 
@@ -460,11 +436,7 @@ static VOID check_addressing(const char *path, const AmiIfConfig *ifc)
         ifc->iptype == AMI_IPTYPE_STATIC)
     {
         finding(where, addressing_line(path, ifc, ifc->address, FALSE), AMI_CFG_PROBLEM_WARN);
-        note("169.254.x.y is the range a machine picks for itself when "
-             "nothing hands out addresses. An address set by hand can "
-             "collide with a machine that picked the same one.");
-        note("Use CONFIGURE = LINKLOCAL to have one picked safely, or an "
-             "address on the local network.");
+        note("static address in 169.254.0.0/16");
     }
 }
 
@@ -487,11 +459,7 @@ static VOID check_gateway(const AmiConfig *cfg)
             return;
 
         finding("DEVS:Internet/routes", 0, AMI_CFG_PROBLEM_WARN);
-        note("there is no default route. This machine can reach other "
-             "machines on its own network, and nothing beyond it.");
-        note("Put  GATEWAY = <router address>  in "
-             "DEVS:Internet/routes, or run NetSetup. On a home network the "
-             "router is the box the broadband comes into, usually at .1.");
+        note("no default route");
         return;
     }
 
@@ -549,9 +517,7 @@ static VOID check_gateway(const AmiConfig *cfg)
         ami_config_format_ip(cfg->default_gateway, text, sizeof(text));
 
         finding(path, line, AMI_CFG_PROBLEM_ERROR);
-        say("      %s cannot be a router: that address never belongs to\n",
-            (LONG)text);
-        say("      another machine\n");
+        say("      %s is not a router address\n", (LONG)text);
         return;
     }
 
@@ -569,12 +535,7 @@ static VOID check_gateway(const AmiConfig *cfg)
     ami_config_format_ip(cfg->default_gateway, text, sizeof(text));
 
     finding(path, line, AMI_CFG_PROBLEM_ERROR);
-    say("      the router %s is not on any network this machine is\n",
-        (LONG)text);
-    say("      on, so nothing sent to it can arrive\n");
-    note("A router must be reachable directly. Check its address against "
-         "the ADDRESS and NETMASK of the interface. All but the last part "
-         "of the two addresses normally match.");
+    say("      router %s is not on a local network\n", (LONG)text);
 }
 
 static VOID check_resolver(const AmiConfig *cfg)
@@ -589,10 +550,7 @@ static VOID check_resolver(const AmiConfig *cfg)
             return;
 
         finding("DEVS:Internet/name_resolution", 0, AMI_CFG_PROBLEM_WARN);
-        note("no name server is configured, so names like www.example.com "
-             "cannot be looked up. Numeric addresses still work.");
-        note("Put  NAMESERVER <address>  in that file, or run NetSetup. On a "
-             "home network the router is usually the name server too.");
+        note("no name server");
         return;
     }
 
@@ -647,12 +605,8 @@ static VOID check_resolver(const AmiConfig *cfg)
         ami_config_format_ip(server, text, sizeof(text));
 
         finding(path, line, AMI_CFG_PROBLEM_WARN);
-        say("      the name server %s is not on this machine's network\n",
+        say("      name server %s: not local, no default route\n",
             (LONG)text);
-        say("      and there is no default route to reach it through\n");
-        note("Give this machine a router (GATEWAY in "
-             "DEVS:Internet/routes), or use a name server on the local "
-             "network. On a home network that is the router itself.");
     }
 }
 
@@ -680,11 +634,8 @@ static VOID check_collisions(const AmiConfig *cfg)
                 a->unit == b->unit)
             {
                 finding(CNC_DIR_INTERFACES, 0, AMI_CFG_PROBLEM_ERROR);
-                say("      %s and %s both claim %s unit %lu, and one card\n",
+                say("      %s and %s both use %s unit %lu\n",
                     (LONG)a->name, (LONG)b->name, (LONG)b->device, b->unit);
-                say("      cannot be two interfaces\n");
-                note("Remove the file that is left over, or give one of the "
-                     "two the UNIT of a second card.");
                 continue;
             }
 
@@ -695,11 +646,8 @@ static VOID check_collisions(const AmiConfig *cfg)
                 ami_config_format_ip(b->address, text, sizeof(text));
 
                 finding(CNC_DIR_INTERFACES, 0, AMI_CFG_PROBLEM_ERROR);
-                say("      %s and %s are both %s, and two interfaces cannot\n",
+                say("      %s and %s both have address %s\n",
                     (LONG)a->name, (LONG)b->name, (LONG)text);
-                say("      share an address\n");
-                note("Give one of them an address of its own, on its own "
-                     "network.");
             }
 
             /* The same fault one family over, which nothing checked: two
@@ -726,11 +674,8 @@ static VOID check_collisions(const AmiConfig *cfg)
 
                             finding(CNC_DIR_INTERFACES, 0,
                                     AMI_CFG_PROBLEM_ERROR);
-                            say("      %s and %s are both %s, and two "
-                                "interfaces cannot\n",
+                            say("      %s and %s both have address %s\n",
                                 (LONG)a->name, (LONG)b->name, (LONG)text);
-                            say("      share an address\n");
-                            note("Give one of them an ADDRESS6 of its own.");
                         }
                     }
                 }
@@ -752,11 +697,10 @@ static VOID check_storage_drawer(VOID)
     if (count == 0)
         return;
 
-    say("\n  %s holds %lu interface file(s):\n", (LONG)CNC_DIR_STORAGE, count);
+    say("\n  %s holds %lu interface file(s), not read at boot:\n",
+        (LONG)CNC_DIR_STORAGE, count);
     for (i = 0; i < count; i++)
         say("      %s\n", (LONG)names[i]);
-    note("Nothing starts these: only DEVS:NetInterfaces is read at boot. "
-         "Move one there to use it.");
 }
 
 /*
@@ -896,17 +840,15 @@ static VOID check_netdb_file(const NetdbFile *spec)
     if (size < 0)
     {
         finding(spec->path, 0, AMI_CFG_PROBLEM_WARN);
-        say("      the size of this file cannot be read, so none of it is used\n");
-        say("      and the built-in list is used instead\n");
+        say("      size unreadable; built-in list used\n");
         Close(file);
         return;
     }
     if (size > (LONG)AMI_CFG_FILE_MAX)
     {
         finding(spec->path, 0, AMI_CFG_PROBLEM_WARN);
-        say("      this file is %ld bytes, above the %ld-byte limit, so none\n",
+        say("      %ld bytes, above the %ld-byte limit; built-in list used\n",
             size, (LONG)AMI_CFG_FILE_MAX);
-        say("      of it is used and the built-in list is used instead\n");
         Close(file);
         return;
     }
@@ -934,33 +876,29 @@ static VOID check_netdb_file(const NetdbFile *spec)
         if (rd.cut)
         {
             finding(spec->path, lineno, AMI_CFG_PROBLEM_NOTE);
-            say("      this line is longer than %ld characters and was not\n",
+            say("      line longer than %ld characters; not checked\n",
                 (LONG)(sizeof(line) - 1));
-            say("      checked\n");
             said++;
         }
         else if (verdict == AMI_NETDB_LINE_SHORT)
         {
             finding(spec->path, lineno, AMI_CFG_PROBLEM_WARN);
-            say("      this line has too few columns, so it is ignored\n");
+            say("      too few columns; ignored\n");
             note(spec->shape);
             said++;
         }
         else if (verdict == AMI_NETDB_LINE_BAD)
         {
             finding(spec->path, lineno, AMI_CFG_PROBLEM_WARN);
-            say("      \"%s\" is not what this column holds, so the line is\n",
-                (LONG)word);
-            say("      ignored\n");
+            say("      \"%s\": invalid value; line ignored\n", (LONG)word);
             note(spec->shape);
             said++;
         }
         else if (verdict == AMI_NETDB_LINE_CUT)
         {
             finding(spec->path, lineno, AMI_CFG_PROBLEM_WARN);
-            say("      only the first %ld words of this line are read, so\n",
-                (LONG)AMI_NETDB_WORDS);
-            say("      \"%s\" and the words after it are ignored\n", (LONG)word);
+            say("      only %ld words read; \"%s\" and after ignored\n",
+                (LONG)AMI_NETDB_WORDS, (LONG)word);
             said++;
         }
 
@@ -969,16 +907,14 @@ static VOID check_netdb_file(const NetdbFile *spec)
         if (rd.nul)
         {
             finding(spec->path, lineno, AMI_CFG_PROBLEM_WARN);
-            say("      this line holds a NUL character, where the file stops\n");
-            say("      being read: nothing after it is used\n");
+            say("      NUL character; rest of file ignored\n");
             break;
         }
 
         if (said >= 5)
         {
             finding(spec->path, 0, AMI_CFG_PROBLEM_WARN);
-            note("more lines after this one have the same problem. They are "
-                 "not all listed.");
+            note("more lines like this not listed");
             break;
         }
     }
@@ -986,8 +922,7 @@ static VOID check_netdb_file(const NetdbFile *spec)
     if (rd.failed)
     {
         finding(spec->path, 0, AMI_CFG_PROBLEM_WARN);
-        say("      this file could not be read to its end, so it was not\n");
-        say("      completely checked\n");
+        say("      read error; not completely checked\n");
     }
 
     Close(file);
@@ -1008,10 +943,7 @@ static VOID check_one_address6(const char *path, const ULONG addr[4], ULONG line
         addr[2] == 0 && addr[3] == 1)
     {
         finding(path, line, AMI_CFG_PROBLEM_ERROR);
-        note("::1 is the loopback address. It always means \"this machine\", "
-             "so no other machine can reach an interface that has one.");
-        note("Use an address from the prefix this network uses, or leave "
-             "ADDRESS6 out and set CONFIGURE6 = AUTO to be given one.");
+        note("loopback address");
         return;
     }
 
@@ -1019,9 +951,7 @@ static VOID check_one_address6(const char *path, const ULONG addr[4], ULONG line
     if ((addr[0] & 0xFF000000UL) == 0xFF000000UL)
     {
         finding(path, line, AMI_CFG_PROBLEM_ERROR);
-        say("      %s is a multicast address: it names a group of\n",
-            (LONG)text);
-        say("      machines and cannot be one machine's own address\n");
+        say("      %s is a multicast address\n", (LONG)text);
         return;
     }
 
@@ -1030,11 +960,8 @@ static VOID check_one_address6(const char *path, const ULONG addr[4], ULONG line
     if ((addr[0] & 0xFFC00000UL) == 0xFE800000UL)
     {
         finding(path, line, AMI_CFG_PROBLEM_WARN);
-        say("      %s is a link-local address, which reaches only this\n",
+        say("      %s is link-local; the interface has one already\n",
             (LONG)text);
-        say("      wire, and the interface gives itself one already\n");
-        note("For an address that reaches further, use the prefix this "
-             "network uses, or CONFIGURE6 = AUTO to be given one.");
     }
 }
 
@@ -1082,11 +1009,7 @@ static VOID check_addressing6(const char *path, const AmiIfConfig *ifc)
                     ami_cfg_address6_line_file(path, ifc->name,
                                                ifc->address6[n].addr, prior),
                     AMI_CFG_PROBLEM_ERROR);
-            say("      ADDRESS6 names %s twice, and the second line adds\n",
-                (LONG)text);
-            say("      nothing the first did not\n");
-            note("Remove the repeated line, or give it an address of its "
-                 "own.");
+            say("      ADDRESS6 %s repeated\n", (LONG)text);
         }
     }
 }
@@ -1140,8 +1063,7 @@ int main(int argc, char **argv)
     {
         tool_fault(IoErr());
         tool_usage("[QUIET] [VERBOSE]",
-                   "Check the network configuration files and say what is "
-                   "wrong.");
+                   "Check the network configuration files.");
         return RETURN_ERROR;
     }
 
@@ -1153,10 +1075,10 @@ int main(int argc, char **argv)
     {
         cnc_errors++;
 
-        tool_error("this machine has no network configuration at all");
+        tool_error("no network configuration");
         tool_explain_no_interfaces();
 
-        verdict("The network has never been configured on this machine.\n");
+        verdict("Not configured.\n");
 
         FreeArgs(rda);
         return RETURN_WARN;
@@ -1170,8 +1092,7 @@ int main(int argc, char **argv)
        one: nothing below could say what the unread part holds (F-157). */
     if (load == AMI_CFG_ERR_NOMEM)
     {
-        tool_error("there was not enough memory to read the configuration, "
-                   "so it was not checked");
+        tool_error("out of memory; configuration not checked");
         ami_config_free(&cnc_config);
         FreeArgs(rda);
         return RETURN_FAIL;
@@ -1179,7 +1100,7 @@ int main(int argc, char **argv)
 
     if (cnc_verbose)
     {
-        say("Reading the configuration in DEVS:Internet and %s\n",
+        say("Reading DEVS:Internet and %s\n",
             (LONG)CNC_DIR_INTERFACES);
     }
 
@@ -1205,13 +1126,12 @@ int main(int argc, char **argv)
 
     if (cnc_errors == 0 && cnc_warnings == 0)
     {
-        verdict("\nThe network configuration has nothing wrong with it.\n");
+        verdict("\nNo problems found.\n");
         rc = RETURN_OK;
     }
     else
     {
-        verdict("\n%lu problem(s) will stop the network from working.\n"
-                "%lu more need attention.\n",
+        verdict("\n%lu error(s), %lu warning(s).\n",
                 (ULONG)cnc_errors, (ULONG)cnc_warnings);
         rc = RETURN_WARN;
     }

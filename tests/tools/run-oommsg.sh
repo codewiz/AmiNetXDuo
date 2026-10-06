@@ -112,9 +112,9 @@ reject() {
 expect "the INTERFACE argument reached the guest" "eth0: a2065.device unit 0"
 
 expect "it reports the start as failed"    "the network did not start"
-expect "and names memory as the reason"    "bytes are free. The stack needs about"
+expect "and names memory as the reason"    "bytes free; about 450K needed"
 
-FREE=$(sed -n 's/^ *\([0-9][0-9]*\) bytes are free.*/\1/p' "$REPORT" | head -1)
+FREE=$(sed -n 's/^ *\([0-9][0-9]*\) bytes free.*/\1/p' "$REPORT" | head -1)
 if [ -z "$FREE" ]; then
     fail "no free-byte figure was printed"
 elif [ "$FREE" -gt 0 ] && [ "$FREE" -lt 524288 ]; then

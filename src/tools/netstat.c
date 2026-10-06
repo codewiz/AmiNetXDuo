@@ -112,8 +112,6 @@ static VOID show_defined_only(const AmiConfig *cfg, const ToolSnapshot *snap)
                     (LONG)list, (ULONG)(found - named));
     else
         tool_printf("\nDefined but not attached: %s\n", (LONG)list);
-
-    tool_printf("        AddNetInterface <name> brings one up\n");
 }
 
 static VOID show_interfaces(const AmiConfig *cfg, const ToolSnapshot *snap)
@@ -182,9 +180,8 @@ static VOID show_memory(const ToolStats *st)
     tool_printf("\nmemory:\n");
     tool_printf("\t%lu allocations outstanding, %lu at the peak, %lu refused\n",
                 st->alloc_live, st->alloc_peak, st->alloc_refused);
-    tool_printf("\t%lu sockets open, %lu at the peak, %lu %s the library "
-                "open\n", st->sockets, st->sockets_peak, st->opens,
-                (st->opens == 1UL) ? "program has" : "programs have");
+    tool_printf("\t%lu sockets open, %lu at the peak, %lu library opens\n",
+                st->sockets, st->sockets_peak, st->opens);
 
     if (st->have_pool)
     {
@@ -427,7 +424,7 @@ static VOID show_budget(VOID)
      * storm; `xmit` is the only leg that counts receive-provoked transmits,
      * and it read 396.
      */
-    tool_printf("\nreceive budget (counts are cumulative over the boot):\n");
+    tool_printf("\nreceive budget:\n");
 
     /* BEFORE the not-instrumented return below, not after it.  The twelve
        timed legs belong to a probe build; the green census the library fills
@@ -439,7 +436,7 @@ static VOID show_budget(VOID)
     if (b->nrb_Drain.nbl_Count == 0 && b->nrb_Settle.nbl_Count == 0 &&
         b->nrb_Fetch.nbl_Count == 0)
     {
-        tool_printf("\tnot instrumented (a probe build keeps one)\n");
+        tool_printf("\tnot instrumented\n");
         return;
     }
 
@@ -508,7 +505,7 @@ static VOID show_budget(VOID)
     show_budget_leg("verify, rx_verify_sum alone ", &b->nrb_Verify,
                     b->nrb_EClockRate);
     /* The floor every leg above sits on: two clock reads and no work. */
-    show_budget_leg("probe,  a bracket round nothing", &b->nrb_Probe,
+    show_budget_leg("probe,  empty bracket round ", &b->nrb_Probe,
                     b->nrb_EClockRate);
 
     /* Coverage of the direct-completion fork, not a duration: recv() requests
@@ -629,7 +626,7 @@ static VOID show_stats(const AmiConfig *cfg, const ToolSnapshot *snap)
 
         if (!info->have_sana2)
         {
-            tool_printf("\n%s: no driver attached, so it has no counters\n",
+            tool_printf("\n%s: no driver attached\n",
                         (LONG)tool_iface_name(cfg, info->nx_index));
             shown++;
             continue;
@@ -668,7 +665,7 @@ static VOID show_stats(const AmiConfig *cfg, const ToolSnapshot *snap)
         /* Of those fills, the frames the device drained straight into the
            packet. Only this line says whether the single-copy claim engages. */
         if (st->rx_copy_hook != 0)
-            tool_printf("  direct fills      %10lu    (claimed at the device)\n",
+            tool_printf("  direct fills      %10lu\n",
                         st->rx_direct_fill);
 
         /* Only a device we do not own can produce an odd payload pointer, and
@@ -676,7 +673,7 @@ static VOID show_stats(const AmiConfig *cfg, const ToolSnapshot *snap)
            carry it and cannot any more: both branches of the copy hook set
            summed, so it equals the fill count either way. */
         if (st->rx_copy_unaligned != 0)
-            tool_printf("  unaligned copies  %10lu    (odd pointer from the driver)\n",
+            tool_printf("  unaligned copies  %10lu\n",
                         st->rx_copy_unaligned);
 
         /* Only when there are any: the four causes behind receive errors are
@@ -688,11 +685,7 @@ static VOID show_stats(const AmiConfig *cfg, const ToolSnapshot *snap)
                         st->rx_err_length, st->rx_err_io);
 
         if (st->packets_received == 0 && st->packets_sent == 0)
-        {
-            tool_printf("  Nothing has gone in or out of this interface at all.\n");
-            tool_printf("  If traffic was expected, check the cable and check\n");
-            tool_printf("  that the interface is online (ShowNetStatus says).\n");
-        }
+            tool_printf("  no traffic\n");
 
         shown++;
     }
@@ -861,8 +854,7 @@ int main(int argc, char **argv)
 
         if (!got)
         {
-            tool_error("no AmiNetXDuo stack is running, so there is nothing "
-                       "to report on");
+            tool_error("no AmiNetXDuo stack running");
             return RETURN_WARN;
         }
 

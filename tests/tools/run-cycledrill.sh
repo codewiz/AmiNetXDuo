@@ -220,7 +220,7 @@ else
 fi
 
 # ---- the reports agree with the drill -------------------------------------
-if grep -q "cannot read it" "$REPORT"; then
+if grep -Eq "state +unreadable|stack not readable" "$REPORT"; then
     fail "netstat/ShowNetStatus could not read the stack the drill left up"
 else
     pass "netstat -h and ShowNetStatus read the stack the drill left running"

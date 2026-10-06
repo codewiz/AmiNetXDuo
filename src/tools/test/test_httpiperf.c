@@ -98,9 +98,9 @@ int main(void)
 
     /* A direction without a seconds segment asks for one before it is judged. */
     parse_err("/iperf/tcp-tx", 400,
-              "say how many seconds: /iperf/<direction>/<seconds>");
+              "missing seconds: /iperf/<direction>/<seconds>");
     parse_err("/iperf/notdir", 400,
-              "say how many seconds: /iperf/<direction>/<seconds>");
+              "missing seconds: /iperf/<direction>/<seconds>");
 
     /* A direction that is not one of the four. */
     parse_err("/iperf/tcptx/10", 404,
@@ -113,17 +113,17 @@ int main(void)
               "the directions are tcp-tx, tcp-rx, udp-tx, udp-rx");
 
     /* Seconds: zero, malformed and overflow all refuse a whole number. */
-    parse_err("/iperf/tcp-rx/0", 400, "a run needs a whole number of seconds");
+    parse_err("/iperf/tcp-rx/0", 400, "seconds must be a positive integer");
     parse_err("/iperf/tcp-rx/abc", 400,
-              "a run needs a whole number of seconds");
+              "seconds must be a positive integer");
     parse_err("/iperf/tcp-rx/-1", 400,
-              "a run needs a whole number of seconds");
+              "seconds must be a positive integer");
     parse_err("/iperf/tcp-rx/1a", 400,
-              "a run needs a whole number of seconds");
+              "seconds must be a positive integer");
     parse_err("/iperf/tcp-rx/1234567890", 400,
-              "a run needs a whole number of seconds");
+              "seconds must be a positive integer");
     parse_err("/iperf/tcp-rx/1000000000", 400,
-              "a run needs a whole number of seconds");
+              "seconds must be a positive integer");
 
     /* Nine digits is the decimal ceiling and still a run. */
     parse("/iperf/tcp-rx/999999999", HTTPIPERF_RUN, HTTPIPERF_TCP_RX,
@@ -155,29 +155,21 @@ int main(void)
 
     /* Not a dotted quad, and nothing else. */
     peer("1.2.3", 400, 0,
-         "the peer must be a dotted address, not a "
-         "name: nothing here can wait on a resolver");
+         "peer must be a dotted address");
     peer("1.2.3.4.5", 400, 0,
-         "the peer must be a dotted address, not a "
-         "name: nothing here can wait on a resolver");
+         "peer must be a dotted address");
     peer("256.1.1.1", 400, 0,
-         "the peer must be a dotted address, not a "
-         "name: nothing here can wait on a resolver");
+         "peer must be a dotted address");
     peer("1.2.3.256", 400, 0,
-         "the peer must be a dotted address, not a "
-         "name: nothing here can wait on a resolver");
+         "peer must be a dotted address");
     peer("1..2.3", 400, 0,
-         "the peer must be a dotted address, not a "
-         "name: nothing here can wait on a resolver");
+         "peer must be a dotted address");
     peer("a.b.c.d", 400, 0,
-         "the peer must be a dotted address, not a "
-         "name: nothing here can wait on a resolver");
+         "peer must be a dotted address");
     peer("1.2.3.4x", 400, 0,
-         "the peer must be a dotted address, not a "
-         "name: nothing here can wait on a resolver");
+         "peer must be a dotted address");
     peer("1.2.3.4/extra", 400, 0,
-         "the peer must be a dotted address, not a "
-         "name: nothing here can wait on a resolver");
+         "peer must be a dotted address");
 
     printf("\n%d checks, %d failure(s)\n", checks, failures);
     return failures == 0 ? 0 : 1;

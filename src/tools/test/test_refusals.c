@@ -185,7 +185,7 @@ static void arms_all_speak(const char *file, const char *text,
 
     /* A function whose arms were all deleted would otherwise pass by having
        none left to check. */
-    CHECK(arms >= 4, "%s: %s has %d case arms, expected at least 4",
+    CHECK(arms >= 3, "%s: %s has %d case arms, expected at least 3",
           file, func, arms);
 }
 
@@ -212,21 +212,10 @@ static void catchall_excludes(const char *file, const char *text,
           " machine", file, sentence, code);
 }
 
-static void no_ipv6_sites_explain(const char *file, const char *text,
-                                  int want)
+static void no_ipv6_refusal(const char *file, const char *text)
 {
-    const char *p;
-    int         notes = 0;
-
-    for (p = strstr(text, "tool_no_ipv6_note("); p != NULL;
-         p = strstr(p + 1, "tool_no_ipv6_note("))
-        notes++;
-
     CHECK(strstr(text, "no IPv6") != NULL,
           "%s: the \"no IPv6\" refusal is gone", file);
-    CHECK(notes >= want,
-          "%s: %d of %d \"no IPv6\" refusals say it is a build option",
-          file, notes, want);
 }
 
 static void t_addnetroute(void)
@@ -241,10 +230,10 @@ static void t_addnetroute(void)
 
     /* The one the backlog names: a prefix given a next hop. IPv6 has no table
        for it, and "the route was not added" does not say so. */
-    CHECK(strstr(text, "no table that maps a prefix to a next hop") != NULL,
+    CHECK(strstr(text, "no IPv6 next-hop routes") != NULL,
           "addnetroute.c: the ENOSYS arm does not say IPv6 has no such table");
 
-    no_ipv6_sites_explain("addnetroute.c", text, 1);
+    no_ipv6_refusal("addnetroute.c", text);
 
     free(text);
 }
@@ -259,12 +248,7 @@ static void t_host(void)
     CHECK(strstr(text, "is an address, not a name") != NULL,
           "host.c: the literal refusal is gone");
 
-    /* host cannot reverse an IPv6 address and nslookup can. A refusal that
-       does not name it leaves the question unanswerable. */
-    CHECK(strstr(text, "nslookup") != NULL,
-          "host.c: the literal refusal does not name nslookup");
-
-    no_ipv6_sites_explain("host.c", text, 1);
+    no_ipv6_refusal("host.c", text);
 
     free(text);
 }
@@ -276,12 +260,12 @@ static void t_arp(void)
     if (text == NULL)
         return;
 
-    /* The address is granted in the same breath as the refusal, or the answer
-       reads as a verdict on what was typed. */
-    CHECK(strstr(text, "well-formed IPv6 address") != NULL,
-          "arp.c: the IPv6 refusal no longer grants the address is valid");
+    /* The refusal names the stack, not the address, or the answer reads as a
+       verdict on what was typed. */
+    CHECK(strstr(text, "%s: stack has no IPv6") != NULL,
+          "arp.c: the IPv6 refusal no longer blames the stack");
 
-    no_ipv6_sites_explain("arp.c", text, 1);
+    no_ipv6_refusal("arp.c", text);
 
     free(text);
 }
@@ -319,29 +303,7 @@ static void t_toolsock(void)
 
     /* Eight commands share this one, so it is the highest-traffic refusal in
        the tree: ping, traceroute, nc, telnet, tftp, whois, sntp, fetch. */
-    no_ipv6_sites_explain("toolsock.c", text, 2);
-
-    free(text);
-}
-
-/* The note itself. An emptied helper would satisfy every call site above. */
-static void t_the_note(void)
-{
-    char *text = slurp("src/tools/tool_util.c");
-
-    if (text == NULL)
-        return;
-
-    CHECK(strstr(text, "VOID tool_no_ipv6_note(VOID)") != NULL,
-          "tool_util.c: tool_no_ipv6_note() is gone");
-    CHECK(strstr(text, "build option") != NULL,
-          "tool_util.c: the note no longer says IPv6 is a build option");
-    CHECK(strstr(text, "can be switched on") != NULL,
-          "tool_util.c: the note no longer says whether it can be switched on");
-
-    CHECK(strstr(text, "ShowNetStatus INTERFACES") != NULL,
-          "tool_util.c: the note does not name ShowNetStatus INTERFACES on"
-          " one line");
+    no_ipv6_refusal("toolsock.c", text);
 
     free(text);
 }
@@ -401,7 +363,6 @@ int main(void)
     t_arp();
     t_configurenetinterface();
     t_toolsock();
-    t_the_note();
     t_no_dead_log_advice();
 
     printf("\n%d checks, %d failure(s)\n", checks, failures);

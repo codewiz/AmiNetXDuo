@@ -80,7 +80,7 @@ void httpiperf_parse(const char *path, HttpiperfParsed *out)
     {
         out->kind   = HTTPIPERF_ERR;
         out->status = 400;
-        out->reason = "say how many seconds: /iperf/<direction>/<seconds>";
+        out->reason = "missing seconds: /iperf/<direction>/<seconds>";
         return;
     }
 
@@ -110,7 +110,7 @@ void httpiperf_parse(const char *path, HttpiperfParsed *out)
     {
         out->kind   = HTTPIPERF_ERR;
         out->status = 400;
-        out->reason = "a run needs a whole number of seconds";
+        out->reason = "seconds must be a positive integer";
         return;
     }
     out->seconds = (unsigned long)n;
@@ -133,8 +133,7 @@ unsigned long httpiperf_peer(const char *peer, unsigned long *peer_v4,
 
     if (!http_request_dotted(peer, &v4))
     {
-        *reason = "the peer must be a dotted address, not a "
-                  "name: nothing here can wait on a resolver";
+        *reason = "peer must be a dotted address";
         return 400;
     }
 

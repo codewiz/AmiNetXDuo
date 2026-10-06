@@ -41,15 +41,14 @@ enum
 static const struct ConditionName
 {
     const char *name;
-    const char *asks;
 } conditions[COND_COUNT] =
 {
-    { "INTERFACES",      "an interface is up and has an address"    },
-    { "PTPINTERFACES",   "a point-to-point interface is up"         },
-    { "BCASTINTERFACES", "an Ethernet interface is up"              },
-    { "RESOLVER",        "a name server is in use"                  },
-    { "ROUTES",          "there is somewhere to send packets"       },
-    { "DEFAULTROUTE",    "there is a route off this network"        }
+    { "INTERFACES"      },
+    { "PTPINTERFACES"   },
+    { "BCASTINTERFACES" },
+    { "RESOLVER"        },
+    { "ROUTES"          },
+    { "DEFAULTROUTE"    }
 };
 
 static BOOL gns_quiet;
@@ -165,8 +164,7 @@ static LONG select_conditions(const char *list, BOOL wanted[COND_COUNT])
 
             if (!known)
             {
-                tool_error("\"%s\" is not something this command can check",
-                           (LONG)name);
+                tool_error("unknown condition \"%s\"", (LONG)name);
                 for (i = 0; i < (UWORD)COND_COUNT; i++)
                     tool_printf("      %s\n", (LONG)conditions[i].name);
                 return -1;
@@ -181,7 +179,7 @@ static LONG select_conditions(const char *list, BOOL wanted[COND_COUNT])
 
     if (count == 0)
     {
-        tool_error("CHECK was given nothing to check");
+        tool_error("CHECK requires a condition");
         return -1;
     }
 
@@ -233,8 +231,7 @@ int main(int argc, char **argv)
             return RETURN_OK;
         }
 
-        tool_error("the network library is not loaded, so it has no version "
-                   "to report");
+        tool_error("network library not loaded");
 
         FreeArgs(rda);
         return RETURN_WARN;
@@ -287,9 +284,8 @@ int main(int argc, char **argv)
 
         for (i = 0; i < (UWORD)COND_COUNT; i++)
         {
-            say("  %-16s %-4s  %s\n", (LONG)conditions[i].name,
-                (LONG)(satisfied[i] ? "yes" : "no"),
-                (LONG)conditions[i].asks);
+            say("  %-16s %s\n", (LONG)conditions[i].name,
+                (LONG)(satisfied[i] ? "yes" : "no"));
         }
     }
 
@@ -301,8 +297,7 @@ int main(int argc, char **argv)
         missing++;
 
         if (check != NULL)
-            say("%s: no, %s\n", (LONG)conditions[i].name,
-                (LONG)conditions[i].asks);
+            say("%s: no\n", (LONG)conditions[i].name);
     }
 
     FreeArgs(rda);

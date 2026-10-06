@@ -689,14 +689,12 @@ const char *http_ws_close_reason(unsigned short code)
 {
     switch (code)
     {
-        case HTTP_WS_CLOSE_NORMAL:   return "the session ended";
-        case HTTP_WS_CLOSE_GOING:    return "the server is going away";
-        case HTTP_WS_CLOSE_PROTOCOL: return "that is not a frame this server "
-                                            "can read";
-        case HTTP_WS_CLOSE_DATA:     return "that frame contains invalid text";
-        case HTTP_WS_CLOSE_TOOBIG:   return "that message is larger than this "
-                                            "server will read";
-        default:                     return "the connection ended";
+        case HTTP_WS_CLOSE_NORMAL:   return "session ended";
+        case HTTP_WS_CLOSE_GOING:    return "server going away";
+        case HTTP_WS_CLOSE_PROTOCOL: return "protocol error";
+        case HTTP_WS_CLOSE_DATA:     return "invalid UTF-8";
+        case HTTP_WS_CLOSE_TOOBIG:   return "message too big";
+        default:                     return "connection closed";
     }
 }
 

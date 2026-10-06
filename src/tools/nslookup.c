@@ -729,17 +729,17 @@ static BOOL nsl_default_server(ToolAddr *out)
     }
 }
 
-/* The RCODE, as a sentence. Only the first six are named by RFC 1035. */
+/* The RCODE, as text. Only the first six are named by RFC 1035. */
 static const char *nsl_rcode_text(UWORD rcode)
 {
     switch (rcode)
     {
-        case 1:  return "the server did not understand the query";
-        case 2:  return "the server failed to answer it";
-        case 3:  return "there is no such name";
-        case 4:  return "the server does not implement that kind of query";
-        case 5:  return "the server refused to answer";
-        default: return "the server answered with an error";
+        case 1:  return "format error";
+        case 2:  return "server failure";
+        case 3:  return "no such name";
+        case 4:  return "not implemented";
+        case 5:  return "refused";
+        default: return "server error";
     }
 }
 
@@ -840,7 +840,7 @@ int main(int argc, char **argv)
     {
         if (nsl_type_from_name((const char *)args[ARG_TYPE], &type) != 0)
         {
-            tool_error("\"%s\" is not a record type this command knows",
+            tool_error("\"%s\": unknown record type",
                        (LONG)args[ARG_TYPE]);
             nsl_print_types();
             CloseLibrary(sb);
@@ -873,7 +873,7 @@ int main(int argc, char **argv)
             ;
         if (i >= sizeof(nsl_qname))
         {
-            tool_error("that name is too long for the DNS");
+            tool_error("name too long");
             CloseLibrary(sb);
             FreeArgs(rda);
             return RETURN_ERROR;
@@ -905,8 +905,7 @@ int main(int argc, char **argv)
     qlen = nsl_build(nsl_qname, type, id);
     if (qlen == 0)
     {
-        tool_error("\"%s\" is not a name the DNS can be asked about",
-                   (LONG)name);
+        tool_error("\"%s\" is not a valid name", (LONG)name);
         CloseLibrary(sb);
         FreeArgs(rda);
         return RETURN_ERROR;
@@ -967,15 +966,14 @@ int main(int argc, char **argv)
 
     if (printed < 0)
     {
-        tool_error("%s sent an answer that cannot be read", (LONG)dotted);
+        tool_error("%s: malformed answer", (LONG)dotted);
         FreeArgs(rda);
         return RETURN_ERROR;
     }
 
     if ((flags & NSL_F_TC) != 0)
     {
-        tool_printf("  the answer did not fit in a datagram%s\n",
-                    (LONG)((printed == 0) ? "" : ", there is more of it"));
+        tool_printf("  answer truncated\n");
         rc = RETURN_WARN;
     }
     else if (printed == 0)

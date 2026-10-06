@@ -439,7 +439,7 @@ int main(int argc, char **argv)
 
     if (all && type != NULL)
     {
-        tool_error("ALL browses every type, so it takes no type");
+        tool_error("ALL takes no TYPE");
         FreeArgs(rda);
         return RETURN_ERROR;
     }
@@ -481,9 +481,7 @@ int main(int argc, char **argv)
            refuse precisely during that normal probing window. */
         if (!mdns_enabled_somewhere(base))
         {
-            tool_error("mDNS is not enabled on any interface. Add MDNS=YES "
-                       "to the interface file in DEVS:NetInterfaces, then "
-                       "restart the stack");
+            tool_error("mDNS not enabled on any interface");
             tool_netstatus_close(base);
             FreeArgs(rda);
             return RETURN_WARN;
@@ -497,11 +495,11 @@ int main(int argc, char **argv)
     if (!quiet)
     {
         if (type != NULL)
-            tool_printf("Asking for %s, listening %lu second%s...\n",
+            tool_printf("%s: listening %lu second%s\n",
                         (LONG)type, (LONG)seconds, (LONG)plural(seconds));
         else
-            tool_printf("Asking what this network offers, listening %lu "
-                        "second%s...\n", (LONG)seconds, (LONG)plural(seconds));
+            tool_printf("listening %lu second%s\n",
+                        (LONG)seconds, (LONG)plural(seconds));
     }
 
     /* In slices, so Ctrl-C stops the wait rather than the window having to
@@ -523,8 +521,8 @@ int main(int argc, char **argv)
             (VOID)browse_start(base, svc_types[i], NULL);
 
         if (!quiet)
-            tool_printf("Asking after %lu kind%s of service, listening %lu "
-                        "second%s...\n", (LONG)ntypes, (LONG)plural(ntypes),
+            tool_printf("%lu type%s, listening %lu second%s\n",
+                        (LONG)ntypes, (LONG)plural(ntypes),
                         (LONG)seconds, (LONG)plural(seconds));
 
         if (!broke)
@@ -544,7 +542,7 @@ int main(int argc, char **argv)
 
     if (count < 0)
     {
-        tool_error("the stack did not say what answered");
+        tool_error("service query failed");
         FreeArgs(rda);
         return RETURN_ERROR;
     }
@@ -573,7 +571,7 @@ int main(int argc, char **argv)
                 continue;
 
             if (shown == 0 && !quiet)
-                tool_printf("%s here\n\n", (LONG)type);
+                tool_printf("%s\n\n", (LONG)type);
 
             print_instance(e, want_txt);
         }
@@ -583,7 +581,7 @@ int main(int argc, char **argv)
                 continue;
 
             if (shown == 0 && !quiet)
-                tool_printf("Service types answering here\n\n");
+                tool_printf("Service types\n\n");
 
             tool_printf("  ");
             put_safe(e->nsv_Type);
@@ -596,10 +594,10 @@ int main(int argc, char **argv)
     if (shown == 0)
     {
         if (type != NULL)
-            tool_printf("Nothing answered for %s in %lu second%s.\n",
+            tool_printf("%s: no answer in %lu second%s\n",
                         (LONG)type, (LONG)seconds, (LONG)plural(seconds));
         else
-            tool_printf("Nothing answered in %lu second%s.\n",
+            tool_printf("no answer in %lu second%s\n",
                         (LONG)seconds, (LONG)plural(seconds));
 
         rc = RETURN_WARN;
@@ -617,7 +615,7 @@ int main(int argc, char **argv)
 
                 if (first)
                 {
-                    tool_printf("No instance answered for:");
+                    tool_printf("no instances:");
                     first = FALSE;
                 }
 
@@ -632,7 +630,7 @@ int main(int argc, char **argv)
         /* SVC_MAX is what the library was asked for, nsh_Available is what it
            had. Saying nothing here would present a cut list as the whole one. */
         if (svc_answer.hdr.nsh_Available > svc_answer.hdr.nsh_Count)
-            tool_printf("More answered than are shown here.\n");
+            tool_printf("list truncated\n");
     }
 
     if (broke)

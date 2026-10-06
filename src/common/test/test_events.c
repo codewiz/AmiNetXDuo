@@ -359,20 +359,18 @@ static void test_the_shutdown_a_user_reported(void)
         check(e[0].nse_Index == 0, "on interface 0");
 
         check_str(tool_event_text(e[1].nse_Code),
-                  "every program using the network was told it is stopping",
+                  "programs told the stack is stopping",
                   "the notify sentence");
         check_str(tool_event_detail(e[1].nse_Code), "programs signalled",
                   "what the notify value counts");
         check(e[1].nse_Value == 2UL, "two programs");
 
         check_str(tool_event_text(e[3].nse_Code),
-                  "S2_OFFLINE was not sent, the interface was marked offline"
-                  " already",
+                  "S2_OFFLINE skipped: already offline",
                   "the skipped-offline sentence, which is the answer");
 
         check_str(tool_event_text(e[4].nse_Code),
-                  "the interface was left in memory, the device still holds"
-                  " requests inside it",
+                  "interface kept: device holds requests",
                   "the retained-interface sentence");
         check_str(tool_event_value_name(e[4].nse_Code, e[4].nse_Value),
                   "a read", "which side the device kept");

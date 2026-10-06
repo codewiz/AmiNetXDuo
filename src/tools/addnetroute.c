@@ -156,7 +156,7 @@ static BOOL resolve_address(const char *text, ULONG *addr, ULONG *mask,
 
 static VOID explain_bad_address(const char *what, const char *text)
 {
-    tool_error("%s: \"%s\" is not an address this command can use",
+    tool_error("%s: invalid address \"%s\"",
                (LONG)what, (LONG)text);
 }
 
@@ -282,7 +282,7 @@ static BOOL parse_address6(const char *text, NrAddr6 *out)
 
 static VOID explain_bad_address6(const char *what, const char *text)
 {
-    tool_error("%s: \"%s\" is not an address this command can use",
+    tool_error("%s: invalid address \"%s\"",
                (LONG)what, (LONG)text);
 }
 
@@ -478,37 +478,22 @@ static VOID explain(LONG err, ULONG gateway)
     switch (err)
     {
         case ROUTE_ENOSYS:
-            tool_printf("  This stack was built without its routing table, "
-                        "so there is nothing\n"
-                        "  to add to. A default route still works: "
-                        "AddNetRoute DEFAULTGATEWAY.\n");
+            tool_printf("  no routing table in this build\n");
             break;
 
         case ROUTE_ENOBUFS:
-            tool_printf("  The routing table is full. netstat -r lists it, "
-                        "DeleteNetRoute\n"
-                        "  makes room.\n");
-            break;
-
-        case ROUTE_ENOENT:
-            tool_printf("  netstat -r lists the routes there are. The ones "
-                        "marked S were added\n"
-                        "  by hand and are the ones this command can "
-                        "remove.\n");
+            tool_printf("  routing table full\n");
             break;
 
         case ROUTE_EINVAL:
             if (gateway != 0)
             {
                 ami_config_format_ip(gateway, addr, sizeof(addr));
-                tool_printf("  %s is not on any of this machine's own "
-                            "networks, so nothing here\n"
-                            "  can reach it to use it as a next hop.\n",
-                            (LONG)addr);
+                tool_printf("  %s: not on a local network\n", (LONG)addr);
             }
             else
             {
-                tool_printf("  The stack would not accept that route.\n");
+                tool_printf("  route rejected\n");
             }
             break;
 
@@ -691,35 +676,23 @@ static VOID explain6(LONG err, const char *gateway_text)
     switch (err)
     {
         case ROUTE_ENOSYS:
-            tool_printf("  IPv6 has no table that maps a prefix to a next "
-                        "hop. A packet goes\n"
-                        "  straight to a prefix on this link, or to a default "
-                        "router.\n");
+            tool_printf("  no IPv6 next-hop routes\n");
             break;
 
         case ROUTE_ENOBUFS:
-            tool_printf("  There is no room for another. netstat -r lists "
-                        "them, DeleteNetRoute\n"
-                        "  makes room.\n");
+            tool_printf("  IPv6 route table full\n");
             break;
 
         case ROUTE_EEXIST:
-            tool_printf("  That prefix is already on the list. netstat -r "
-                        "shows it.\n");
-            break;
-
-        case ROUTE_ENOENT:
-            tool_printf("  netstat -r lists the IPv6 routes there are.\n");
+            tool_printf("  prefix exists\n");
             break;
 
         case ROUTE_EINVAL:
             if (gateway_text != NULL)
-                tool_printf("  %s is not on any network this machine has an "
-                            "interface on,\n"
-                            "  so nothing here can reach it to use it as a "
-                            "next hop.\n", (LONG)gateway_text);
+                tool_printf("  %s: not on a local network\n",
+                            (LONG)gateway_text);
             else
-                tool_printf("  The stack would not accept that route.\n");
+                tool_printf("  route rejected\n");
             break;
 
         default:
@@ -731,11 +704,11 @@ static VOID usage(VOID)
 {
 #ifdef TOOL_DELETE
     tool_usage("[DESTINATION <address>] [DEFAULTGATEWAY <address>] [QUIET]",
-               "Remove a route this machine is using.");
+               "Remove a route.");
 #else
     tool_usage("[DESTINATION <address> GATEWAY <address>] "
                "[DEFAULTGATEWAY <address>] [QUIET]",
-               "Add a route, or set the address everything else goes to.");
+               "Add a route or set the default gateway.");
 #endif
 }
 
@@ -773,7 +746,6 @@ static LONG run_ipv6(const LONG *args, BOOL have_default)
     if (!stack_has_ipv6(base))
     {
         tool_error("the running stack has no IPv6");
-        tool_no_ipv6_note();
         tool_netstatus_close(base);
         return RETURN_FAIL;
     }
@@ -807,7 +779,6 @@ static LONG run_ipv6(const LONG *args, BOOL have_default)
         if (find_router6(base, via.addr) < 0)
         {
             tool_error("there is no default route through %s", (LONG)gw_text);
-            explain6(ROUTE_ENOENT, NULL);
             tool_netstatus_close(base);
             return RETURN_ERROR;
         }
@@ -820,19 +791,17 @@ static LONG run_ipv6(const LONG *args, BOOL have_default)
         if (tool_netstatus_control(base, NETCTRL_ROUTE6_DELETE, &ctl,
                                    &err) != 0)
         {
-            tool_error("the default route through %s did not go away",
-                       (LONG)gw_text);
+            tool_error("default route %s not deleted", (LONG)gw_text);
             explain6(err, NULL);
             tool_netstatus_close(base);
             return RETURN_FAIL;
         }
 
-        say("The default route through %s is gone.\n", (LONG)gw_text);
+        say("default route %s deleted\n", (LONG)gw_text);
 #else
         if (find_router6(base, via.addr) >= 0)
         {
-            say("The default route through %s is already there.\n",
-                (LONG)gw_text);
+            say("default route %s exists\n", (LONG)gw_text);
             tool_netstatus_close(base);
             return RETURN_OK;
         }
@@ -848,8 +817,8 @@ static LONG run_ipv6(const LONG *args, BOOL have_default)
             }
             else if (is_link_local6(via.addr))
             {
-                tool_printf("     AddNetRoute DEFAULTGATEWAY %s%ceth0\n",
-                            (LONG)gw_text, (LONG)'%');
+                tool_printf("  %s: link-local, needs %%<interface>\n",
+                            (LONG)gw_text);
             }
             else
             {
@@ -874,8 +843,7 @@ static LONG run_ipv6(const LONG *args, BOOL have_default)
             return RETURN_FAIL;
         }
 
-        say("IPv6 packets with nowhere better to go now leave through\n");
-        say("%s.\n", (LONG)gw_text);
+        say("default route %s\n", (LONG)gw_text);
 #endif
 
         tool_netstatus_close(base);
@@ -902,9 +870,7 @@ static LONG run_ipv6(const LONG *args, BOOL have_default)
     if (find_prefix6(base, via.addr, bits, via.have_prefix, &bits) < 0)
     {
         format_route6(via.addr, via.prefix, text, sizeof(text));
-        tool_error("no IPv6 route to %s was added by hand, so there is none "
-                   "to delete", (LONG)text);
-        explain6(ROUTE_ENOENT, NULL);
+        tool_error("no static IPv6 route to %s", (LONG)text);
         tool_netstatus_close(base);
         return RETURN_ERROR;
     }
@@ -925,8 +891,7 @@ static LONG run_ipv6(const LONG *args, BOOL have_default)
         return RETURN_FAIL;
     }
 
-    say("The route to %s is gone. Packets for it go to a router again.\n",
-        (LONG)text);
+    say("route %s deleted\n", (LONG)text);
 #else
     if (args[ARG_HOSTDST] != 0)
         given = (const char *)args[ARG_HOSTDST];
@@ -962,8 +927,7 @@ static LONG run_ipv6(const LONG *args, BOOL have_default)
 
     if (bits == 0)
     {
-        tool_error("::/0 is not a prefix on this link. It is the default "
-                   "route");
+        tool_error("::/0 is the default route; use DEFAULTGATEWAY");
         tool_netstatus_close(base);
         return RETURN_ERROR;
     }
@@ -984,8 +948,7 @@ static LONG run_ipv6(const LONG *args, BOOL have_default)
         return RETURN_FAIL;
     }
 
-    say("Packets for %s now go straight there rather than to a router.\n",
-        (LONG)text);
+    say("route %s on link\n", (LONG)text);
 #endif
 
     tool_netstatus_close(base);
@@ -1049,7 +1012,7 @@ static int addnetroute_main(int argc, char **argv)
 
     if (!have_default && !have_dest)
     {
-        tool_error("nothing was asked for");
+        tool_error("DESTINATION or DEFAULTGATEWAY required");
         usage();
         FreeArgs(rda);
         return RETURN_ERROR;
@@ -1058,8 +1021,7 @@ static int addnetroute_main(int argc, char **argv)
     /* DEFAULTGATEWAY wins outright, so say so rather than silently ignoring
        the destination. */
     if (have_default && have_dest)
-        say("%s: DEFAULTGATEWAY was given, so the destination is ignored.\n",
-            (LONG)tool_name);
+        say("%s: DESTINATION ignored with DEFAULTGATEWAY\n", (LONG)tool_name);
 
     if (wants_ip6(args))
     {
@@ -1147,8 +1109,7 @@ static int addnetroute_main(int argc, char **argv)
         if (args[ARG_VIA] == 0)
         {
             format_route(dest, mask, text, sizeof(text));
-            tool_error("no GATEWAY was given, so there is nowhere to send "
-                       "packets for %s", (LONG)text);
+            tool_error("%s: GATEWAY required", (LONG)text);
             FreeArgs(rda);
             return RETURN_ERROR;
         }
@@ -1212,25 +1173,21 @@ static int addnetroute_main(int argc, char **argv)
         if (tool_netstatus_control(base, NETCTRL_GATEWAY_CLEAR, &ctl,
                                    &err) != 0)
         {
-            tool_error("the default route did not go away");
+            tool_error("default route not deleted");
             explain(err, 0);
             tool_netstatus_close(base);
             FreeArgs(rda);
             return RETURN_FAIL;
         }
 
-        say("The default route through %s is gone. Only machines on this\n",
-            (LONG)text);
-        say("machine's own network can be reached now.\n");
+        say("default route %s deleted\n", (LONG)text);
 #else
         if (live_gw != 0 && live_gw != gateway)
         {
             char have[16];
 
             ami_config_format_ip(live_gw, have, sizeof(have));
-            tool_error("there is already a default route, through %s",
-                       (LONG)have);
-            tool_printf("     DeleteNetRoute DEFAULTGATEWAY=%s\n", (LONG)have);
+            tool_error("default route exists: %s", (LONG)have);
             tool_netstatus_close(base);
             FreeArgs(rda);
             return RETURN_ERROR;
@@ -1238,7 +1195,7 @@ static int addnetroute_main(int argc, char **argv)
 
         if (live_gw == gateway)
         {
-            say("The default route is already %s.\n", (LONG)text);
+            say("default route %s exists\n", (LONG)text);
             tool_netstatus_close(base);
             FreeArgs(rda);
             return RETURN_OK;
@@ -1264,8 +1221,7 @@ static int addnetroute_main(int argc, char **argv)
             return RETURN_FAIL;
         }
 
-        say("Everything not on this machine's own network now goes through\n");
-        say("%s.\n", (LONG)text);
+        say("default route %s\n", (LONG)text);
 #endif
 
         tool_netstatus_close(base);
@@ -1286,9 +1242,7 @@ static int addnetroute_main(int argc, char **argv)
     if (find_route(base, dest, mask, have_mask, &mask) < 0)
     {
         ami_config_format_ip(dest, text, sizeof(text));
-        tool_error("no route to %s was added by hand, so there is none to "
-                   "delete", (LONG)text);
-        explain(ROUTE_ENOENT, 0);
+        tool_error("no static route to %s", (LONG)text);
         tool_netstatus_close(base);
         FreeArgs(rda);
         return RETURN_ERROR;
@@ -1308,7 +1262,7 @@ static int addnetroute_main(int argc, char **argv)
         return RETURN_FAIL;
     }
 
-    say("The route to %s is gone.\n", (LONG)text);
+    say("route %s deleted\n", (LONG)text);
 #else
     if (!gateway_is_reachable(base, gateway))
     {
@@ -1344,7 +1298,7 @@ static int addnetroute_main(int argc, char **argv)
         char via[16];
 
         ami_config_format_ip(gateway, via, sizeof(via));
-        say("Packets for %s now go through %s.\n", (LONG)text, (LONG)via);
+        say("route %s via %s\n", (LONG)text, (LONG)via);
     }
 #endif
 

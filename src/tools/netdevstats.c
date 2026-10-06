@@ -77,8 +77,7 @@ int main(int argc, char **argv)
     {
         tool_fault(IoErr());
         tool_usage("[DEVICE <name>] [UNIT <n>] [CARD <type>]",
-                   "Print every counter a SANA-II driver keeps for one unit: "
-                   "the standard block and the driver's own named records.");
+                   "Print the SANA-II statistics of one unit.");
         return RETURN_ERROR;
     }
     if (args[ARG_DEVICE] != 0)

@@ -48,7 +48,7 @@ cat > "$T/nolease" <<'EOF'
 
 Interface eth0 (a2065.device unit 0)
   state       offline         link unknown
-  address     handed out by DHCP when the interface comes up
+  address     DHCP
   configured  DHCP
 
 Interfaces

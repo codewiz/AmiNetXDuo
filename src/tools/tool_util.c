@@ -126,21 +126,6 @@ VOID tool_fault(LONG code)
     PrintFault(code, (CONST_STRPTR)tool_name);
 }
 
-/*
- * Every command that refuses an IPv6 address because the library it opened has
- * none ends the same way, so the sentence exists once. Two things a user
- * cannot get at from the refusal itself: that this is which library is
- * installed rather than something to switch on, and where the addresses the
- * machine does have are listed.
- */
-VOID tool_no_ipv6_note(VOID)
-{
-    tool_printf("  IPv6 is a build option, not anything that can be "
-                "switched on from\n"
-                "  here. ShowNetStatus INTERFACES lists the addresses this "
-                "machine has.\n");
-}
-
 /* ------------------------------------------------------------------ break */
 
 VOID tool_break_arm(VOID)
@@ -232,13 +217,13 @@ const char *tool_net_error(LONG err)
         case AMI_NET_ERR_CONFIG:    return "the configuration is not usable";
         case AMI_NET_ERR_KERNEL:    return "the network kernel did not start";
         case AMI_NET_ERR_STATE:     return "the network stack is not running";
-        case AMI_NET_ERR_NONAME:    return "there is no such name";
+        case AMI_NET_ERR_NONAME:    return "no such name";
         case AMI_NET_ERR_NOSERVER:  return "no name server is configured";
         case AMI_NET_ERR_TIMEOUT:   return "the name server did not answer";
-        case AMI_NET_ERR_BUSY:      return "the interface is still in use";
-        case AMI_NET_ERR_ABORTED:   return "the caller asked to be let go";
+        case AMI_NET_ERR_BUSY:      return "interface in use";
+        case AMI_NET_ERR_ABORTED:   return "aborted";
         case AMI_NET_ERR_NOSLOT:    return "every interface slot is taken";
-        case AMI_NET_ERR_RETAINED:  return "the SANA-II device still holds requests";
+        case AMI_NET_ERR_RETAINED:  return "SANA-II device still holds requests";
         default:                    return "unknown error";
     }
 }
@@ -444,7 +429,7 @@ BOOL tool_from_workbench(int argc)
      */
     if (argc == 0)
     {
-        tool_error("this is a Shell command. Run it from a Shell");
+        tool_error("requires a Shell");
         return TRUE;
     }
 

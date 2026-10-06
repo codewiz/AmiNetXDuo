@@ -174,7 +174,7 @@ netstat_addr() { # netstat text, name
 
 lease_router() { # ShowNetStatus text -> the router the DHCP lease named
     printf '%s\n' "$1" |
-    awk '$1 == "it" && $2 == "offered" && $3 == "router" { print $4; exit }'
+    awk '$1 == "offered" && $2 == "router" { print $3; exit }'
 }
 
 round_named() {
@@ -280,7 +280,7 @@ round_named() {
     fi
 
     local ok3=1
-    if block "SYS:AddNetInterface zeth4" 1 | grep -qiE "ENOSPC|cannot come up"
+    if block "SYS:AddNetInterface zeth4" 1 | grep -qiE "ENOSPC|slots in use"
     then
         fail "zeth4 was refused a slot: the start-up pass took them all"
         ok3=0
@@ -340,7 +340,7 @@ round_named() {
     fi
 
     third=$(block "SYS:AddNetInterface neth3" 1)
-    if printf '%s\n' "$third" | grep -qi "slots are in use"; then
+    if printf '%s\n' "$third" | grep -qi "slots in use"; then
         pass "a fifth simultaneous attach is refused"
     else
         fail "the fifth attach was not refused"
@@ -379,7 +379,7 @@ round_named() {
 
     local ok5=1
     second_meth=$(block "SYS:AddNetInterface neth3" 2)
-    if printf '%s\n' "$second_meth" | grep -qi "slots are in use"; then
+    if printf '%s\n' "$second_meth" | grep -qi "slots in use"; then
         fail "neth3 still refused after RemoveNetInterface freed a slot"
         ok5=0
     else
@@ -671,7 +671,7 @@ round_latefail() {
     fi
 
     refusal=$(block "SYS:AddNetInterface ydup4" 1)
-    if printf '%s\n' "$refusal" | grep -qiE "refused|slots are in use"; then
+    if printf '%s\n' "$refusal" | grep -qiE "refused|slots in use"; then
         pass "the fifth explicit interface is refused"
     else
         fail "the add reported no failure at all"

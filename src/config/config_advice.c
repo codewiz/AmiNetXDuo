@@ -16,130 +16,69 @@
 static const char *const ami_cfg_advice_text[] =
 {
     (const char *)0,
-    "Run NetSetup: it asks which card this machine has, then writes"
-    " the drawer and the file.",
-    "This is memory, not a limit on how many interfaces may be desc"
-    "ribed.  Close a program and try again.",
-    "The problems listed above it say why.  NetSetup can rewrite th"
-    "e file from scratch.",
-    "One file per network card goes in there.  The name of the file"
-    " is the name of the card, and eth0 is the usual choice.  NetSe"
-    "tup writes one.",
-    "Roadshow acts on it.  This stack does not.  The line is harmle"
-    "ss and can stay.",
-    "Rename the file in DEVS:NetInterfaces to something 15 characte"
-    "rs or shorter and use that name from now on.",
-    "DEVICE names the driver for the network card, for example DEVI"
-    "CE=a2065.device.  The driver itself belongs in DEVS:Networks/.",
-    "Add a line such as  DEVICE = a2065.device  that names the driv"
-    "er for the card, or let NetSetup write the file.",
-    "Add  CONFIGURE = DHCP  to have an address handed out, or  ADDR"
-    "ESS = 192.168.1.10  and  NETMASK = 255.255.255.0  to set one b"
-    "y hand, or  CONFIGURE6 = AUTO  for an IPv6-only interface.",
-    "This file holds NAMESERVER, DOMAIN and SEARCH lines.  The line"
-    " was ignored.",
-    "A routes file holds DEFAULT=<router address> for the default r"
-    "oute, and DST=/VIA= pairs for anything else.  The line was ign"
-    "ored.",
-    "This file switches the TCP: device on or off and understands n"
-    "othing else.  Write TCPHANDLER=OFF, or OFF on its own.",
-    "Keep it under sixty characters.  The line was ignored.",
-    "A TXT record holds at most 255 characters.  The line was ignor"
-    "ed.",
-    "At most eight are announced.  The ones after that were ignored"
-    ".",
-    "UNIT is a plain number and is 0 on almost every card.  Unit 0 "
-    "was assumed.",
-    "An address is four numbers from 0 to 255 with dots between the"
-    "m, for example 192.168.1.10.  Write ADDRESS=DHCP to have the a"
-    "ddress handed out automatically.",
-    "A netmask looks like an address.  On a home network it is almo"
-    "st always 255.255.255.0.",
-    "The gateway is the address of the router. An address is four n"
-    "umbers from 0 to 255 with dots between them, for example 192.1"
-    "68.1.10.",
-    "MTU is a plain number of bytes, normally 1500.  Leave it out a"
-    "nd the driver decides.",
-    "CONFIGURE is DHCP (let the network hand out an address), STATI"
-    "C (use the ADDRESS below), AUTO (pick one without a server) or"
-    " NONE (no IPv4 on this interface).  STATIC was assumed.",
-    "IPTYPE is DHCP, STATIC, AUTO or NONE. A numeric SANA-II packet"
-    " type is accepted but ignored; this stack selects the type for"
-    " each packet.",
-    "MDNS is YES or NO.  NO was assumed.",
-    "DOWNGOESOFFLINE is YES or NO.  NO was assumed.",
-    "REQUIRESINITDELAY is YES or NO.  NO was assumed.",
-    "HARDWAREADDRESS is six hexadecimal bytes, as in 02:00:00:12:34"
-    ":56.  The card's own address was kept.",
-    "STATE is UP or DOWN.  UP was assumed.",
-    "An interface carries at most two static IPv6 addresses, becaus"
-    "e the third slot the stack has per interface holds the link-lo"
-    "cal address.  This line was ignored.",
-    "CONFIGURE6 is AUTO (follow the router), DHCP (ask a DHCPv6 ser"
-    "ver), STATIC (use the ADDRESS6 below), LINKLOCAL (fe80:: only)"
-    " or OFF.  AUTO was assumed.",
-    "A name server is given by address, not by name.  On a home net"
-    "work it is usually the router, for example 192.168.1.1.",
-    "This is the address of the router, and it must be on the same "
-    "network as this machine. An address is four numbers from 0 to "
-    "255 with dots between them, for example 192.168.1.10.",
-    "Write ON or OFF.  The TCP: device was left switched on.",
-    "A line is <type> <port>, for example:  _ftp._tcp  21.  The typ"
-    "e is an RFC 6763 name: an underscore, up to fifteen letters, d"
-    "igits or hyphens, then ._tcp or ._udp.  The line was ignored.",
-    "A port is a number from 1 to 65535, and it is the port the ser"
-    "ver listens on.  The line was ignored.",
-    "A service name is one label, so it cannot contain a dot.  The "
-    "line was ignored.",
-    "This copy of AmiNetXDuo does not know that keyword; a file wri"
-    "tten for a newer version can carry ones an older copy ignores."
-    "  The guide's \"The interface file\" lists every keyword.  The"
-    " line was ignored.",
-    "there is no DEVS:NetInterfaces drawer, so nothing describes a "
-    "network card",
-    "the DEVS:NetInterfaces drawer holds no usable interface file",
+    (const char *)0,
+    (const char *)0,
+    (const char *)0,
+    (const char *)0,
+    (const char *)0,
+    "names are at most 15 characters",
+    "DEVICE names the driver, e.g. DEVICE=a2065.device",
+    "e.g. DEVICE=a2065.device",
+    (const char *)0,
+    "keywords: NAMESERVER, DOMAIN, SEARCH; line ignored",
+    "keywords: DEFAULT=<router>, DST= with VIA=; line ignored",
+    "accepts TCPHANDLER=ON|OFF or ON|OFF alone",
+    "under 60 characters; line ignored",
+    "TXT limit 255 characters; line ignored",
+    "at most 8 announced; rest ignored",
+    "UNIT is a number; 0 assumed",
+    "expected a.b.c.d or DHCP",
+    "expected a.b.c.d, e.g. 255.255.255.0",
+    "expected a.b.c.d",
+    "MTU is bytes, normally 1500; default from driver",
+    "CONFIGURE is DHCP, STATIC, AUTO or NONE; STATIC assumed",
+    "IPTYPE is DHCP, STATIC, AUTO or NONE; numeric types ignored",
+    "MDNS is YES or NO; NO assumed",
+    "DOWNGOESOFFLINE is YES or NO; NO assumed",
+    "REQUIRESINITDELAY is YES or NO; NO assumed",
+    "HARDWAREADDRESS is 6 hex bytes, e.g. 02:00:00:12:34:56; card a"
+    "ddress kept",
+    "STATE is UP or DOWN; UP assumed",
+    "at most 2 static IPv6 addresses; line ignored",
+    "CONFIGURE6 is AUTO, DHCP, STATIC, LINKLOCAL or OFF; AUTO assumed",
+    "NAMESERVER takes an address, not a name",
+    "expected a.b.c.d on a local network",
+    "ON or OFF; TCP: left on",
+    "expected _<name>._tcp|._udp <port>, e.g. _ftp._tcp 21; line ig"
+    "nored",
+    "port is 1 to 65535; line ignored",
+    "no dots; line ignored",
+    "line ignored",
+    "no DEVS:NetInterfaces drawer",
+    "DEVS:NetInterfaces: no usable interface file",
     "DEVICE has no value",
-    "there is no DEVICE line, so the file does not say which networ"
-    "k card to use",
-    "the interface has no address: there is no ADDRESS line, CONFIG"
-    "URE does not say DHCP, and nothing asks for IPv6 either",
+    "no DEVICE line",
+    "no address: no ADDRESS, CONFIGURE=DHCP or CONFIGURE6",
     "the service name is too long",
     "the txt= field is too long",
-    "there are more services here than can be advertised",
-    "the name server was taken from an interface file, where AmiTCP"
-    "_NG's installer writes it",
-    "Roadshow keeps NAMESERVER and DOMAIN in DEVS:Internet/name_res"
-    "olution, and this stack reads that file first.  The interface "
-    "file is read only when it finds none, so move the line there b"
-    "efore the interface is changed.",
-    "IPREQUESTS and ARPREQUESTS are how many reads of that kind wai"
-    "t at the driver, 1 to 128.  Leave them out and the stack sizes"
-    " the queues from the wire speed and the memory it has.",
-    "WRITEREQUESTS is how many packets are handed to the driver at "
-    "once, 1 to " AMI_CFG_STRINGIFY(AMI_CFG_WRITEREQUESTS_MAX)
-    ".  Leave it out for " AMI_CFG_STRINGIFY(AMI_CFG_WRITEREQUESTS_MAX) ".",
-    "RXBUFFER is the bytes the card holds from the wire before it dr"
-    "ops a frame: its receive ring or FIFO, 13312 on an X-Surf.  The"
-    " TCP window stays inside it.  Leave it out and the driver is as"
-    "ked, or a known one is assumed.",
-    "PRIORITY is a number from -128 to 127, 0 when left out.  When t"
-    "wo interfaces could carry a packet -- two cards on one network,"
-    " two default routers -- the higher one carries it.",
-    "FILTER is LOCAL, IPANDARP or EVERYTHING.  The first two are wha"
-    "t happens anyway.  EVERYTHING opens the driver promiscuous, for"
-    " a card whose multicast filter lets nothing through.",
-    "TCPACKMAX is the maximum number of received TCP bytes to wait "
-    "before requesting an ACK, 1 to 65535. Leave it out for the "
-    "device default; smaller values send more ACKs.",
-    "TCPGROWRTT is milliseconds, 1 to 65535. Leave it out for 10.",
-    "there was not enough memory to read the interface drawer",
-    "numeric IPTYPE is accepted for compatibility but ignored",
-    "TCPWANWINDOW is bytes, 1 to 1048576: the receive window on a long "
-    "path in place of the RXBUFFER fit. Leave it out to keep the fit.",
-    "GROFRAMES is frames, 1 to 16: the most received TCP frames joined "
-    "into one before TCP sees them. Leave it out for 16.",
-    "ACKPACE is kbit/s, 1 to 1000000: the rate TCP acknowledgments clock "
-    "a sender at. Leave it out to send them at once.",
+    "too many services",
+    "name server taken from the interface file",
+    "DEVS:Internet/name_resolution takes precedence",
+    "IPREQUESTS and ARPREQUESTS are 1 to 128; default from link spe"
+    "ed and memory",
+    "WRITEREQUESTS is 1 to " AMI_CFG_STRINGIFY(AMI_CFG_WRITEREQUESTS_MAX)
+    ", default " AMI_CFG_STRINGIFY(AMI_CFG_WRITEREQUESTS_MAX),
+    "RXBUFFER is the card's receive buffer in bytes (13312 on an X-"
+    "Surf); default from driver",
+    "PRIORITY is -128 to 127, default 0; higher wins",
+    "FILTER is LOCAL, IPANDARP or EVERYTHING (promiscuous)",
+    "TCPACKMAX is bytes before an ACK, 1 to 65535; default from device",
+    "TCPGROWRTT is milliseconds, 1 to 65535, default 10",
+    "out of memory reading DEVS:NetInterfaces",
+    "numeric IPTYPE ignored",
+    "TCPWANWINDOW is bytes, 1 to 1048576; default from RXBUFFER",
+    "GROFRAMES is 1 to 16, default 16",
+    "ACKPACE is kbit/s, 1 to 1000000; default unpaced",
 };
 
 const char *ami_cfg_advice(UWORD code)

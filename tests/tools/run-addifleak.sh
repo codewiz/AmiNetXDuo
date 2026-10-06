@@ -131,7 +131,7 @@ pass "all $RUNS runs reported"
 # a stack, which is the leak this file was written to catch; the memory it
 # measures is the same either way, and a run that says neither is a run that
 # did not reach the stack at all.
-DOWN=$(grep -c 'the network is running, and eth0 is configured down' "$REPORT" || true)
+DOWN=$(grep -c '^eth0: configured down' "$REPORT" || true)
 UP=$(grep -c '^eth0: online, address' "$REPORT" || true)
 if [ "$DOWN" -lt 1 ]; then
     fail "the first run did not build the stack and leave eth0 down (STATE=down)"

@@ -277,7 +277,7 @@ else
     pass "5: and MDNS=NO leaves it again"
 fi
 
-says "SYS:ShowNetStatus MR" 1 "does not forward multicast" \
+says "SYS:ShowNetStatus MR" 1 "not forwarding multicast" \
      "5: MULTICASTROUTING is accepted and says what this machine does"
 says "SYS:ShowNetStatus RT" 1 "Routing" \
      "5: ROUTING is accepted and prints the table it can account for"

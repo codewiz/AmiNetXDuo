@@ -557,7 +557,7 @@ netstat_addr() { # netstat text, name
 
 lease_router() { # ShowNetStatus text -> the router the DHCP lease named
     printf '%s\n' "$1" |
-    awk '$1 == "it" && $2 == "offered" && $3 == "router" { print $4; exit }'
+    awk '$1 == "offered" && $2 == "router" { print $3; exit }'
 }
 
 gateway_of() { # ShowNetStatus text -> the default route, or empty
@@ -774,7 +774,7 @@ echo "force_rc=${force_rc:-none} force_ms=${force_ms:-none}\
  force_end=${FORCE_END:-none}"
 case "$force_rc" in
     0) pass "RemoveNetInterface zforce FORCE returned rc 0" ;;
-    5) if printf '%s\n' "$force" | grep -qi "holds requests"; then
+    5) if printf '%s\n' "$force" | grep -qi "device still open"; then
            pass "RemoveNetInterface zforce FORCE returned rc 5: removed, the\
  device kept requests (retained)"
        else

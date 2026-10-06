@@ -334,7 +334,7 @@ fi
 
 ipv4_none=no
 sed -n '/^===== SYS:ShowNetStatus/,/^----- rc/p' "$OUT" 2>/dev/null \
-    | grep -qi "carries no IPv4" && ipv4_none=yes
+    | grep -qi "none (no IPv4)" && ipv4_none=yes
 
 reach=no
 sed -n "/^===== SYS:ping/,/^----- rc/p" "$OUT" 2>/dev/null \

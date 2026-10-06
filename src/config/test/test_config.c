@@ -4350,8 +4350,8 @@ static void test_resolver_from_interfaces(void)
     CHECK(seen_count == 1);
     CHECK(seen[0].severity == AMI_CFG_PROBLEM_ERROR);
     CHECK(strstr(seen[0].text, "NAMESERVER cannot be '192.168.1.300'") != NULL);
-    CHECK(!strstr(seen[0].text, "was taken"));
-    CHECK(strstr(seen[0].hint, "given by address") != NULL);
+    CHECK(!strstr(seen[0].text, "taken from"));
+    CHECK(strstr(seen[0].hint, "takes an address") != NULL);
 
     /* 4. An interface file with neither leaves the resolver empty rather than
           inventing something. */
@@ -4516,7 +4516,7 @@ int main(int argc, char **argv)
     test_service_discovery();
     test_env_number();
     CHECK_STR(ami_cfg_advice(AMI_CFG_SAYS_INTERFACE_DRAWER_OUT_OF_MEMORY),
-              "there was not enough memory to read the interface drawer");
+              "out of memory reading DEVS:NetInterfaces");
 
     printf("\n%d checks, %d failure(s)\n", checks, failures);
 

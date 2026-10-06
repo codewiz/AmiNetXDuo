@@ -188,7 +188,6 @@ int main(int argc, char **argv)
     if (tool_parse_ip6(name, v6))
     {
         tool_error("\"%s\" is an address, not a name", (LONG)name);
-        tool_printf("  nslookup asks the DNS for its ip6.arpa record.\n");
         FreeArgs(rda);
         return RETURN_ERROR;
     }
@@ -218,8 +217,7 @@ int main(int argc, char **argv)
        about the machine, not about the name. */
     if (family == TOOL_AF_INET6 && !tool_sock_have_ipv6(sbase))
     {
-        tool_error("%s: this machine's network has no IPv6", (LONG)name);
-        tool_no_ipv6_note();
+        tool_error("%s: no IPv6 in this stack", (LONG)name);
         CloseLibrary(sbase);
         FreeArgs(rda);
         return RETURN_ERROR;
@@ -236,8 +234,8 @@ int main(int argc, char **argv)
     }
     else
     {
-        tool_error("timer.device did not open, so TIMEOUT cannot be kept; "
-                   "the library's own 30 seconds apply");
+        tool_error("timer.device did not open; TIMEOUT ignored (30 s "
+                   "default)");
     }
 
     if (ami_config_parse_ip(name, &addr))
@@ -303,8 +301,7 @@ int main(int argc, char **argv)
         /* gethostbyname() answers with an A and nothing else, so there is no
            way to ask this library for the AAAA. */
         ok = FALSE;
-        tool_error("this bsdsocket.library has no getaddrinfo, so -6 cannot "
-                   "be answered");
+        tool_error("-6 requires getaddrinfo in bsdsocket.library");
         no_family = TRUE;
     }
     else

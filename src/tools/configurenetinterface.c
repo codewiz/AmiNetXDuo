@@ -219,7 +219,7 @@ static const char *raw_state_name(UWORD raw)
     };
 
     if (raw >= (UWORD)(sizeof(names) / sizeof(names[0])))
-        return "in a state it does not name";
+        return "unknown";
 
     return names[raw];
 }
@@ -712,10 +712,10 @@ int main(int argc, char **argv)
         }
         else if (!tool_parse_ip6(g, cni_gateway6))
         {
-            tool_error("\"%s\" is not an IPv6 address", (LONG)g);
-
             if (has_zone(g))
-                tool_printf("  Omit the %czone suffix.\n", (LONG)'%');
+                tool_error("\"%s\": %%zone not allowed", (LONG)g);
+            else
+                tool_error("\"%s\" is not an IPv6 address", (LONG)g);
 
             FreeArgs(rda);
             return RETURN_ERROR;
@@ -1146,7 +1146,7 @@ int main(int argc, char **argv)
                                (LONG)name, (LONG)gwtext);
 
                 if (dropped != 0)
-                    tool_printf("  The previous default router was removed.\n");
+                    tool_printf("  previous default router removed\n");
 
                 tool_netstatus_close(base);
                 FreeArgs(rda);
@@ -1264,7 +1264,7 @@ int main(int argc, char **argv)
     if (!want_dhcp && (have_address || have_netmask || have_gateway) &&
         on_dhcp(base, index))
     {
-        say("%s uses DHCP; the next lease replaces this\n", (LONG)name);
+        say("%s: DHCP; next lease overrides\n", (LONG)name);
     }
 
     tool_netstatus_close(base);

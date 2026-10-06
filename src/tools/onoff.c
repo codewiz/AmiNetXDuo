@@ -60,7 +60,7 @@ static BOOL load_interface(const char *name, AmiIfConfig *ifc, BOOL loud)
     }
     else
     {
-        tool_error("DEVS:NetInterfaces/%s cannot be used as it stands",
+        tool_error("DEVS:NetInterfaces/%s: unusable",
                    (LONG)name);
     }
 
@@ -128,7 +128,7 @@ static int find_by_device(const char *device, BOOL had_unit, ULONG unit,
     else if (matches > 1 && report)
     {
         /* More than one unit of this driver and no UNIT: never a guess. */
-        tool_error("%s is used by more than one interface; give UNIT",
+        tool_error("%s: several interfaces; UNIT required",
                    (LONG)tool_basename(device));
         for (i = 0; i < (ULONG)n; i++)
             tool_printf("      %-15s unit %lu\n", (LONG)names[which[i]],
@@ -148,9 +148,9 @@ static VOID explain_unknown_name(const char *given, ULONG unit, BOOL had_unit)
     ULONG              listed = 0;
 
     if (had_unit)
-        tool_error("nothing here is \"%s\" on unit %lu", (LONG)given, unit);
+        tool_error("no interface \"%s\" on unit %lu", (LONG)given, unit);
     else
-        tool_error("nothing here is called \"%s\"", (LONG)given);
+        tool_error("no interface or driver \"%s\"", (LONG)given);
 
     for (i = 0; i < count; i++)
     {
@@ -349,11 +349,11 @@ static VOID report_live_online(struct Library *base, const char *name,
     if (addr != 0)
     {
         ami_config_format_ip(addr, addr4, sizeof(addr4));
-        tool_printf("%s is online, address %s\n", (LONG)name, (LONG)addr4);
+        tool_printf("%s: online, %s\n", (LONG)name, (LONG)addr4);
     }
     else if (live_address6(base, index, addr6, sizeof(addr6)))
     {
-        tool_printf("%s is online, address %s\n", (LONG)name, (LONG)addr6);
+        tool_printf("%s: online, %s\n", (LONG)name, (LONG)addr6);
     }
     else
     {
@@ -397,7 +397,7 @@ static LONG switch_live(const char *name, const AmiIfConfig *ifc, BOOL up,
         err = tool_stack_add_interface(base, name, NULL, TRUE);
         if (err != 0 && err != EEXIST)
         {
-            tool_error("%s did not join the running network: %s (%ld)",
+            tool_error("%s: not attached: %s (%ld)",
                        (LONG)name, (LONG)tool_code_errno(err), err);
             if (ifc != NULL)
                 tool_explain_device(ifc->device, ifc->unit, ifc->card);
@@ -412,7 +412,7 @@ static LONG switch_live(const char *name, const AmiIfConfig *ifc, BOOL up,
     if (index < 0)
     {
         if (index == -2)
-            tool_error("the network did not say which interfaces it has");
+            tool_error("interface list unavailable");
         else
             tool_error("%s is not attached", (LONG)name);
         tool_netstatus_close(base);
@@ -423,7 +423,7 @@ static LONG switch_live(const char *name, const AmiIfConfig *ifc, BOOL up,
     if (online == up && (!up || ifc == NULL ||
                          ifc->iptype != AMI_IPTYPE_DHCP))
     {
-        tool_printf("%s is already %s\n", (LONG)name,
+        tool_printf("%s: already %s\n", (LONG)name,
                     (LONG)(up ? "online" : "offline"));
         tool_netstatus_close(base);
         FreeArgs(rda);
@@ -458,17 +458,15 @@ static LONG switch_live(const char *name, const AmiIfConfig *ifc, BOOL up,
     if (reached < 0)
     {
         if (reached == -1)
-            tool_error("%s is no longer in the running stack", (LONG)name);
+            tool_error("%s: no longer in the stack", (LONG)name);
         else
-            tool_error("the network did not say whether %s went %s",
-                       (LONG)name, (LONG)(up ? "online" : "offline"));
+            tool_error("%s: state unknown", (LONG)name);
         rc = RETURN_WARN;
     }
     else if (reached == 0 && !wait.broken)
     {
-        tool_error("%s was still %s %lu seconds after the request to go %s",
-                   (LONG)name, (LONG)(up ? "down" : "up"), wait.elapsed,
-                   (LONG)(up ? "up" : "down"));
+        tool_error("%s: still %s after %lu s",
+                   (LONG)name, (LONG)(up ? "down" : "up"), wait.elapsed);
         rc = RETURN_WARN;
     }
     else if (!wait.broken && up)
@@ -480,7 +478,7 @@ static LONG switch_live(const char *name, const AmiIfConfig *ifc, BOOL up,
         {
             if (!wait.broken)
             {
-                tool_error("%s had no DHCP lease after %lu seconds",
+                tool_error("%s: no DHCP lease after %lu s",
                            (LONG)name, wait.elapsed);
                 tool_explain_dhcp(name);
                 rc = RETURN_WARN;
@@ -491,7 +489,7 @@ static LONG switch_live(const char *name, const AmiIfConfig *ifc, BOOL up,
     }
     else if (!wait.broken)
     {
-        tool_printf("%s is offline\n", (LONG)name);
+        tool_printf("%s: offline\n", (LONG)name);
     }
 
     tool_netstatus_close(base);
@@ -563,11 +561,11 @@ static VOID report_linked_online(const char *name, UWORD index, ULONG addr)
     if (addr != 0)
     {
         ami_config_format_ip(addr, addr4, sizeof(addr4));
-        tool_printf("%s is online, address %s\n", (LONG)name, (LONG)addr4);
+        tool_printf("%s: online, %s\n", (LONG)name, (LONG)addr4);
     }
     else if (linked_address6(index, addr6, sizeof(addr6)))
     {
-        tool_printf("%s is online, address %s\n", (LONG)name, (LONG)addr6);
+        tool_printf("%s: online, %s\n", (LONG)name, (LONG)addr6);
     }
     else
     {
@@ -640,7 +638,7 @@ int main(int argc, char **argv)
 
         if (had_unit && ifc.unit != unit)
         {
-            tool_error("%s is %s unit %ld, and unit %lu was asked for",
+            tool_error("%s is %s unit %ld, not unit %lu",
                        (LONG)name, (LONG)ifc.device, (LONG)ifc.unit, unit);
             FreeArgs(rda);
             return RETURN_ERROR;
@@ -663,9 +661,8 @@ int main(int argc, char **argv)
                                sizeof(othername), &other, FALSE) == 1 &&
                 tool_stricmp(othername, name) != 0)
             {
-                tool_printf("%s: taken as the interface name. The interface "
-                            "that uses a\n", (LONG)name);
-                tool_printf("  driver of that name is %s.\n",
+                tool_printf("%s: interface name; the driver of that name "
+                            "is interface %s\n", (LONG)name,
                             (LONG)othername);
             }
         }
@@ -712,8 +709,8 @@ int main(int argc, char **argv)
 
             if (base == NULL)
             {
-                tool_error("bsdsocket.library did not open, so %s did not "
-                           "come online", (LONG)name);
+                tool_error("%s: bsdsocket.library did not open",
+                           (LONG)name);
 
                 /* Probe the card only when the library that would drive it is
                    installed. */
@@ -728,7 +725,7 @@ int main(int argc, char **argv)
 
             if (!tool_stack_is_ours(base))
             {
-                tool_error("another TCP/IP stack is installed on this machine");
+                tool_error("another TCP/IP stack is installed");
                 tool_explain_foreign_stack(base);
                 tool_stack_release(base);
                 FreeArgs(rda);
@@ -740,7 +737,7 @@ int main(int argc, char **argv)
             err = tool_stack_add_interface(base, name, NULL, TRUE);
             if (err != 0 && err != EEXIST)
             {
-                tool_error("%s did not join the running network: %s (%ld)",
+                tool_error("%s: not attached: %s (%ld)",
                            (LONG)name, (LONG)tool_code_errno(err), err);
                 tool_stack_release(base);
                 FreeArgs(rda);
@@ -749,7 +746,7 @@ int main(int argc, char **argv)
 
             if (!tool_stack_hold(base))
             {
-                tool_error("the library could not keep the network running");
+                tool_error("network hold failed");
                 tool_stack_release(base);
                 FreeArgs(rda);
                 return RETURN_FAIL;
@@ -787,8 +784,7 @@ int main(int argc, char **argv)
         if (tool_stack_library_running())
             return switch_live(name, &ifc, FALSE, timeout, rda);
 
-        tool_printf("%s is offline: network not running.\n",
-                    (LONG)name);
+        tool_printf("%s: offline, network not running\n", (LONG)name);
 
         FreeArgs(rda);
         return RETURN_WARN;
@@ -805,7 +801,7 @@ int main(int argc, char **argv)
 #ifdef TOOL_OFFLINE
     if (!netstack_interface_is_up((UWORD)index))
     {
-        tool_printf("%s is already offline\n", (LONG)name);
+        tool_printf("%s: already offline\n", (LONG)name);
         FreeArgs(rda);
         return RETURN_OK;
     }
@@ -821,19 +817,19 @@ int main(int argc, char **argv)
 
     if (!wait_for_state(index, FALSE, &wait) && !wait.broken)
     {
-        tool_error("%s was still up %lu seconds after the request to go down",
+        tool_error("%s: still up after %lu s",
                    (LONG)name, wait.elapsed);
         FreeArgs(rda);
         return RETURN_WARN;
     }
 
     if (!wait.broken)
-        tool_printf("%s is offline\n", (LONG)name);
+        tool_printf("%s: offline\n", (LONG)name);
 #else
     if (netstack_interface_is_up((UWORD)index) &&
         ifc.iptype != AMI_IPTYPE_DHCP)
     {
-        tool_printf("%s is already online\n", (LONG)name);
+        tool_printf("%s: already online\n", (LONG)name);
         FreeArgs(rda);
         return RETURN_OK;
     }
@@ -854,7 +850,7 @@ int main(int argc, char **argv)
 
     if (!wait_for_state(index, TRUE, &wait) && !wait.broken)
     {
-        tool_error("%s was still down %lu seconds after the request to come up",
+        tool_error("%s: still down after %lu s",
                    (LONG)name, wait.elapsed);
         FreeArgs(rda);
         return RETURN_WARN;
@@ -869,7 +865,7 @@ int main(int argc, char **argv)
         {
             if (!wait.broken)
             {
-                tool_error("%s had no DHCP lease after %lu seconds",
+                tool_error("%s: no DHCP lease after %lu s",
                            (LONG)name, wait.elapsed);
                 tool_explain_dhcp(name);
                 FreeArgs(rda);

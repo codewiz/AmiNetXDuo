@@ -67,8 +67,7 @@ EOF
 cat > "$T/good-nomem" <<'EOF'
 AddNetInterface: could not allocate the packet pool (error 103)
 
-  103 is "out of memory".  187392 bytes are free and the stack needs about
-  450K.  Close something, or add Fast RAM to this machine.
+  187392 bytes free; about 450K needed
 EOF
 
 # ----------------------------------------------- what is there today, or was --
@@ -132,7 +131,7 @@ cat > "$T/progress-then-refusal" <<'EOF'
 nodev: nosuchcard.device unit 0
 nodev: starting the network...
 AddNetInterface: could not open nosuchcard.device unit 0 (error 32)
-  There is no nosuchcard.device on this machine.
+  nosuchcard.device not found
 EOF
 
 # The same shape, and the refusal itself is the one that is there today: it
@@ -142,7 +141,7 @@ cat > "$T/real_shape_nocode" <<'EOF'
 nodev: nosuchcard.device unit 0
 nodev: starting the network...
 AddNetInterface: nodev was not added to the running network
-  There is no nosuchcard.device on this machine.
+  nosuchcard.device not found
 EOF
 
 # THE CONFIGURATION-FAULT SHAPE, which has no command prefix and no error
@@ -154,9 +153,7 @@ cat > "$T/configfault" <<'EOF'
 Problems in the configuration:
   DEVS:NetInterfaces/badaddr, line 4:
       ADDRESS cannot be '300.1.1.1'
-      An address is four numbers from 0 to 255 with dots between them, for
-      example 192.168.1.10. Write ADDRESS=DHCP to have the address handed out
-      automatically.
+      expected a.b.c.d or DHCP
 EOF
 
 # The same block with the locator taken out: a path and no line, no number
@@ -166,7 +163,7 @@ cat > "$T/configfault-noline" <<'EOF'
 
 Problems in the configuration:
   DEVS:NetInterfaces/badaddr:
-      the interface has no address
+      no address: no ADDRESS, CONFIGURE=DHCP or CONFIGURE6
 EOF
 
 : > "$T/empty"

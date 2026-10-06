@@ -255,7 +255,7 @@ SYS:tftp $PEER_ADDR PORT $TFTP_PORT GET no.such.file
 # whois against netpeer.py's, whose canned records cover the three shapes.
 # referral.test refers to the server it came from, which is a loop and has to
 # be recognised as one; chain.test refers somewhere ELSE, so without FOLLOW
-# the line to type next is printed and with it the client goes there, to
+# the referral is printed and with it the client goes there, to
 # 127.0.0.1, where nothing is listening, so the second hop demonstrates the
 # failure being legible.
 SYS:whois plain.test SERVER $PEER_ADDR PORT $WHOIS_PORT

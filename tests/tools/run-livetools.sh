@@ -232,11 +232,11 @@ while IFS= read -r phrase; do
         pass "nothing printed \"$phrase\""
     fi
 done <<'EOF'
-the network is up, but this command cannot read it
-the network has not been started
+state       unreadable
+network not started
 the network stack is not running
 the stack is running but has no IP instance
-there is no call yet
+stack not readable
 cannot be taken offline
 individual interfaces cannot be taken up and down
 the network kernel is not running

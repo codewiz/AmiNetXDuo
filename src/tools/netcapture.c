@@ -170,8 +170,7 @@ int main(int argc, char **argv)
         (args[ARG_BLEN]  != 0 && *(LONG *)args[ARG_BLEN]  < 0) ||
         (args[ARG_PORT]  != 0 && *(LONG *)args[ARG_PORT]  < 0))
     {
-        tool_error("SNAP, BLEN and PORT are counts, and a negative one is a "
-                   "mistake");
+        tool_error("SNAP, BLEN and PORT cannot be negative");
         FreeArgs(rda);
         return RETURN_ERROR;
     }
@@ -180,8 +179,7 @@ int main(int argc, char **argv)
         (args[ARG_SECONDS] != 0 && *(LONG *)args[ARG_SECONDS] < 1) ||
         (args[ARG_SIZE]    != 0 && *(LONG *)args[ARG_SIZE]    < 1))
     {
-        tool_error("COUNT, SECONDS and SIZE are limits: leave one out for no "
-                   "limit, and give it at least 1 to set one");
+        tool_error("COUNT, SECONDS and SIZE must be at least 1");
         FreeArgs(rda);
         return RETURN_ERROR;
     }
@@ -260,8 +258,7 @@ int main(int argc, char **argv)
     if (args[ARG_NOT] != 0 && args[ARG_HOST] == 0 && args[ARG_PORT] == 0 &&
         args[ARG_PROTO] == 0)
     {
-        tool_error("NOT inverts a filter and there is none, so it would "
-                   "capture nothing");
+        tool_error("NOT requires HOST, PORT or PROTO");
         FreeArgs(rda);
         return RETURN_ERROR;
     }
@@ -355,8 +352,7 @@ int main(int argc, char **argv)
         /* Only when nothing else will stop it.  A run that already has a
            limit does not need telling how to end one. */
         if (want_count == 0 && want_seconds == 0 && want_kb == 0)
-            tool_say("capture: no limit set, so Ctrl-C is what ends it and "
-                     "the file is closed when it does\n");
+            tool_say("capture: no limit, Ctrl-C stops\n");
     }
 
     started  = ami_millis();
@@ -399,7 +395,7 @@ int main(int argc, char **argv)
 
         if (!quiet && nc_cap.drop != said_drop)
         {
-            tool_say("capture: %lu frames dropped, the reader is behind\n",
+            tool_say("capture: %lu frames dropped\n",
                      (LONG)nc_cap.drop);
             said_drop = nc_cap.drop;
         }

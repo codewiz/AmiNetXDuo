@@ -143,8 +143,7 @@ VOID tool_explain_device_refused(const char *device, ULONG unit)
 
     tool_probe_sana2_codes(&error, &wire);
 
-    tool_printf("  S2_DEVICEQUERY: %s unit %lu opened, then refused it "
-                "(%s/%s, %ld/%ld)\n",
+    tool_printf("  %s unit %lu: S2_DEVICEQUERY refused (%s/%s, %ld/%ld)\n",
                 (LONG)device, unit,
                 (LONG)tool_code_sana2(error), (LONG)tool_code_wire(wire),
                 error, wire);
@@ -207,15 +206,13 @@ VOID tool_explain_device(const char *device, ULONG unit, const char *card)
        anything about the card, so no absence is inferred from them. */
     if (probe == TOOL_PROBE_NO_NAME)
     {
-        tool_printf("  The interface file names no DEVICE, so there is "
-                    "nothing to open.\n");
+        tool_printf("  no DEVICE in interface file\n");
         return;
     }
 
     if (probe == TOOL_PROBE_NO_MEMORY)
     {
-        tool_printf("  There was not enough memory to try %s unit %lu, so "
-                    "why it did not open is not known.\n",
+        tool_printf("  %s unit %lu: not enough memory to probe\n",
                     (LONG)device, unit);
         return;
     }
@@ -224,24 +221,21 @@ VOID tool_explain_device(const char *device, ULONG unit, const char *card)
     if (card != NULL && *card != '\0' && probe != 0 &&
         tool_device_probe(device, unit, NULL) == 0)
     {
-        tool_printf("  %s unit %lu opens, but there is no %s in this "
-                    "machine, and CARD= pinned it to one.\n",
+        tool_printf("  %s unit %lu opens; no %s present (CARD=)\n",
                     (LONG)device, unit, (LONG)card);
-        tool_printf("  Correct the CARD line in DEVS:NetInterfaces/, or "
-                    "remove it and let UNIT choose.\n");
         return;
     }
 
     if (where == NULL && probe == 0)
     {
-        tool_printf("  %s unit %lu opens, and no driver file was found.\n",
+        tool_printf("  %s unit %lu opens; driver file not found\n",
                     (LONG)device, unit);
         return;
     }
 
     if (where == NULL)
     {
-        tool_printf("  There is no %s on this machine.\n", (LONG)device);
+        tool_printf("  %s not found\n", (LONG)device);
 
         if (tool_scan_devices() > 0)
         {
@@ -264,15 +258,11 @@ VOID tool_explain_device(const char *device, ULONG unit, const char *card)
        usual mistake. */
     if (probe == 0)
     {
-        tool_printf("  %s unit %lu opens on its own, so neither the card nor "
-                    "the driver is what stopped the stack.\n",
-                    (LONG)device, unit);
-        tool_printf("  ShowNetStatus EVENTS names the call that refused; "
-                    "CheckNetConfig reads the interface file.\n");
+        tool_printf("  %s unit %lu opens\n", (LONG)device, unit);
         return;
     }
 
-    tool_printf("  %s is installed (%s) but unit %lu did not open.\n",
+    tool_printf("  %s (%s): unit %lu did not open\n",
                 (LONG)device, (LONG)where, unit);
 
     /*
@@ -295,11 +285,7 @@ VOID tool_explain_device(const char *device, ULONG unit, const char *card)
             diag_file_romtag(path, inner, sizeof(inner)) &&
             tool_stricmp(inner, file) != 0)
         {
-            tool_printf("  The file %s names itself %s inside. AmigaOS opens "
-                        "a driver by that name, so a copy saved as %s does "
-                        "not open.\n", (LONG)file, (LONG)inner, (LONG)file);
-            tool_printf("  Rename the file %s, in a directory of its own if "
-                        "another %s is installed.\n", (LONG)inner,
+            tool_printf("  %s: internal name is %s\n", (LONG)file,
                         (LONG)inner);
             return;
         }
@@ -307,9 +293,7 @@ VOID tool_explain_device(const char *device, ULONG unit, const char *card)
 
     if (unit != 0 && tool_device_probe(device, 0, card) == 0)
     {
-        tool_printf("  Unit 0 opens, and almost every card is unit 0.\n");
-        tool_printf("  Change the UNIT line in DEVS:NetInterfaces/ to 0, or "
-                    "run NetSetup again.\n");
+        tool_printf("  unit 0 opens\n");
         return;
     }
 
@@ -317,8 +301,8 @@ VOID tool_explain_device(const char *device, ULONG unit, const char *card)
        Anywhere else has to be named in full in DEVS:NetInterfaces. */
     if (where[0] == 'S' && where[1] == 'Y' && where[2] == 'S' && where[3] == ':')
     {
-        tool_printf("  A driver in %s cannot be opened by name alone.\n",
-                    (LONG)where);
+        tool_printf("  %s: not on the device search path; use a full DEVICE "
+                    "path\n", (LONG)where);
         return;
     }
 
@@ -330,9 +314,8 @@ VOID tool_explain_no_interfaces(VOID)
     ULONG i;
 
     /* On a machine with no drivers this is the only line printed. Without it
-       ShowNetStatus put its "What to look at" heading over nothing at all. */
-    tool_printf("  No network interfaces are configured in "
-                "DEVS:NetInterfaces.\n");
+       ShowNetStatus put its "Problems" heading over nothing at all. */
+    tool_printf("  no interfaces in DEVS:NetInterfaces\n");
 
     n = tool_scan_devices();
 

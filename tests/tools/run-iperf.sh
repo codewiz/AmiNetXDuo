@@ -749,7 +749,7 @@ fi
 
 DEADCMD="SYS:iperf $PEERADDR -p $PORT_DEAD -t $SECS"
 want_rc "$DEADCMD" 1 10 "a port with nothing listening is refused"
-says "$DEADCMD" 1 "nothing is listening|did not answer|no route" \
+says "$DEADCMD" 1 "connection refused|did not answer|no route" \
      "and says so in words rather than an errno"
 if block "$DEADCMD" 1 | grep -Eq '(^| )dir='; then
     fail "the refused run still printed a result line, which a script" \
@@ -762,11 +762,11 @@ want_rc "SYS:iperf $PEERADDR -p 0 -t $SECS" 1 10 "port 0 is refused"
 says "SYS:iperf $PEERADDR -p 0 -t $SECS" 1 "not a port" "and says why"
 
 want_rc "SYS:iperf $PEERADDR -t 0" 1 10 "a zero-second run is refused"
-says "SYS:iperf $PEERADDR -t 0" 1 "not a measurement" \
+says "SYS:iperf $PEERADDR -t 0" 1 "is not a valid time" \
      "and says a run has to be bounded"
 
 want_rc "SYS:iperf" 1 10 "a client with no host is refused"
-says "SYS:iperf" 1 "no host was given" "and asks for one"
+says "SYS:iperf" 1 "HOST or -s required" "and asks for one"
 
 want_rc "SYS:iperf -s $PEERADDR" 1 10 "-s with a host is refused"
 says "SYS:iperf -s $PEERADDR" 1 "takes no host" "and says why"

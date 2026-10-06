@@ -438,7 +438,7 @@ static int ping_main(int argc, char **argv)
 
         if (tool_sock_ioctl(sb, sock, TOOL_FIONBIO, &nonblock) != 0)
         {
-            tool_error("this stack will not set non-blocking mode: %s",
+            tool_error("cannot set non-blocking mode: %s",
                        (LONG)tool_sock_errstr(tool_sock_errno(sb)));
             (VOID)tool_sock_close(sb, sock);
             CloseLibrary(sb);

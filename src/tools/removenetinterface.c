@@ -176,7 +176,7 @@ int main(int argc, char **argv)
         index = find_index(base, name);
         if (index == -2)
         {
-            tool_error("the network did not say which interfaces it has");
+            tool_error("cannot read the interface list");
             tool_explain_no_netstatus(base);
             tool_netstatus_close(base);
             FreeArgs(rda);
@@ -204,16 +204,14 @@ int main(int argc, char **argv)
             {
                 /* Out of the network; the device kept requests, so it stays
                    open until it gives them back. */
-                tool_error("%s was removed. Its device still holds requests "
-                           "and stays open", (LONG)name);
+                tool_error("%s: removed; device still open", (LONG)name);
                 retained++;
                 continue;
             }
 
             if (err == EBUSY)
             {
-                tool_error("%s still has connections open. FORCE removes it "
-                           "anyway and resets them", (LONG)name);
+                tool_error("%s: connections open", (LONG)name);
             }
             else
             {

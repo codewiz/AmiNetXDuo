@@ -259,7 +259,7 @@ run_compat_round() {
     local COMPAT_KEYWORDS="copymode multicast"
     local LIVE_KEYWORDS="iprequests writerequests"
 
-    local LECTURE='is read and does nothing|harmless and can stay|iprequests|writerequests|copymode|multicast'
+    local LECTURE=' ignored: |iprequests|writerequests|copymode|multicast'
 
     echo
     echo "=============================================================="
@@ -365,7 +365,7 @@ EOF
     fi
 
     for kw in $COMPAT_KEYWORDS; do
-        if cblock "SYS:CheckNetConfig" | grep -qi "$kw is read and does nothing"; then
+        if cblock "SYS:CheckNetConfig" | grep -qi "$kw ignored: "; then
             echo "  ok   CheckNetConfig still reports $kw"
         else
             echo "  FAIL CheckNetConfig no longer reports $kw"
@@ -374,7 +374,7 @@ EOF
     done
 
     for kw in $LIVE_KEYWORDS; do
-        if cblock "SYS:CheckNetConfig" | grep -qi "$kw is read and does nothing"; then
+        if cblock "SYS:CheckNetConfig" | grep -qi "$kw ignored: "; then
             echo "  FAIL CheckNetConfig files $kw as inert, and it is acted on"
             bad=$((bad + 1))
         else
@@ -382,7 +382,7 @@ EOF
         fi
     done
 
-    if cblock "SYS:CheckNetConfig" | grep -q 'Lines that are read and do nothing'; then
+    if cblock "SYS:CheckNetConfig" | grep -qF 'Ignored (Roadshow compatibility)'; then
         echo "  ok   CheckNetConfig files them under a heading of their own"
     else
         echo "  FAIL CheckNetConfig has no heading for them"

@@ -245,8 +245,8 @@ static VOID report_unknown_keyword(ULONG line, const char *key,
         char upper[CFG_SUGGEST_MAX + 1];
 
         upcase_into(upper, sizeof(upper), guess);
-        ami_cfg_join3(hint, sizeof(hint), "The nearest keyword is ", upper,
-                      ".  The line was ignored.");
+        ami_cfg_join3(hint, sizeof(hint), "nearest: ", upper,
+                      "; line ignored");
     }
     else
     {
@@ -263,22 +263,22 @@ static VOID report_unknown_keyword(ULONG line, const char *key,
  */
 static const struct { const char *key; const char *why; } cfg_inert_keys[] =
 {
-    { "alias",             "a second address on one interface is not supported" },
-    { "arptype",           "this stack is Ethernet only, and ARPTYPE names another link type" },
-    { "hardwaretype",      "this stack is Ethernet only, and HARDWARETYPE names another link type" },
+    { "alias",             "not supported" },
+    { "arptype",           "Ethernet only" },
+    { "hardwaretype",      "Ethernet only" },
     { "broadcastaddress",  "the broadcast address is derived from ADDRESS and NETMASK" },
     { "destinationaddress","point-to-point links are not supported" },
-    { "copymode",          "the copy mode is taken from what the driver reports it can do" },
-    { "debug",             "the driver's own debug output is not switched from here" },
+    { "copymode",          "set by the driver" },
+    { "debug",             "not supported" },
     { "destination",       "point-to-point links are not supported" },
     { "destinationaddr",   "point-to-point links are not supported" },
     { "dhcpunicast",       "DHCP renewal is always broadcast here" },
-    { "lease",             "the lease time asked for is the server's to choose" },
-    { "linkstatuscommand", "nothing is run when the link changes" },
-    { "metric",            "routes have no metric here; PRIORITY= orders the interfaces" },
-    { "multicast",         "multicast is asked for when something joins a group, not from here" },
+    { "lease",             "set by the DHCP server" },
+    { "linkstatuscommand", "not supported" },
+    { "metric",            "no route metrics; PRIORITY orders interfaces" },
+    { "multicast",         "automatic" },
     { "pointtopoint",      "point-to-point links are not supported" },
-    { "reportoffline",     "an interface going offline is always reported" },
+    { "reportoffline",     "always reported" },
     { NULL, NULL }
 };
 
@@ -295,7 +295,7 @@ static VOID report_inert_keyword(ULONG line, const char *key)
         if (ami_cfg_stricmp(key, cfg_inert_keys[i].key) == 0)
         {
             ami_cfg_join3(text, sizeof(text), key,
-                          " is read and does nothing: ",
+                          " ignored: ",
                           cfg_inert_keys[i].why);
             ami_cfg_problem(line, AMI_CFG_PROBLEM_NOTE, text, AMI_CFG_ADVICE_ROADSHOW_ACTS_ON_IT);
             return;
@@ -374,7 +374,7 @@ static CfgCount parse_request_count(const char *value, ULONG max, ULONG *out)
     return CFG_COUNT_OK;
 }
 
-/* "WRITEREQUESTS is more than the driver can be given: '64'".  A note:
+/* "WRITEREQUESTS above maximum: '64'".  A note:
    nothing is wrong with the file, and only CheckNetConfig prints notes. */
 static VOID report_clamped(ULONG line, const char *keyword, const char *value,
                            UWORD hint)
@@ -386,7 +386,7 @@ static VOID report_clamped(ULONG line, const char *keyword, const char *value,
         return;
 
     ami_cfg_join3(quoted, sizeof(quoted),
-                  " is more than the driver can be given: '", value, "'");
+                  " above maximum: '", value, "'");
     ami_cfg_join3(text, sizeof(text), keyword, quoted, NULL);
 
     ami_cfg_problem(line, AMI_CFG_PROBLEM_NOTE, text, hint);
@@ -458,20 +458,13 @@ static VOID report_bad_card(ULONG line, const char *value)
         return;
 
     cfg_card_list(list, sizeof(list));
-    ami_cfg_join3(hint, sizeof(hint),
-                  "CARD says which board the driver binds to, one of ", list,
-                  ".  Leave CARD out and UNIT decides.");
+    ami_cfg_join3(hint, sizeof(hint), "CARD is one of ", list, NULL);
     report_bad_value_built(line, AMI_CFG_PROBLEM_ERROR, "CARD", value, hint);
 }
 
-#define CFG_HINT_KEYWORDS \
-    "This copy of AmiNetXDuo does not know that keyword; a file written for " \
-    "a newer version can carry ones an older copy ignores.  The guide's " \
-    "\"The interface file\" lists every keyword.  The line was ignored."
+#define CFG_HINT_KEYWORDS "line ignored"
 
-#define CFG_HINT_IPV4 \
-    "An address is four numbers from 0 to 255 with dots between them, for " \
-    "example 192.168.1.10."
+#define CFG_HINT_IPV4     "expected a.b.c.d"
 
 /* CONFIGURE=/IPTYPE= address-configuration modes. */
 static const struct IpTypeName
@@ -617,8 +610,8 @@ LONG ami_cfg_parse_interface(const char *name, char *buf, AmiIfConfig *out)
             char text[128];
 
             AMI_WARN("config: interface name '%s' truncated to '%s'", name, short_name);
-            ami_cfg_join3(text, sizeof(text), "the interface name is longer "
-                          "than 15 characters, so it becomes '", short_name, "'");
+            ami_cfg_join3(text, sizeof(text), "interface name truncated to '",
+                          short_name, "'");
             ami_cfg_problem(0, AMI_CFG_PROBLEM_WARN, text, AMI_CFG_ADVICE_RENAME_THE_FILE_IN);
         }
         ami_cfg_copy_string(out->name, sizeof(out->name), short_name);
@@ -1298,8 +1291,8 @@ VOID ami_cfg_parse_resolver(char *buf, AmiResolverConfig *out,
             else if (ami_cfg_stricmp(value, "dynamic") == 0)
                 out->prefer = AMI_CFG_PREFER_DYNAMIC;
             else
-                AMI_WARN("config: name_resolution: PREFER=%s is neither "
-                         "static nor dynamic, ignored", value);
+                AMI_WARN("config: name_resolution: bad PREFER '%s', ignored",
+                         value);
         }
         else if (ami_cfg_stricmp(key, "host") == 0)
         {
@@ -1379,8 +1372,7 @@ BOOL ami_config_search_offer(AmiResolverConfig *res, const char *domain)
 
     if (!ami_config_hostname_valid(domain))
     {
-        AMI_WARN("config: the network offered '%s' as a search domain. "
-                 "That is not a domain name, so it is ignored", domain);
+        AMI_WARN("config: bad search domain '%s' ignored", domain);
         return FALSE;
     }
 
@@ -1787,7 +1779,7 @@ static VOID cfg_route_store(AmiConfig *cfg, ULONG line, ULONG destination,
     if (cfg->static_route_count >= (UWORD)AMI_CFG_MAX_STATIC_ROUTES)
     {
         ami_cfg_problem(line, AMI_CFG_PROBLEM_ERROR,
-                        "the static route table holds four entries; this route was ignored",
+                        "static route table full (4); route ignored",
                         AMI_CFG_ADVICE_A_ROUTES_FILE_HOLDS);
         return;
     }
@@ -1924,7 +1916,7 @@ static VOID cfg_parse_routes(char *buf, ULONG *default_out, AmiConfig *cfg)
             if (!have_gw)
             {
                 ami_cfg_problem(lineno, AMI_CFG_PROBLEM_ERROR,
-                                "the route has a destination but no VIA gateway",
+                                "route has no VIA gateway",
                                 AMI_CFG_ADVICE_A_ROUTES_FILE_HOLDS);
                 continue;
             }
@@ -2130,9 +2122,7 @@ static char *dnssd_txt_field(char *rest)
 }
 
 #define CFG_HINT_DNSSD \
-    "A line is <type> <port>, for example:  _ftp._tcp  21.  The type is an " \
-    "RFC 6763 name: an underscore, up to fifteen letters, digits or hyphens, " \
-    "then ._tcp or ._udp."
+    "expected _<name>._tcp|._udp <port>, e.g. _ftp._tcp 21; line ignored"
 
 VOID ami_cfg_parse_dnssd(char *buf, AmiSdService *out, UWORD max, UWORD *count)
 {

@@ -155,7 +155,7 @@ static VOID name_them(LONG listed, LONG total)
         const NetStatusOpener *o = &nsd_openers.e[i];
         const char            *name;
 
-        name = (o->nso_Name[0] != '\0') ? o->nso_Name : "an unnamed program";
+        name = (o->nso_Name[0] != '\0') ? o->nso_Name : "(unnamed)";
 
         if (o->nso_Flags & NETSTATUS_OPENER_GONE)
             say("  %s (exited without closing the library)\n", (LONG)name);
@@ -256,14 +256,12 @@ int main(int argc, char **argv)
             /* An older library has no such operation. Everything below it
                still works, and this is the half that needs the pair to match,
                so say which half is missing rather than failing the command. */
-            tool_error("this bsdsocket.library cannot tell them to stop, so "
-                       "they will not be asked");
+            tool_error("this bsdsocket.library cannot signal them");
             holding = 0;
         }
         else
         {
-            say("Asked them to stop, and will wait up to %lu second(s).\n",
-                timeout);
+            say("Signalled; waiting up to %lu s.\n", timeout);
 
             while ((holding = others_holding(base, &listed)) > 0)
             {
@@ -287,7 +285,7 @@ int main(int argc, char **argv)
                              sizeof(nsd_ifaces), sizeof(NetStatusInterface));
     if (n < 0)
     {
-        tool_error("the network did not say which interfaces it has");
+        tool_error("cannot list interfaces");
         tool_explain_no_netstatus(base);
         tool_netstatus_close(base);
         FreeArgs(rda);
@@ -304,7 +302,7 @@ int main(int argc, char **argv)
             continue;
 
         name = (nsi->nsi_Flags & NETSTATUS_IF_NAMED) ? nsi->nsi_Name
-                                                     : "an interface";
+                                                     : "(unnamed)";
 
         for (w = 0; w < (ULONG)(sizeof(ctl) / sizeof(ULONG)); w++)
             ((ULONG *)&ctl)[w] = 0;
@@ -352,8 +350,8 @@ int main(int argc, char **argv)
 
         if (waited >= timeout)
         {
-            tool_error("%ld interface(s) were still up %lu seconds after "
-                       "the request to stop", still_up, timeout);
+            tool_error("%ld interface(s) still up after %lu s",
+                       still_up, timeout);
             failed++;
             break;
         }
@@ -375,7 +373,7 @@ int main(int argc, char **argv)
         if (died > 0)
             say("TCP: stopped\n");
         else if (died == 0)
-            say("TCP: is still open by a program and was left running\n");
+            say("TCP: in use, left running\n");
     }
 
     /*
@@ -395,17 +393,13 @@ int main(int argc, char **argv)
 
     if (stopped_waiting)
     {
-        say("\nThe wait is over. The network is stopped either way, and it\n"
-            "will finish its shutdown when the programs below let go.\n");
+        say("\nWait aborted; shutdown pending.\n");
     }
 
     if (holding > 0)
     {
         say("\n%ld program(s) did not let go of the network:\n", holding);
         name_them(listed, holding);
-        say("Nothing is sent or received now. bsdsocket.library stays in\n"
-            "memory until they close it, and the stack goes with the last\n"
-            "one.\n");
 
         FreeArgs(rda);
         return RETURN_WARN;
@@ -418,12 +412,9 @@ int main(int argc, char **argv)
     }
 
     if (stopped == 0)
-        say("Every interface was already down.\n");
+        say("No interface was up.\n");
 
-    say("\nThe network is stopped and nothing uses it now, so\n"
-        "bsdsocket.library and the stack inside it went with the last\n"
-        "program that closed it. Online <interface> or AddNetInterface\n"
-        "starts the network again.\n");
+    say("Network stopped.\n");
 
     FreeArgs(rda);
     return (stopped_waiting) ? RETURN_WARN : RETURN_OK;

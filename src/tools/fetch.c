@@ -7,7 +7,6 @@
 
 #include "toolsock.h"
 
-#include <exec/execbase.h>   /* SysBase->AttnFlags, AFF_68020 */
 #include <exec/memory.h>
 #include <exec/tasks.h>
 
@@ -402,8 +401,7 @@ static LONG fetch_run(VOID)
 
         if (hop == (ULONG)FETCH_MAX_HOPS)
         {
-            tool_error("more than %ld redirects, so giving up",
-                       (LONG)FETCH_MAX_HOPS);
+            tool_error("more than %ld redirects", (LONG)FETCH_MAX_HOPS);
             rc = RETURN_ERROR;
             break;
         }
@@ -418,11 +416,7 @@ static LONG fetch_run(VOID)
             tbase = tool_open_library(TLS_LIB_NAME, 1UL);
             if (tbase == NULL)
             {
-                tool_error("https: needs LIBS:tls.library, and there is none");
-
-                if ((SysBase->AttnFlags & AFF_68020) == 0)
-                    tool_printf("  Install it with the full stack.  On a 68000 "
-                                "the first handshake takes a minute or two.\n");
+                tool_error("https: needs LIBS:tls.library");
 
                 rc = RETURN_FAIL;
                 break;
@@ -663,9 +657,8 @@ static LONG fetch_run(VOID)
                      */
                     if (status == 101)
                     {
-                        tool_error("%s switched the connection to another "
-                                   "protocol (101) that this request did "
-                                   "not ask for", (LONG)u.host);
+                        tool_error("%s: unrequested protocol switch (101)",
+                                   (LONG)u.host);
                         rc = RETURN_ERROR;
                         goto hop_done;
                     }
@@ -794,17 +787,7 @@ static LONG fetch_run(VOID)
                     hs_ms = hi.ti_HandshakeMillis;
             }
 
-            if (hs_ms >= 10000UL)
-            {
-                tool_error("%s closed the connection without answering.  The "
-                           "handshake took %lu.%lu s.  Some servers allow "
-                           "about 15 s for one.  This machine is slower than "
-                           "that budget, and nothing here is misconfigured",
-                           (LONG)u.host,
-                           (LONG)(hs_ms / 1000UL),
-                           (LONG)((hs_ms % 1000UL) / 100UL));
-            }
-            else if (hs_ms != 0)
+            if (hs_ms != 0)
             {
                 tool_error("%s closed the connection without answering "
                            "(handshake %lu.%lu s)",
@@ -826,8 +809,8 @@ static LONG fetch_run(VOID)
         {
             /* A clean close before the length the server announced is a
                truncated body, not a finished one (F-178). */
-            tool_error("%s closed the connection after %lu of the %lu bytes "
-                       "it announced", (LONG)u.host, st.total, announced);
+            tool_error("%s closed the connection after %lu of %lu bytes",
+                       (LONG)u.host, st.total, announced);
             rc = RETURN_ERROR;
         }
 
@@ -859,8 +842,7 @@ static LONG fetch_run(VOID)
 
             if (was_secure && !next.secure)
             {
-                tool_error("%s redirects to an unencrypted URL, which this "
-                           "command does not follow", (LONG)u.host);
+                tool_error("%s: redirect to http: not followed", (LONG)u.host);
                 rc = RETURN_ERROR;
                 break;
             }

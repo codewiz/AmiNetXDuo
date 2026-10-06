@@ -60,7 +60,7 @@ static VOID nx_query_failed(struct Library *base)
     if (nx_quiet)
         return;
 
-    tool_error("the network is up, but it did not report on itself");
+    tool_error("network status unavailable");
     tool_explain_no_netstatus(base);
 }
 
@@ -840,7 +840,7 @@ VOID tool_print_lease6(const ToolDhcp6 *dhcp, UWORD nx_index, const char *lead)
 
         if (d->state == NETSTATUS_DHCP_WORKING)
         {
-            tool_printf("%sasking, no server has answered yet\n", (LONG)lead);
+            tool_printf("%srequesting, no reply\n", (LONG)lead);
             return;
         }
 
@@ -851,8 +851,7 @@ VOID tool_print_lease6(const ToolDhcp6 *dhcp, UWORD nx_index, const char *lead)
            is nothing to print an address for and nothing to release. */
         if (d->stateful == 0)
         {
-            tool_printf("%soptions only, this client asked for no address\n",
-                        (LONG)lead);
+            tool_printf("%soptions only, no address\n", (LONG)lead);
             return;
         }
 
@@ -996,7 +995,7 @@ VOID tool_print_routes(const ToolRoutes *routes, const AmiConfig *cfg,
                 (LONG)"U", (LONG)"lo0");
 
     if (routes->truncated)
-        tool_printf("(more routes than this command can hold)\n");
+        tool_printf("(truncated)\n");
 }
 
 /* ----------------------------------------------------------- IPv6 routes, */
@@ -1137,7 +1136,7 @@ VOID tool_print_routes6(const ToolRoutes6 *routes, const AmiConfig *cfg)
     }
 
     if (routes->truncated)
-        tool_printf("(more IPv6 routes than this command can hold)\n");
+        tool_printf("(IPv6 routes truncated)\n");
 }
 
 /* ----------------------------------------------------- destination cache, */
@@ -1230,7 +1229,7 @@ VOID tool_print_dest6(const ToolDest6Table *table, const AmiConfig *cfg)
                 (LONG)table->count, (LONG)table->capacity,
                 (LONG)((table->capacity != 0 &&
                         table->count >= table->capacity)
-                           ? " -- FULL, a new destination evicts the last row"
+                           ? " -- FULL"
                            : ""));
 
     tool_printf("Destination                              "
@@ -1253,7 +1252,7 @@ VOID tool_print_dest6(const ToolDest6Table *table, const AmiConfig *cfg)
     }
 
     if (table->truncated)
-        tool_printf("(more destinations than this command can hold)\n");
+        tool_printf("(truncated)\n");
 }
 
 /* ------------------------------------------------------------ neighbours, */
@@ -1336,15 +1335,15 @@ const char *tool_nd_state_note(UWORD state)
     switch (state)
     {
         case NETSTATUS_ND_INCOMPLETE:
-            return "asked, nothing back yet";
+            return "no reply yet";
         case NETSTATUS_ND_STALE:
-            return "answered once, not checked since";
+            return "unconfirmed";
         case NETSTATUS_ND_DELAY:
-            return "sent something, about to check again";
+            return "probe pending";
         case NETSTATUS_ND_PROBE:
-            return "being checked now";
+            return "probing";
         case NETSTATUS_ND_CREATED:
-            return "known of, never asked about";
+            return "never queried";
         default:
             return NULL;            /* REACHABLE needs no comment */
     }

@@ -69,8 +69,8 @@ const char *http_frame_error(HttpFrameResult why)
     {
         case HTTP_FRAME_OK:       return "no fault";
         case HTTP_FRAME_EMPTY:    return "a length with no digits";
-        case HTTP_FRAME_JUNK:     return "a length with something after it";
-        case HTTP_FRAME_OVERFLOW: return "a length larger than this server counts";
+        case HTTP_FRAME_JUNK:     return "junk after length";
+        case HTTP_FRAME_OVERFLOW: return "length too large";
     }
 
     return "refused";

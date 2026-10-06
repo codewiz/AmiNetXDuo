@@ -92,13 +92,13 @@ const char *iperf_plan_check(const IperfPlan *plan)
 
     /* A UDP datagram has to hold the header the far end parses. */
     if ((plan->dir == IPERF_UDP_TX) && plan->buflen < (ULONG)IPERF_DG_TOTAL)
-        return "a UDP datagram smaller than 36 bytes cannot carry the header";
+        return "UDP length below 36 bytes";
 
     /* The UDP server writes its whole 128-byte report into the buffer a
        datagram was read into, and that buffer is only guaranteed to be
        plan->buflen bytes, so a receive this small has no room for it. */
     if ((plan->dir == IPERF_UDP_RX) && plan->buflen < (ULONG)IPERF_REPORT_LEN)
-        return "a UDP receive buffer smaller than 128 bytes cannot hold the report";
+        return "UDP receive buffer below 128 bytes";
 
     return NULL;
 }
@@ -341,7 +341,7 @@ LONG iperf_begin(IperfRun *run, struct Library *sb, const IperfPlan *plan,
 
         if (a == b)
         {
-            iperf_fail(run, "the system timer is not running", 0);
+            iperf_fail(run, "system timer not running", 0);
             return -1;
         }
 
@@ -976,7 +976,7 @@ LONG iperf_slice(IperfRun *run)
 
         if (now == run->t_guard)
         {
-            iperf_fail(run, "the clock stopped advancing", 0);
+            iperf_fail(run, "clock stalled", 0);
             return IPERF_FAILED;
         }
 

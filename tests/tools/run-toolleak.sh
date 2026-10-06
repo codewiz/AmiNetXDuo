@@ -51,8 +51,8 @@ EOF"
 # ------------------------------------------------------------ cold ------
 # The stack was NEVER started.  Nothing here opens bsdsocket.library, which is
 # what would start it, so every row is the "the network is not running" arm.
-cold|CheckNetConfig|reads-config|5|re:nothing wrong with it|-|SYS:CheckNetConfig
-cold|CheckNetConfig|verbose|5|re:Reading the configuration|-|SYS:CheckNetConfig VERBOSE
+cold|CheckNetConfig|reads-config|5|re:No problems found|-|SYS:CheckNetConfig
+cold|CheckNetConfig|verbose|5|re:Reading DEVS:Internet|-|SYS:CheckNetConfig VERBOSE
 cold|GetNetStatus|no-stack|5|re:Network not running|-|SYS:GetNetStatus
 cold|ShowNetStatus|no-stack|5|re:Network stack: +not started|-|SYS:ShowNetStatus
 cold|netstat|no-stack|5|re:netstat: network not started|-|SYS:netstat -i
@@ -76,8 +76,8 @@ cold|AddNetInterface|bad-timeout|5|re:TIMEOUT cannot be negative|-|SYS:AddNetInt
 # the stack down, and ami_config_load() loads the netdb behind it, which is
 # where addnetroute.c found 12,616 bytes a run going missing.  The refusal arm
 # is the one that returns before any of that, so the pair brackets it.
-cold|hostname|no-name|5|re:This machine has no name|-|SYS:hostname
-cold|hostname|bad-name|5|re:is not a host name|-|SYS:hostname not_a_name
+cold|hostname|no-name|5|re:no host name set|-|SYS:hostname
+cold|hostname|bad-name|5|re:is not a valid host name|-|SYS:hostname not_a_name
 cold|NetSetup|bad-address|5|re:is not an address|-|SYS:NetSetup eth9 DEVICE=a2065.device UNIT=0 ADDRESS=notanaddress NOONLINE
 cold|NetSetup|bad-unit|5|re:UNIT cannot be negative|-|SYS:NetSetup eth9 DEVICE=a2065.device UNIT=-1 DHCP NOONLINE
 cold|NetSetup|writes-config|5|re:set up a network interface|-|SYS:NetSetup ethz DEVICE=a2065.device UNIT=0 DHCP NOONLINE FORCE
@@ -119,8 +119,8 @@ cold|nc|overflow-timeout|5|re:a timeout must be between 0 and|-|SYS:nc -l 7099 T
 cold|nc|bad-local-port|5|re:-1 is not a local port|-|SYS:nc -l LOCALPORT=-1
 cold|iperf|family-both|5|re:-4 and -6 cannot both be given|-|SYS:iperf 10.0.2.2 -p 7385 -t 2 -q -4 -6
 # ------------------------------------------------------------ live ------
-live|CheckNetConfig|stack-up|5|re:nothing wrong with it|-|SYS:CheckNetConfig
-live|GetNetStatus|stack-up|5|re:The network is running|-|SYS:GetNetStatus
+live|CheckNetConfig|stack-up|5|re:No problems found|-|SYS:CheckNetConfig
+live|GetNetStatus|stack-up|5|re:Network running|-|SYS:GetNetStatus
 live|ShowNetStatus|all|5|re:Network stack: +running|-|SYS:ShowNetStatus ALL
 live|netstat|all|5|re:Active connections|-|SYS:netstat -a
 live|netstat|routes|5|re:Routing table|-|SYS:netstat -r
@@ -131,7 +131,7 @@ live|ping|no-reply|4|re:100% packet loss|-|SYS:ping 192.0.2.1 -c 1 -t 3
 live|host|resolves|5|re:has address|-|SYS:host www.example.com
 live|host|nxdomain|5|re:cannot resolve|-|SYS:host no.such.host.invalid TIMEOUT 5
 live|nslookup|resolves|5|re:www.example.com from|-|SYS:nslookup www.example.com TYPE=A TIMEOUT 5
-live|nslookup|nxdomain|5|re:there is no such name|-|SYS:nslookup no.such.host.invalid TIMEOUT 5
+live|nslookup|nxdomain|5|re:no such name|-|SYS:nslookup no.such.host.invalid TIMEOUT 5
 live|fetch|http-200|5|re:HTTP/1.0 200 OK|-|SYS:fetch http://10.0.2.2:${HTTP_PORT}/hello.txt TO DH0:fetched.bin TIMEOUT 10
 live|fetch|unresolvable|5|re:cannot resolve|-|SYS:fetch http://no.such.host.invalid/ TIMEOUT 5
 live|fetch|refused|5|re:cannot connect to 10.0.2.2 port ${DEAD_PORT}|-|SYS:fetch http://10.0.2.2:${DEAD_PORT}/x TIMEOUT 5
@@ -141,8 +141,8 @@ live|telnet|session|5|re:Trying 10.0.2.2 port ${TELNET_PORT}|-|SYS:telnet 10.0.2
 live|telnet|refused|5|re:Trying 10.0.2.2 port ${DEAD_PORT}|-|SYS:telnet 10.0.2.2 ${DEAD_PORT}
 live|tftp|get|5|re:49 bytes|-|SYS:tftp 10.0.2.2 PORT ${TFTP_PORT} GET hello.txt AS DH0:tftp.txt
 live|iperf|measures|5|re:dir=tcp-tx|-|SYS:iperf 10.0.2.2 -p ${IPERF_PORT} -n 32 -q
-live|iperf|refused|5|re:nothing is listening|-|SYS:iperf 10.0.2.2 -p ${DEAD_PORT} -t 3 -q
-live|tftp|not-found|5|re:there is no such file on the server|-|SYS:tftp 10.0.2.2 PORT ${TFTP_PORT} GET no.such.file
+live|iperf|refused|5|re:connection refused|-|SYS:iperf 10.0.2.2 -p ${DEAD_PORT} -t 3 -q
+live|tftp|not-found|5|re:file not found|-|SYS:tftp 10.0.2.2 PORT ${TFTP_PORT} GET no.such.file
 live|whois|answers|5|re:PLAIN.TEST|-|SYS:whois plain.test SERVER 10.0.2.2 PORT ${WHOIS_PORT}
 live|whois|refused|5|re:cannot reach 10.0.2.2 port ${DEAD_PORT}|-|SYS:whois plain.test SERVER 10.0.2.2 PORT ${DEAD_PORT}
 live|traceroute|reaches|4|re:hops max|-|SYS:traceroute 10.0.2.2 -m 2 -q 1 -w 3 -n
@@ -184,14 +184,14 @@ live|iperf|family-6-no-aaaa|5|re:v4only.test has no IPv6 address|-|SYS:iperf v4o
 live|NetTrace|loopback|4|re:records written|-|SYS:NetTrace LOOPBACK BYTES 4096 OUT DH0:nettrace.pcap
 live|NetTrace|wire|4|re:records written|-|SYS:NetTrace WIRE HOST 10.0.2.2 PORT ${HTTP_PORT} PATH /hello.txt OUT DH0:ntwire.pcap
 live|NetTrace|unresolvable|5|re:cannot resolve|-|SYS:NetTrace WIRE HOST no.such.host.invalid
-live|ShowNetServices|mdns-off|4|re:mDNS is not enabled|-|SYS:ShowNetServices SECONDS=1
+live|ShowNetServices|mdns-off|4|re:mDNS not enabled|-|SYS:ShowNetServices SECONDS=1
 live|ShowNetServices|bad-type|5|re:is not a service type|-|SYS:ShowNetServices http
 live|httpd|bad-root|5|re:there is no .DH0:nosuchdirectory. to serve|-|SYS:httpd DH0:nosuchdirectory 8099
 live|httpd|volumes-no-root|5|re:TIMEOUT cannot be negative|-|SYS:httpd TIMEOUT=-1
-live|httpd|term-no-page|5|re:to serve the terminal from|-|SYS:httpd DH0: 8099 -T PAGE=DH0:nosuchpage.html
+live|httpd|term-no-page|5|re:for the terminal page|-|SYS:httpd DH0: 8099 -T PAGE=DH0:nosuchpage.html
 live|httpd|term-page-checked|5|re:there is no .DH0:nosuchdirectory. to serve|-|SYS:httpd DH0:nosuchdirectory 8099 -T PAGE=DH0:shell.html
-live|httpd|files-no-page|5|re:to serve the file manager from|-|SYS:httpd DH0: 8099 -F FILEPAGE=DH0:nosuchpage.html
-live|httpd|filepage-without-f|5|re:FILEPAGE names the file manager|-|SYS:httpd DH0: 8099 FILEPAGE=DH0:files.html
+live|httpd|files-no-page|5|re:for the file manager page|-|SYS:httpd DH0: 8099 -F FILEPAGE=DH0:nosuchpage.html
+live|httpd|filepage-without-f|5|re:FILEPAGE requires -F|-|SYS:httpd DH0: 8099 FILEPAGE=DH0:files.html
 # Bare -T, both ways.
 #
 # FOUND: httpd is at SYS:, so PROGDIR: is the stage root and the page staged
@@ -205,13 +205,13 @@ live|httpd|filepage-without-f|5|re:FILEPAGE names the file manager|-|SYS:httpd D
 # premise is that the refusal NAMES them, because a -T that quietly serves no
 # terminal is worse than one that will not start.
 live|httpd|term-found|5|re:Terminal page: PROGDIR:Terminal/shell.html|-|SYS:httpd DH0: 8099 -T -a no.such.host.invalid
-live|httpd|term-not-found|5|re:Looked for:|-|SYS:nopage/httpd DH0: 8099 -T
+live|httpd|term-not-found|5|re:-T: no terminal page in:|-|SYS:nopage/httpd DH0: 8099 -T
 live|httpd|term-not-found-names-them|5|re:AmiNetXDuo:Terminal/shell.html|-|SYS:nopage/httpd DH0: 8099 -T
-live|httpd|page-without-t|5|re:-T is what turns the terminal on|-|SYS:httpd DH0: 8099 PAGE=DH0:shell.html
-live|AddNetRoute|no-gateway|5|re:no GATEWAY was given|-|SYS:AddNetRoute DST=192.0.2.0
+live|httpd|page-without-t|5|re:PAGE requires -T|-|SYS:httpd DH0: 8099 PAGE=DH0:shell.html
+live|AddNetRoute|no-gateway|5|re:GATEWAY required|-|SYS:AddNetRoute DST=192.0.2.0
 live|DeleteNetRoute|no-such-route|5|re:no route to 198.51.100.0|-|SYS:DeleteNetRoute DST=198.51.100.0
-live|AddNetRoute|added|5|re:now go through 10.0.2.2|SYS:DeleteNetRoute DST=192.0.2.0|SYS:AddNetRoute DST=192.0.2.0 VIA=10.0.2.2
-live|DeleteNetRoute|deleted|5|re:The route to 192.0.2.0/24 is gone|SYS:AddNetRoute DST=192.0.2.0 VIA=10.0.2.2|SYS:DeleteNetRoute DST=192.0.2.0
+live|AddNetRoute|added|5|re:via 10.0.2.2|SYS:DeleteNetRoute DST=192.0.2.0|SYS:AddNetRoute DST=192.0.2.0 VIA=10.0.2.2
+live|DeleteNetRoute|deleted|5|re:route 192.0.2.0/24 deleted|SYS:AddNetRoute DST=192.0.2.0 VIA=10.0.2.2|SYS:DeleteNetRoute DST=192.0.2.0
 live|RemoveNetInterface|unknown-name|5|re:no interface|-|SYS:RemoveNetInterface nosuchif
 # Both arms of ConfigureNetInterface against a running stack.  The prep moves
 # the address away and the MEASURED call puts it back, that way round on
@@ -234,8 +234,8 @@ live|AddNetInterface|unknown-name|5|re:no interface|-|SYS:AddNetInterface nosuch
 # Repeating it is not a no-op -- the offer is at ENV:HOSTNAME rank and the
 # machine is already named at that rank, so every run takes the name again.
 live|hostname|sets|5|re:written to ENV:HOSTNAME|-|SYS:hostname beast
-live|Online|unknown-name|5|re:nothing here is called|-|SYS:Online nosuch0
-live|Offline|unknown-name|5|re:nothing here is called|-|SYS:Offline nosuch0
+live|Online|unknown-name|5|re:no interface or driver|-|SYS:Online nosuch0
+live|Offline|unknown-name|5|re:no interface or driver|-|SYS:Offline nosuch0
 # ------------------------------------------------------------ cycle -----
 # The commands that take the stack apart, each paired with the one that puts
 # it back.  Fewer runs: every repetition here costs a DHCP lease.
@@ -247,8 +247,8 @@ live|Offline|unknown-name|5|re:nothing here is called|-|SYS:Offline nosuch0
 # what the rows below expect.
 cycle|ConfigureNetInterface|dhcp-release|4|re:lease released|SYS:ConfigureNetInterface eth0 QUIET CONFIGURE=DHCP TIMEOUT 20|SYS:ConfigureNetInterface eth0 RELEASE
 cycle|ConfigureNetInterface|dhcp-renew|4|re:lease renewed|SYS:ConfigureNetInterface eth0 QUIET CONFIGURE=DHCP TIMEOUT 20|SYS:ConfigureNetInterface eth0 CONFIGURE=DHCP TIMEOUT 20
-cycle|Offline|takes-down|4|re:eth0 is offline|SYS:Online eth0|SYS:Offline eth0
-cycle|Online|brings-up|4|re:eth0 is.*online|SYS:Offline eth0|SYS:Online eth0
+cycle|Offline|takes-down|4|re:eth0: offline|SYS:Online eth0|SYS:Offline eth0
+cycle|Online|brings-up|4|re:eth0:.*online|SYS:Offline eth0|SYS:Online eth0
 cycle|RemoveNetInterface|removes|4|re:eth0: removed|SYS:AddNetInterface eth0|SYS:RemoveNetInterface eth0 FORCE
 cycle|AddNetInterface|adds|4|re:online, address 10.0.2.15|SYS:RemoveNetInterface eth0 FORCE|SYS:AddNetInterface eth0
 cycle|NetShutdown|stops-all|4|re:eth0: stopped|SYS:Online eth0|SYS:NetShutdown

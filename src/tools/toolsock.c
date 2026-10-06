@@ -748,8 +748,7 @@ static VOID tool_no_ipv6(struct Library *base, const char *host)
 {
     if (!tool_sock_have_lvo(base, 0x330UL))
     {
-        tool_error("cannot use \"%s\": the bsdsocket.library on this machine "
-                   "has no getaddrinfo", (LONG)host);
+        tool_error("\"%s\": bsdsocket.library has no getaddrinfo", (LONG)host);
         return;
     }
 
@@ -760,9 +759,8 @@ static VOID tool_no_ipv6(struct Library *base, const char *host)
         return;
     }
 
-    tool_error("%s: this machine's network has no IPv6",
+    tool_error("%s: no IPv6",
                (LONG)host);
-    tool_no_ipv6_note();
 }
 
 /* gethostbyname(), for a library whose table stops short of getaddrinfo. */
@@ -785,15 +783,10 @@ static BOOL tool_resolve_old(struct Library *base, const char *host,
     return TRUE;
 }
 
-/* "IPv4"/"IPv6" and "-4"/"-6" for a pinned family, for the messages below. */
+/* "IPv4"/"IPv6" for a pinned family, for the messages below. */
 static const char *tool_family_name(LONG want)
 {
     return (want == TOOL_AF_INET6) ? "IPv6" : "IPv4";
-}
-
-static const char *tool_family_flag(LONG want)
-{
-    return (want == TOOL_AF_INET6) ? "-6" : "-4";
 }
 
 /* One address in the list already. */
@@ -922,9 +915,8 @@ BOOL tool_sock_family_absent(struct Library *base, const char *host, LONG want)
 
 VOID tool_sock_say_no_family(const char *host, LONG want)
 {
-    tool_error("%s has no %s address, and %s was given",
-               (LONG)host, (LONG)tool_family_name(want),
-               (LONG)tool_family_flag(want));
+    tool_error("%s: no %s address",
+               (LONG)host, (LONG)tool_family_name(want));
 }
 
 BOOL tool_sock_resolve_list(struct Library *base, const char *host, LONG want,
@@ -945,7 +937,7 @@ BOOL tool_sock_resolve_list(struct Library *base, const char *host, LONG want,
     {
         if (want == TOOL_AF_INET6)
         {
-            tool_error("%s is an IPv4 address, and -6 was given",
+            tool_error("%s: IPv4 address with -6",
                        (LONG)host);
             return FALSE;
         }
@@ -957,7 +949,7 @@ BOOL tool_sock_resolve_list(struct Library *base, const char *host, LONG want,
 
     if (literal && want == TOOL_AF_INET)
     {
-        tool_error("%s is an IPv6 address, and -4 was given", (LONG)host);
+        tool_error("%s: IPv6 address with -4", (LONG)host);
         return FALSE;
     }
 
@@ -988,8 +980,7 @@ BOOL tool_sock_resolve_list(struct Library *base, const char *host, LONG want,
 
     if (want == TOOL_AF_INET6 && !tool_sock_have_ipv6(base))
     {
-        tool_error("%s: this machine's network has no IPv6", (LONG)host);
-        tool_no_ipv6_note();
+        tool_error("%s: no IPv6", (LONG)host);
         return FALSE;
     }
 
@@ -1401,7 +1392,7 @@ static char tool_sock_errbuf[64];
 
 static const char *tool_sock_unnamed(LONG err)
 {
-    static const char prefix[] = "the stack reported error ";
+    static const char prefix[] = "error ";
     char  digits[12];
     ULONG n = 0;
     ULONG o = 0;
@@ -1439,7 +1430,7 @@ const char *tool_sock_errstr(LONG err)
         case TOOL_EINTR:         return "interrupted";
         case TOOL_EPIPE:         return "broken pipe";
         case TOOL_EWOULDBLOCK:   return "would block";
-        case TOOL_EINPROGRESS:   return "still connecting";
+        case TOOL_EINPROGRESS:   return "in progress";
         case TOOL_EADDRINUSE:    return "address already in use";
         case TOOL_ENETUNREACH:   return "network unreachable";
         case TOOL_ECONNRESET:    return "connection reset by peer";

@@ -353,8 +353,6 @@ want "SYS:nc no.such.host.invalid 80" "cannot resolve" \
 failed "SYS:host ::1" "host ::1 fails"
 want "SYS:host ::1" "is an address, not a name" \
      "host says ::1 is an address rather than looking it up as a name"
-want "SYS:host ::1" "nslookup" \
-     "host names the command that can ask the question"
 deny "SYS:host ::1" "cannot resolve" \
      "host does not hand the literal to the resolver"
 deny "SYS:host ::1" "name servers" \
@@ -363,7 +361,7 @@ deny "SYS:host ::1" "Check the spelling" \
      "host does not blame the spelling of a literal"
 
 # ---- both modes: nslookup asks ip6.arpa, whatever carries the query -------
-deny "SYS:nslookup ::1" "there is no such name" \
+deny "SYS:nslookup ::1" "no such name" \
      "nslookup treats ::1 as an address, not a name"
 want "SYS:nslookup ::1" "ip6.arpa" \
      "nslookup asked ip6.arpa for ::1"
@@ -440,18 +438,18 @@ want "SYS:netstat -r" "fd00::/64" \
      "netstat -r shows the on-link IPv6 prefix"
 want "SYS:netstat -r" "$NET4" \
      "netstat -r still shows the IPv4 table beside it"
-want "SYS:DeleteNetRoute DEFAULTGATEWAY fd00::99" "is gone" \
+want "SYS:DeleteNetRoute DEFAULTGATEWAY fd00::99" "deleted" \
      "DeleteNetRoute removed the IPv6 default router"
 
 want "SYS:AddNetRoute DESTINATION fd00:9::/64 GATEWAY $ROUTER6" \
-     "no table that maps a prefix to a next hop" \
+     "no IPv6 next-hop routes" \
      "AddNetRoute says why a per-prefix IPv6 next hop cannot be stored"
 
-want "SYS:AddNetRoute DESTINATION 2001:db8::/64" "go straight there" \
+want "SYS:AddNetRoute DESTINATION 2001:db8::/64" "on link" \
      "AddNetRoute added an on-link IPv6 prefix"
 want "SYS:ShowNetStatus ROUTES" "2001:db8::/64" \
      "ShowNetStatus ROUTES shows the prefix that was added"
-want "SYS:DeleteNetRoute DESTINATION 2001:db8::/64" "is gone" \
+want "SYS:DeleteNetRoute DESTINATION 2001:db8::/64" "deleted" \
      "DeleteNetRoute removed the on-link prefix"
 
 want "SYS:AddNetRoute DEFAULTGATEWAY fe80::1" "fe80::1" \
@@ -501,21 +499,19 @@ degrades "SYS:whois example.com SERVER ::1 PORT 7096"    "whois SERVER ::1"
 degrades "SYS:sntp fd00::10 TIMEOUT 5"                   "sntp fd00::10"
 degrades "SYS:fetch http://[::1]/index.html"             "fetch of an IPv6 URL"
 
-want "SYS:ping ::1 -c 2 -t 20" "this machine's network has no IPv6" \
-     "the shared refusal names the machine's network, not the address"
+want "SYS:ping ::1 -c 2 -t 20" "::1: no IPv6" \
+     "the shared refusal says the network has no IPv6, not that the address is bad"
 
 # ---- nslookup: the lookup this machine can still do ----------------------
 want "SYS:nslookup $GW4" "in-addr.arpa" \
      "nslookup asked in-addr.arpa for $GW4"
-deny "SYS:nslookup $GW4" "is not a name the DNS can be asked about" \
+deny "SYS:nslookup $GW4" "is not a valid name" \
      "nslookup read $GW4 as an address too"
 
 # ---- arp: a valid address the stack has no cache for ---------------------
 failed "SYS:arp ::1" "arp ::1 refuses"
-want "SYS:arp ::1" "the running stack has no IPv6" \
-     "arp says the stack has no IPv6, in AddNetRoute's words"
-want "SYS:arp ::1" "well-formed IPv6 address" \
-     "arp grants that the address itself is good"
+want "SYS:arp ::1" "::1: stack has no IPv6" \
+     "arp says the stack has no IPv6, not that the address is bad"
 deny "SYS:arp ::1" "is not an address" \
      "arp no longer calls a valid IPv6 address invalid"
 deny "SYS:arp ::1" "cannot resolve" \
@@ -525,7 +521,7 @@ deny "SYS:arp ::1" "cannot resolve" \
 failed "SYS:arp fe80::zz" "arp fe80::zz refuses"
 want "SYS:arp fe80::zz" "is not an address" \
      "arp still rejects an IPv6 address that is not one"
-deny "SYS:arp fe80::zz" "the running stack has no IPv6" \
+deny "SYS:arp fe80::zz" "stack has no IPv6" \
      "arp does not blame the build for a malformed address"
 
 worked "SYS:arp $GW4" "arp still answers about an IPv4 address"
@@ -565,10 +561,6 @@ do
     failed "$c" "$short refuses an IPv6 route"
     want "$c" "the running stack has no IPv6" \
          "$short says the stack has no IPv6"
-    want "$c" "can be switched on" \
-         "$short says it is a build option and not a setting"
-    want "$c" "ShowNetStatus INTERFACES" \
-         "$short says where to look for the addresses this machine has"
     deny "$c" "four numbers with dots" \
          "$short does not answer an IPv6 literal with the IPv4 advice"
     deny "$c" "cannot resolve" \

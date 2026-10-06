@@ -1,6 +1,6 @@
 /*
  * libfit_need() on built hunk headers and libfit_short() on the figures that
- * decide AddNetInterface's "bytes are free" line (#55).
+ * decide AddNetInterface's "bytes free" line (#55).
  *
  * SPDX-License-Identifier: MIT
  */

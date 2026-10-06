@@ -467,8 +467,8 @@ static VOID httpd_log_resume(VOID)
         return;
 
     httpd_log_dropped = 0;
-    tool_printf("[-] %lu log lines were dropped while the console held a "
-                "mouse button\n", (LONG)n);
+    tool_printf("[-] %lu log lines dropped (console button held)\n",
+                (LONG)n);
     (VOID)Flush(Output());
 }
 
@@ -1149,7 +1149,7 @@ static VOID httpd_walk_end(HttpConn *c)
             if (c->fails != 0 || c->walk_status != 0)
             {
                 httpd_error(c, (c->walk_status != 0) ? c->walk_status : 409,
-                            "what was there already will not go");
+                            "existing destination cannot be removed");
                 break;
             }
             httpd_walk_copy_stage(c);
@@ -2333,8 +2333,8 @@ static BOOL httpd_produce(HttpConn *c)
                                the console's CSI. */
                             (VOID)http_url_escape(name, httpd_escape,
                                                   sizeof(httpd_escape));
-                            httpd_log(c, "listing entry does not fit and was "
-                                         "skipped: %s", (LONG)httpd_escape, 0);
+                            httpd_log(c, "listing entry skipped (too large): "
+                                         "%s", (LONG)httpd_escape, 0);
 
                             /* Valid between elements in both the
                                HTML index and the XML multistatus,
@@ -2430,7 +2430,7 @@ static BOOL httpd_examine(HttpConn *c, BOOL *is_dir, BOOL keep_lock)
     lock = Lock((CONST_STRPTR)c->path.path, ACCESS_READ);
     if (lock == (BPTR)0)
     {
-        httpd_error(c, 404, "no such file on this machine");
+        httpd_error(c, 404, "no such file");
         return FALSE;
     }
 
@@ -2448,7 +2448,7 @@ static BOOL httpd_examine(HttpConn *c, BOOL *is_dir, BOOL keep_lock)
     {
         UnLock(lock);
         httpd_error(c, 400,
-                    "that name is longer than this filesystem keeps");
+                    "name too long");
         return FALSE;
     }
 
@@ -2483,8 +2483,7 @@ static VOID httpd_do_propfind(HttpConn *c)
        is refused here as PROPPATCH refuses it. */
     if (c->xml.props_cut)
     {
-        httpd_error(c, 400, "that PROPFIND names more properties than this "
-                            "server answers about");
+        httpd_error(c, 400, "too many properties");
         return;
     }
 
@@ -2972,7 +2971,7 @@ static VOID httpd_do_terminal(HttpConn *c)
         httpd_begin(c, 503);
         httpd_header(c, "Retry-After", "1");
         httpd_body_text(c, "text/plain; charset=iso-8859-1",
-                        "The terminal is released. Ask again.\r\n");
+                        "Terminal released.\r\n");
         return;
     }
 
@@ -2986,7 +2985,7 @@ static VOID httpd_do_terminal(HttpConn *c)
                 httpd_begin(c, 503);
                 httpd_header(c, "Retry-After", "5");
                 httpd_body_text(c, "text/plain; charset=iso-8859-1",
-                                "Somebody else has the terminal.\r\n");
+                                "Terminal in use.\r\n");
                 return;
             }
     }
@@ -3007,7 +3006,7 @@ static VOID httpd_do_terminal(HttpConn *c)
         httpd_begin(c, 503);
         httpd_header(c, "Retry-After", "1");
         httpd_body_text(c, "text/plain; charset=iso-8859-1",
-                        "The previous Shell is stopping. Ask again.\r\n");
+                        "Previous Shell stopping.\r\n");
         return;
     }
 
@@ -3126,8 +3125,8 @@ static VOID httpd_do_console(HttpConn *c)
         httpd_begin(c, 503);
         httpd_header(c, "Retry-After", took ? "1" : "5");
         httpd_body_text(c, "text/plain; charset=iso-8859-1",
-                        took ? "The console is released. Ask again.\r\n"
-                             : "Somebody else has the console.\r\n");
+                        took ? "Console released.\r\n"
+                             : "Console in use.\r\n");
         return;
     }
 
@@ -3179,7 +3178,7 @@ static BOOL httpd_may_write(HttpConn *c)
     if (httpd_name_cut(c->path.path, c->path.name))
     {
         httpd_error(c, 400,
-                    "that name is longer than this filesystem keeps");
+                    "name too long");
         return FALSE;
     }
 
@@ -3261,7 +3260,7 @@ static BOOL httpd_begin_put(HttpConn *c)
         if (room > 0UL && c->head.body_left > room)
         {
             c->put_temp[0] = '\0';
-            httpd_error(c, 507, "there is not enough room on that volume");
+            httpd_error(c, 507, "volume full");
             return FALSE;
         }
     }
@@ -3272,7 +3271,7 @@ static BOOL httpd_begin_put(HttpConn *c)
                           sizeof(c->put_temp)))
     {
         c->put_temp[0] = '\0';
-        httpd_error(c, 503, "there is no free temporary name for that upload");
+        httpd_error(c, 503, "no free temporary name");
         return FALSE;
     }
 
@@ -3340,7 +3339,7 @@ static VOID httpd_do_put(HttpConn *c)
     {
         httpd_put_abandon(c);
         httpd_error(c, 400,
-                    "that name is longer than this filesystem keeps");
+                    "name too long");
         return;
     }
 
@@ -3357,8 +3356,7 @@ static VOID httpd_do_put(HttpConn *c)
                               sizeof(c->walk_dst)))
         {
             httpd_put_abandon(c);
-            httpd_error(c, 503, "there is no free recovery name for the old "
-                                "file");
+            httpd_error(c, 503, "no free recovery name");
             return;
         }
 
@@ -3368,7 +3366,7 @@ static VOID httpd_do_put(HttpConn *c)
             err = IoErr();
             httpd_put_abandon(c);
             httpd_error(c, httpd_dos_status(err),
-                        "the file already there cannot be kept for rollback");
+                        "old file cannot be kept for rollback");
             return;
         }
 
@@ -3414,7 +3412,7 @@ static VOID httpd_do_put(HttpConn *c)
     {
         (VOID)DeleteFile((CONST_STRPTR)c->path.path);
         httpd_error(c, 400,
-                    "that name is longer than this filesystem keeps");
+                    "name too long");
         return;
     }
 
@@ -3505,7 +3503,7 @@ static VOID httpd_do_mkcol(HttpConn *c)
     {
         (VOID)DeleteFile((CONST_STRPTR)c->path.path);
         httpd_error(c, 400,
-                    "that name is longer than this filesystem keeps");
+                    "name too long");
         return;
     }
 
@@ -3539,7 +3537,7 @@ static BOOL httpd_resolve_dest(HttpConn *c)
                       (LONG)http_path_error(why));
 
         httpd_error(c, 403,
-                    "that destination is not one this server will open");
+                    "destination refused");
         return FALSE;
     }
 
@@ -3615,7 +3613,7 @@ static VOID httpd_copy_or_move(HttpConn *c, BOOL moving)
     if (httpd_name_cut(c->dest.path, c->dest.name))
     {
         httpd_error(c, 400,
-                    "that name is longer than this filesystem keeps");
+                    "name too long");
         return;
     }
 
@@ -3634,7 +3632,7 @@ static VOID httpd_copy_or_move(HttpConn *c, BOOL moving)
         !httpd_name_survives(c->dest.path, c->dest.name))
     {
         httpd_error(c, 400,
-                    "that name is longer than this filesystem keeps");
+                    "name too long");
         return;
     }
 
@@ -3651,7 +3649,7 @@ static VOID httpd_copy_or_move(HttpConn *c, BOOL moving)
         if (!c->head.overwrite)
         {
             httpd_error(c, 412,
-                        "something is there already and Overwrite said no");
+                        "destination exists (Overwrite: F)");
             return;
         }
 
@@ -3706,8 +3704,7 @@ static VOID httpd_do_proppatch(HttpConn *c)
        them executed or none, and a partial answer reads as a complete one. */
     if (c->xml.props_cut)
     {
-        httpd_error(c, 400, "that PROPPATCH names more properties than this "
-                            "server answers about");
+        httpd_error(c, 400, "too many properties");
         return;
     }
 
@@ -3832,7 +3829,7 @@ static VOID httpd_do_lock(HttpConn *c)
     if (httpd_name_cut(c->path.path, c->path.name))
     {
         httpd_error(c, 400,
-                    "that name is longer than this filesystem keeps");
+                    "name too long");
         return;
     }
 
@@ -3892,7 +3889,7 @@ static VOID httpd_do_lock(HttpConn *c)
             if (l == NULL)
             {
                 httpd_error(c, 503,
-                            "this server is holding as many locks as it can");
+                            "lock table full");
                 return;
             }
 
@@ -4070,7 +4067,7 @@ static BOOL httpd_parse(HttpConn *c, ULONG headlen)
     {
         /* 405 and not 501: the address is fine, the verb is not, and the
            Allow header names what there is instead. */
-        httpd_error(c, 405, "that is not a method this server has");
+        httpd_error(c, 405, "unsupported method");
         return FALSE;
     }
 
@@ -4084,8 +4081,7 @@ static BOOL httpd_parse(HttpConn *c, ULONG headlen)
     if (c->head.body_left > HTTPD_BODY_MAX &&
         (c->method->flags & HTTPD_F_UPLOAD) == 0)
     {
-        httpd_error(c, 413, "that request body is larger than this server "
-                            "will read");
+        httpd_error(c, 413, "request body too large");
         return FALSE;
     }
 
@@ -4217,7 +4213,7 @@ static BOOL httpd_parse(HttpConn *c, ULONG headlen)
 
         /* 403 rather than 404 for every one of them: whether the path exists is
            exactly what a caller probing for an escape wants told. */
-        httpd_error(c, 403, "that address is not one this server will open");
+        httpd_error(c, 403, "path refused");
         return FALSE;
     }
 
@@ -4623,7 +4619,7 @@ static LONG httpd_feed_chunked(HttpConn *c, const UBYTE *data, LONG len)
         /* Nothing after a framing failure is known to be a request, so this
            answers and closes rather than resynchronising on the body's own
            bytes. */
-        httpd_error(c, 400, "that is not a chunked body this server can read");
+        httpd_error(c, 400, "bad chunked body");
         c->head.keepalive = 0;
         return len;
     }
@@ -4631,8 +4627,7 @@ static LONG httpd_feed_chunked(HttpConn *c, const UBYTE *data, LONG len)
     if (c->method != NULL && (c->method->flags & HTTPD_F_UPLOAD) == 0 &&
         c->head.chunk.total > HTTPD_BODY_MAX)
     {
-        httpd_error(c, 413, "that request body is larger than this server "
-                            "will read");
+        httpd_error(c, 413, "request body too large");
         c->head.keepalive     = 0;
         c->head.chunk.state   = HTTP_CHUNK_ERROR;
         return len;
@@ -4966,8 +4961,7 @@ static BOOL httpd_readable(HttpConn *c)
 
     if (c->in_len >= sizeof(c->in))
     {
-        httpd_error(c, 431, "that request head is larger than this server "
-                            "will read");
+        httpd_error(c, 431, "request head too large");
         return TRUE;
     }
 
@@ -5028,8 +5022,7 @@ static BOOL httpd_readable(HttpConn *c)
 
     if (c->in_len >= sizeof(c->in))
     {
-        httpd_error(c, 431, "that request head is larger than this server "
-                            "will read");
+        httpd_error(c, 431, "request head too large");
         c->in_len = 0;
     }
 
@@ -5091,7 +5084,7 @@ static BOOL httpd_writable(HttpConn *c)
         /* Nothing left to say.  The counter is reported here, before the
            two paths part. */
         if (httpd_trace)
-            httpd_log(c, "send() accepted %lu bytes for this answer",
+            httpd_log(c, "sent %lu bytes",
                       (LONG)c->wrote, 0);
 
         /* The console's 101 has gone.  The session starts here because
@@ -5534,7 +5527,7 @@ static VOID httpd_serve(LONG lsock)
 
             tool_error("cannot wait for a connection: %s",
                        (LONG)tool_sock_errstr(err));
-            httpd_note_exit("the wait for a connection kept failing",
+            httpd_note_exit("connection wait failed",
                             tool_sock_errstr(err));
             return;
         }
@@ -5671,7 +5664,7 @@ static VOID httpd_serve(LONG lsock)
                 now - c->progress >= httpd_timeout)
             {
                 if (httpd_verbose || httpd_trace)
-                    httpd_log(c, "closed after %lu seconds with no progress",
+                    httpd_log(c, "closed: idle %lu s",
                               (LONG)httpd_timeout, 0);
                 httpd_close(c);
             }
@@ -5682,8 +5675,7 @@ static VOID httpd_serve(LONG lsock)
             else if (!httpd_body_rate_ok(c, now))
             {
                 if (httpd_verbose || httpd_trace)
-                    httpd_log(c, "closed: the body arrived slower than %lu "
-                                 "bytes a second",
+                    httpd_log(c, "closed: body slower than %lu bytes/s",
                               (LONG)HTTPD_BODY_RATE, 0);
                 httpd_close(c);
             }
@@ -5696,7 +5688,7 @@ static VOID httpd_serve(LONG lsock)
    producer and notices replacement between requests. */
 static BOOL httpd_find_app_page(const char *named,
                                 const char *const *places, ULONG place_count,
-                                const char *option, const char *page_option,
+                                const char *option,
                                 const char *what,
                                 char *plain, ULONG plain_len,
                                 char *gz, ULONG gz_len)
@@ -5709,7 +5701,7 @@ static BOOL httpd_find_app_page(const char *named,
         page = Open((CONST_STRPTR)named, MODE_OLDFILE);
         if (page == (BPTR)0)
         {
-            tool_error("there is no \"%s\" to serve the %s from",
+            tool_error("no \"%s\" for the %s page",
                        (LONG)named, (LONG)what);
             tool_fault(IoErr());
             return FALSE;
@@ -5742,11 +5734,8 @@ static BOOL httpd_find_app_page(const char *named,
             if (!ok)
                 where[0] = '\0';
 
-            tool_error("%s was given and there is no page to serve the %s "
-                       "from.  Looked for:%s\n  %s=<file> names one "
-                       "somewhere else.",
-                       (LONG)option, (LONG)what, (LONG)where,
-                       (LONG)page_option);
+            tool_error("%s: no %s page in:%s",
+                       (LONG)option, (LONG)what, (LONG)where);
             return FALSE;
         }
     }
@@ -5796,12 +5785,8 @@ int main(int argc, char **argv)
         tool_fault(IoErr());
         tool_usage("[<drawer>] [PORT <port>] [-v] [TRACE] [-T [PAGE <file>]] "
                    "[-C [CONSOLEPAGE <file>]] [-F [FILEPAGE <file>]]",
-                   "Without a drawer, serves every mounted volume over HTTP "
-                   "and WebDAV.  A drawer limits access to that drawer.  -T "
-                   "adds /shell, an "
-                   "AmigaDOS Shell in a browser.  -C adds /console, the "
-                   "frontmost screen.  -F adds /files, a browser file "
-                   "manager.  All are open to anyone who can reach the port.");
+                   "Serve volumes or a drawer over HTTP/WebDAV. -T /shell, "
+                   "-C /console, -F /files. No authentication.");
         return RETURN_ERROR;
     }
 
@@ -5812,7 +5797,7 @@ int main(int argc, char **argv)
         !http_path_root((const char *)args[ARG_ROOT], httpd_root_buf,
                         sizeof(httpd_root_buf)))
     {
-        tool_error("the drawer path is longer than this server carries");
+        tool_error("drawer path too long");
         FreeArgs(rda);
         return RETURN_ERROR;
     }
@@ -5834,7 +5819,7 @@ int main(int argc, char **argv)
 
         if (value <= 0 || value > 65535)
         {
-            tool_error("port %ld is not a port anything listens on", value);
+            tool_error("PORT %ld out of range 1 to 65535", value);
             FreeArgs(rda);
             return RETURN_ERROR;
         }
@@ -5889,24 +5874,21 @@ int main(int argc, char **argv)
        ignoring it would look like the terminal is on. */
     if (args[ARG_PAGE] != 0 && args[ARG_TERMINAL] == 0)
     {
-        tool_error("PAGE names the terminal's page, and -T turns the terminal "
-                   "on");
+        tool_error("PAGE requires -T");
         FreeArgs(rda);
         return RETURN_ERROR;
     }
 
     if (args[ARG_CONSOLEPAGE] != 0 && args[ARG_CONSOLE] == 0)
     {
-        tool_error("CONSOLEPAGE names the console's page, and -C turns the "
-                   "console on");
+        tool_error("CONSOLEPAGE requires -C");
         FreeArgs(rda);
         return RETURN_ERROR;
     }
 
     if (args[ARG_FILEPAGE] != 0 && args[ARG_FILES] == 0)
     {
-        tool_error("FILEPAGE names the file manager's page, and -F turns the "
-                   "file manager on");
+        tool_error("FILEPAGE requires -F");
         FreeArgs(rda);
         return RETURN_ERROR;
     }
@@ -5920,7 +5902,7 @@ int main(int argc, char **argv)
                                 ? (const char *)args[ARG_PAGE] : NULL;
 
         if (!httpd_find_app_page(named, httpd_term_places,
-                                 HTTPD_TERM_PLACES, "-T", "PAGE", "terminal",
+                                 HTTPD_TERM_PLACES, "-T", "terminal",
                                  httpd_term_page, sizeof(httpd_term_page),
                                  httpd_term_gz, sizeof(httpd_term_gz)))
         {
@@ -5937,7 +5919,7 @@ int main(int argc, char **argv)
                                 ? (const char *)args[ARG_CONSOLEPAGE] : NULL;
 
         if (!httpd_find_app_page(named, httpd_console_places,
-                                 HTTPD_CONSOLE_PLACES, "-C", "CONSOLEPAGE",
+                                 HTTPD_CONSOLE_PLACES, "-C",
                                  "console", httpd_console_page,
                                  sizeof(httpd_console_page), httpd_console_gz,
                                  sizeof(httpd_console_gz)))
@@ -5955,7 +5937,7 @@ int main(int argc, char **argv)
                                 ? (const char *)args[ARG_FILEPAGE] : NULL;
 
         if (!httpd_find_app_page(named, httpd_files_places,
-                                 HTTPD_FILES_PLACES, "-F", "FILEPAGE",
+                                 HTTPD_FILES_PLACES, "-F",
                                  "file manager", httpd_files_page,
                                  sizeof(httpd_files_page), httpd_files_gz,
                                  sizeof(httpd_files_gz)))
@@ -6085,11 +6067,10 @@ int main(int argc, char **argv)
         ToolAddr v4;
 
         if (httpd_volumes)
-            tool_printf("Serving all mounted volumes read-write on port %ld, "
-                        "IPv4 and IPv6  (Ctrl-C to stop)\n", (LONG)port);
+            tool_printf("Serving all volumes read-write, port %ld, "
+                        "IPv4 and IPv6\n", (LONG)port);
         else
-            tool_printf("Serving %s read-write on port %ld, IPv4 and IPv6"
-                        "  (Ctrl-C to stop)\n",
+            tool_printf("Serving %s read-write, port %ld, IPv4 and IPv6\n",
                         (LONG)httpd_root, (LONG)port);
 
         /* The dual-stack wildcard names no address, and the -T and -C lines
@@ -6104,12 +6085,11 @@ int main(int argc, char **argv)
     {
         tool_addr_text(httpd_sb, &address, dotted, sizeof(dotted));
         if (httpd_volumes)
-            tool_printf("Serving all mounted volumes read-write on "
-                        "http://%s:%ld/  (Ctrl-C to stop)\n",
+            tool_printf("Serving all volumes read-write on "
+                        "http://%s:%ld/\n",
                         (LONG)dotted, (LONG)port);
         else
-            tool_printf("Serving %s read-write on http://%s:%ld/"
-                        "  (Ctrl-C to stop)\n",
+            tool_printf("Serving %s read-write on http://%s:%ld/\n",
                         (LONG)httpd_root, (LONG)dotted, (LONG)port);
     }
 
@@ -6161,18 +6141,14 @@ int main(int argc, char **argv)
            screen open yet, and the console picks up whichever screen is in
            front when a browser first asks. */
         if (http_fb_screenless())
-            tool_printf("The console is at http://%s:%ld%s  (no screen is "
-                        "open yet: it serves whichever screen is in front "
-                        "when a browser asks, NO PASSWORD)\n",
+            tool_printf("Console: http://%s:%ld%s (frontmost screen, "
+                        "NO PASSWORD)\n",
                         (LONG)dotted, (LONG)port, (LONG)HTTPD_CONSOLE_URL);
         else
-        {
-            tool_printf("The console is at http://%s:%ld%s  "
-                        "(the frontmost screen, %ldx%ld",
+            tool_printf("Console: http://%s:%ld%s (%ldx%ldx%ld, "
+                        "NO PASSWORD)\n",
                         (LONG)dotted, (LONG)port, (LONG)HTTPD_CONSOLE_URL,
-                        (LONG)sw, (LONG)sh);
-            tool_printf("x%ld, NO PASSWORD)\n", (LONG)sd);
-        }
+                        (LONG)sw, (LONG)sh, (LONG)sd);
     }
 
     (VOID)Flush(Output());

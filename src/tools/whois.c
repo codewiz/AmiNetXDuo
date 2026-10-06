@@ -165,7 +165,7 @@ static LONG whois_ask(struct Library *sb, const char *server, UWORD port,
     {
         if (len >= (LONG)sizeof(whois_request) - 2)
         {
-            tool_error("the query is too long (at most %lu characters)",
+            tool_error("query longer than %lu characters",
                        (LONG)sizeof(whois_request) - 2);
             return RETURN_ERROR;
         }
@@ -293,7 +293,7 @@ int main(int argc, char **argv)
     {
         tool_fault(IoErr());
         tool_usage("[-4|-6] <name or address>",
-                   "Asks a registry what it knows about a name or an address.");
+                   "Query a WHOIS registry.");
         return RETURN_ERROR;
     }
 
@@ -351,14 +351,7 @@ int main(int argc, char **argv)
 
         if (!follow || ++hops > WHOIS_MAX_FOLLOW)
         {
-            tool_printf("\n");
-            tool_printf("%s has the detail:\n", (LONG)next);
-            /* The line to type next carries -4/-6 forward: a chain asked for
-               over one family is meant to stay on it. */
-            tool_printf("  whois %s%s SERVER %s\n",
-                        (LONG)((family == TOOL_AF_INET)  ? "-4 " :
-                               (family == TOOL_AF_INET6) ? "-6 " : ""),
-                        (LONG)query, (LONG)next);
+            tool_printf("\nreferral: %s\n", (LONG)next);
             break;
         }
 

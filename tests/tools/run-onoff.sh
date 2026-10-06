@@ -231,7 +231,7 @@ fi
 
 # ---- 1. with the stack down, Offline is a no-op and says so --------------
 says "SYS:Offline eth0" 1 \
-     "eth0 is offline: network not running." \
+     "eth0: offline, network not running" \
      "with no stack, Offline says the network is not running"
 want_rc "SYS:Offline eth0" 1 5 "and returns WARN, not a failure"
 
@@ -249,7 +249,7 @@ says "SYS:ping 10.0.2.2 -c 2 -t 10" 1 ", 0% packet loss" \
 want_rc "SYS:ping 10.0.2.2 -c 2 -t 10" 1 0 "and ping succeeds"
 
 # ---- 5. Offline: the sentence, the listing, and the traffic -------------
-says "SYS:Offline eth0" 2 "^eth0 is offline$" "Offline reports eth0 offline"
+says "SYS:Offline eth0" 2 "^eth0: offline$" "Offline reports eth0 offline"
 want_rc "SYS:Offline eth0" 2 0 "and returns OK"
 
 # Down, not gone: RemoveNetInterface unlists an interface, Offline must not.
@@ -281,12 +281,12 @@ else
 fi
 
 # ---- 6. asking twice ----------------------------------------------------
-says "SYS:Offline eth0" 3 "^eth0 is already offline$" \
+says "SYS:Offline eth0" 3 "^eth0: already offline$" \
      "Offline on an interface already down says so"
 want_rc "SYS:Offline eth0" 3 0 "and returns OK, not an error"
 
 # ---- 7. Online, and the interface is usable again -----------------------
-says "SYS:Online eth0" 1 "^eth0 is online, address 10\.0\.2\.15$" \
+says "SYS:Online eth0" 1 "^eth0: online, 10\.0\.2\.15$" \
      "Online reports eth0 online with the address it had"
 want_rc "SYS:Online eth0" 1 0 "and returns OK"
 iface_up 3 "netstat -i has eth0 up on 10.0.2.15 again"
@@ -294,12 +294,12 @@ says "SYS:ping 10.0.2.2 -c 2 -t 10" 2 ", 0% packet loss" \
      "and the interface passes traffic again after the cycle"
 want_rc "SYS:ping 10.0.2.2 -c 2 -t 10" 2 0 "with ping succeeding"
 
-says "SYS:Online eth0" 2 "^eth0 is already online$" \
+says "SYS:Online eth0" 2 "^eth0: already online$" \
      "Online on an interface already up says so"
 want_rc "SYS:Online eth0" 2 0 "and returns OK"
 
 # ---- 8. TIMEOUT/N is accepted, and the bound is not spent ---------------
-says "SYS:Offline eth0 TIMEOUT 5" 1 "^eth0 is offline$" \
+says "SYS:Offline eth0 TIMEOUT 5" 1 "^eth0: offline$" \
      "TIMEOUT 5 is accepted and the interface goes down"
 want_rc "SYS:Offline eth0 TIMEOUT 5" 1 0 "and returns OK"
 TMS=$(ms_of "SYS:Offline eth0 TIMEOUT 5" 1)
@@ -312,26 +312,26 @@ fi
 # ---- 9. the other spelling of NAME: the driver an interface uses --------
 says "SYS:Online a2065.device" 1 "^a2065.device unit 0 is interface eth0.$" \
      "a driver name resolves to the interface that uses it, and says so"
-says "SYS:Online a2065.device" 1 "^eth0 is online, address 10\.0\.2\.15$" \
+says "SYS:Online a2065.device" 1 "^eth0: online, 10\.0\.2\.15$" \
      "and switches that interface"
 want_rc "SYS:Online a2065.device" 1 0 "returning OK"
 iface_up 4 "netstat -i agrees eth0 is up"
 
 # ---- 10. UNIT/N contradicting the interface file ------------------------
 says "SYS:Offline eth0 UNIT 3" 1 \
-     "^Offline: eth0 is a2065.device unit 0, and unit 3 was asked for$" \
+     "^Offline: eth0 is a2065.device unit 0, not unit 3$" \
      "UNIT that contradicts the file is refused, quoting both"
 want_rc "SYS:Offline eth0 UNIT 3" 1 10 "and returns ERROR"
 
 # ---- 11. a name that resolves to nothing --------------------------------
-says "SYS:Offline nosuch0" 1 'Offline: nothing here is called "nosuch0"' \
+says "SYS:Offline nosuch0" 1 'Offline: no interface or driver "nosuch0"' \
      "an unknown name is reported by name"
 says "SYS:Offline nosuch0" 1 "^ +eth0 +a2065.device unit 0$" \
      "and the interfaces that do exist are listed, with driver and unit"
 want_rc "SYS:Offline nosuch0" 1 20 "and returns FAIL"
 
 says "SYS:Offline nosuch.device UNIT 7" 1 \
-     '^Offline: nothing here is "nosuch.device" on unit 7$' \
+     '^Offline: no interface "nosuch.device" on unit 7$' \
      "an unknown driver names the unit that was asked for"
 want_rc "SYS:Offline nosuch.device UNIT 7" 1 20 "and returns FAIL"
 

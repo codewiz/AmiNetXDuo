@@ -149,11 +149,11 @@ fi
 
 expect "bad0's missing driver is named"        "DEVS:NetInterfaces/bad0"
 expect "and so is the driver it names"         "nosuchcard.device"
-expect "bad1's broadcast address is caught"    "broadcast address of its own network"
+expect "bad1's broadcast address is caught"    "broadcast address, not a host address"
 expect "bad2's netmask is caught"              "is not a netmask"
-expect "the off-network router is caught"      "not on any network this machine is"
+expect "the off-network router is caught"      "is not on a local network"
 expect "the router's file is named"            "DEVS:Internet/routes"
-expect "two interfaces on one card is caught"  "both claim"
+expect "two interfaces on one card is caught"  "both use"
 expect "the bad hosts line is caught"          "DEVS:Internet/hosts, line 2"
 expect "the bad services line is caught"       "DEVS:Internet/services, line 2"
 
@@ -210,8 +210,8 @@ expect "NetShutdown says there is nothing to stop" "nothing to stop"
 expect "AddNetRoute says routes need a running stack" "the network is not running"
 
 # None of them may claim to have done anything.
-reject "no route was reported as added"   "now go through"
-reject "no default route was reported set" "now goes through"
+reject "no route was reported as added"   "via 192.168.1.1"
+reject "no default route was reported set" "default route 192.168.1.1"
 
 echo
 if [ "$FAILED" -ne 0 ]; then

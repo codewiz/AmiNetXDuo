@@ -298,8 +298,8 @@ static VOID format_amiga_time(ULONG secs, SntpDateText *out)
     if (!DateToStr(&dt))
     {
         tool_copy_string(out->day,  sizeof(out->day),  "");
-        tool_copy_string(out->date, sizeof(out->date), "(a date this machine");
-        tool_copy_string(out->time, sizeof(out->time), "cannot print)");
+        tool_copy_string(out->date, sizeof(out->date), "(invalid");
+        tool_copy_string(out->time, sizeof(out->time), "date)");
     }
 }
 
@@ -379,33 +379,33 @@ static const char *sntp_validate(const UBYTE *msg, LONG len,
     UWORD version;
 
     if (len < SNTP_MSG_SIZE)
-        return "the reply was too short to be an SNTP message";
+        return "reply too short";
 
     li      = (UWORD)((msg[0] >> 6) & 0x03);
     version = (UWORD)((msg[0] >> 3) & 0x07);
     mode    = (UWORD)(msg[0] & 0x07);
 
     if (mode != 4)
-        return "the reply was not a server message";
+        return "reply not in server mode";
     if (version < 1 || version > 4)
-        return "the server uses an NTP version this command does not support";
+        return "unsupported NTP version";
     if (li == 3)
-        return "the server says its own clock is not synchronised";
+        return "server clock not synchronised (leap indicator 3)";
 
     out->stratum = msg[1];
     if (out->stratum == 0)
-        return "the server refused to serve this machine";
+        return "server refused (stratum 0)";
     if (out->stratum > 15)
-        return "the server's own clock is not synchronised";
+        return "server clock not synchronised (stratum above 15)";
 
     if (be32(&msg[24]) != sent_secs || be32(&msg[28]) != sent_frac)
-        return "the reply did not answer the request that was sent";
+        return "reply does not match request";
 
     out->transmit_secs = be32(&msg[40]);
     out->transmit_frac = be32(&msg[44]);
 
     if (out->transmit_secs == 0)
-        return "the server does not have the time itself";
+        return "server has no time";
 
     return NULL;
 }
@@ -626,7 +626,7 @@ int main(int argc, char **argv)
 
     if (!clock_open())
     {
-        tool_error("timer.device did not open, so the clock cannot be read");
+        tool_error("cannot open timer.device");
         CloseLibrary(sbase);
         FreeArgs(rda);
         return RETURN_FAIL;
@@ -643,7 +643,7 @@ int main(int argc, char **argv)
     sock = sock_socket(sbase, (LONG)target.ta_Family, SNTP_SOCK_DGRAM, 0);
     if (sock < 0)
     {
-        tool_error("no socket was available");
+        tool_error("no socket");
         rc = RETURN_FAIL;
         goto done;
     }
@@ -736,11 +736,11 @@ int main(int argc, char **argv)
         {
             if (behind < 2)
             {
-                tool_printf("This machine's clock was already right.\n");
+                tool_printf("Clock correct.\n");
             }
             else
             {
-                tool_printf("This machine's clock was ");
+                tool_printf("Clock was ");
                 print_span(behind);
                 tool_printf(" %s.\n", (LONG)(slow ? "slow" : "fast"));
             }
@@ -751,7 +751,7 @@ int main(int argc, char **argv)
 
     if (show)
     {
-        tool_printf("The time is %s %s %s.\n",
+        tool_printf("%s %s %s\n",
                     (LONG)when.day, (LONG)when.date, (LONG)when.time);
         goto done;
     }
@@ -766,8 +766,7 @@ int main(int argc, char **argv)
                         (LONG)when.day, (LONG)when.date, (LONG)when.time);
 
             if (!have_locale)
-                tool_printf("This machine has no locale.library, so nothing "
-                            "here knows its timezone.\n");
+                tool_printf("No locale.library; timezone unknown.\n");
         }
         else
         {
@@ -783,13 +782,11 @@ int main(int argc, char **argv)
     if (battclock_write(new_local))
     {
         if (!quiet)
-            tool_printf("The battery-backed clock was set too, so the time "
-                        "survives a reboot.\n");
+            tool_printf("Battery clock set.\n");
     }
     else if (!quiet)
     {
-        tool_printf("This machine has no battery-backed clock, so the time "
-                    "will be\nlost at the next reboot.\n");
+        tool_printf("No battery clock.\n");
     }
 
 done:

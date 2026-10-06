@@ -111,7 +111,7 @@ static VOID problem_head(VOID)
     }
 
     if (problem_count++ == 0)
-        tool_printf("\nWhat to look at\n");
+        tool_printf("\nProblems\n");
 }
 
 /* ------------------------------------------------------------------ names, */
@@ -252,7 +252,7 @@ static const char *lease_duration(ULONG seconds, ULONG *value_out)
     return "second";
 }
 
-/* One line of the "it offered" block. The label is printed once for the whole
+/* One line of the "offered" block. The label is printed once for the whole
    block and the remaining lines align under it. */
 static VOID offered_line(BOOL *first, const char *what, const ULONG *addr,
                          UWORD count, const char *text)
@@ -263,7 +263,7 @@ static VOID offered_line(BOOL *first, const char *what, const ULONG *addr,
     if (count == 0 && text == NULL)
         return;
 
-    tool_printf("  %-11s %s ", (LONG)(*first ? "it offered" : ""), (LONG)what);
+    tool_printf("  %-11s %s ", (LONG)(*first ? "offered" : ""), (LONG)what);
     *first = FALSE;
 
     if (text != NULL)
@@ -296,7 +296,7 @@ static VOID show_lease(const ToolDhcpInfo *d)
 
     if (d->state == NETSTATUS_DHCP_WORKING)
     {
-        tool_printf("  lease       asking, no server has answered yet\n");
+        tool_printf("  lease       requesting\n");
         return;
     }
 
@@ -310,9 +310,8 @@ static VOID show_lease(const ToolDhcpInfo *d)
     }
     else
     {
-        /* Rare: the server answered without identifying itself. Named rather
-           than left blank. */
-        tool_printf("  lease       from a server that did not name itself");
+        /* Rare: the server answered without identifying itself. */
+        tool_printf("  lease       from unknown server");
     }
 
     if (d->lease_seconds != 0)
@@ -321,9 +320,9 @@ static VOID show_lease(const ToolDhcpInfo *d)
         const char *unit  = lease_duration(d->lease_seconds, &value);
 
         if (unit == NULL)
-            tool_printf(", which never expires");
+            tool_printf(", infinite");
         else
-            tool_printf(", good for %lu %s%s", (LONG)value, (LONG)unit,
+            tool_printf(", %lu %s%s", (LONG)value, (LONG)unit,
                         (LONG)((value == 1) ? "" : "s"));
     }
 
@@ -338,7 +337,7 @@ static VOID show_lease(const ToolDhcpInfo *d)
         offered_line(&first, "domain     ", NULL, 0, d->domain_name);
 
     if (d->host_name[0] != '\0')
-        offered_line(&first, "the name   ", NULL, 0, d->host_name);
+        offered_line(&first, "host name  ", NULL, 0, d->host_name);
 }
 
 /* The interface's IPv6 addresses, under its IPv4 line. A machine with none
@@ -449,7 +448,7 @@ static VOID show_interface(const AmiIfConfig *cfg, const ToolIfInfo *live,
          * The stack is up but inside another program's library, where no
          * per-interface flag can be read from here.
          */
-        tool_printf("  state       running, but this command cannot read it\n");
+        tool_printf("  state       unreadable\n");
     }
     else
     {
@@ -470,14 +469,12 @@ static VOID show_interface(const AmiIfConfig *cfg, const ToolIfInfo *live,
          */
         if (live->address == 0UL && !described)
         {
-            tool_printf("  address     none; its configuration file is not "
-                        "in DEVS:NetInterfaces\n");
+            tool_printf("  address     none (not in DEVS:NetInterfaces)\n");
         }
         else if (live->address == 0UL &&
             !ami_config_iface_wants_ipv4(cfg))
         {
-            tool_printf("  address     none, this interface carries no "
-                        "IPv4\n");
+            tool_printf("  address     none (no IPv4)\n");
         }
         else
         {
@@ -490,8 +487,7 @@ static VOID show_interface(const AmiIfConfig *cfg, const ToolIfInfo *live,
         /* What is running, not what the file asked for: an interface whose
            responder refused to start reads "no" here. */
         tool_printf("  mDNS        %s\n",
-                    (LONG)(live->mdns ? "yes, answering .local"
-                                      : "no"));
+                    (LONG)(live->mdns ? "yes" : "no"));
         tool_printf("  mtu         %lu bytes", live->mtu);
         if (live->bps != 0)
             tool_printf("        %lu bits/s", live->bps);
@@ -501,15 +497,14 @@ static VOID show_interface(const AmiIfConfig *cfg, const ToolIfInfo *live,
     }
     else if (cfg->iptype == AMI_IPTYPE_DHCP)
     {
-        tool_printf("  address     handed out by DHCP when the interface "
-                    "comes up\n");
+        tool_printf("  address     DHCP\n");
     }
     else
     {
         address_text(cfg->address, addr, sizeof(addr));
         ami_config_format_ip(cfg->netmask, mask, sizeof(mask));
-        tool_printf("  address     %-15s netmask %s   (from the interface "
-                    "file)\n", (LONG)addr, (LONG)mask);
+        tool_printf("  address     %-15s netmask %s (file)\n",
+                    (LONG)addr, (LONG)mask);
     }
 
     if (!described)
@@ -558,8 +553,8 @@ static VOID show_interface(const AmiIfConfig *cfg, const ToolIfInfo *live,
         if (live != NULL && live->have_sana2)
             show_counters(cfg->name, &live->stats);
         else
-            tool_printf("\nSANA-II counters for %s are not available "
-                        "(no driver attached)\n", (LONG)cfg->name);
+            tool_printf("\nSANA-II counters for %s: no driver\n",
+                        (LONG)cfg->name);
     }
 }
 
@@ -760,7 +755,7 @@ static VOID show_arp(const AmiConfig *cfg, const ToolStats *st)
 
     if (!st->have_arp)
     {
-        tool_printf("Address resolution is not enabled on this stack.\n");
+        tool_printf("(not enabled)\n");
         return;
     }
 
@@ -825,8 +820,7 @@ static VOID show_routes(const AmiConfig *cfg, BOOL have_live)
         }
         else
         {
-            tool_printf("(the stack is not readable from here: only the "
-                        "configuration)\n");
+            tool_printf("(stack not readable)\n");
         }
         return;
     }
@@ -892,8 +886,7 @@ static VOID show_resolver(const AmiResolverConfig *r, BOOL from_files)
      * file's, so a list read off disk can name a server nothing is using.
      */
     if (from_files && r->nameserver_count > 0)
-        tool_printf("                (from DEVS:Internet. A DHCP interface is\n"
-                    "                given its own, which replace these)\n");
+        tool_printf("                (from DEVS:Internet)\n");
 }
 
 /*
@@ -969,7 +962,7 @@ static VOID show_ip_stats(const ToolStats *st)
 
     if (!st->have_ip)
     {
-        tool_printf("  no counters: the stack is not readable from here\n");
+        tool_printf("  stack not readable\n");
         return;
     }
 
@@ -1020,7 +1013,7 @@ static VOID show_tcp_stats(const ToolStats *st)
 #else
     if (!st->have_tcp)
     {
-        tool_printf("  no counters: the stack is not readable from here\n");
+        tool_printf("  stack not readable\n");
         return;
     }
 #endif
@@ -1071,7 +1064,7 @@ static VOID show_memory(const ToolStats *st)
 
     if (!st->have_pool)
     {
-        tool_printf("  no packet pool: the stack is not readable from here\n");
+        tool_printf("  stack not readable\n");
         return;
     }
 
@@ -1102,7 +1095,7 @@ static VOID show_tcp_sockets(const ToolSnapshot *snap, BOOL have_live, BOOL all)
        (F-125). */
     if (!have_live)
     {
-        tool_printf("  the stack is not readable from here\n");
+        tool_printf("  stack not readable\n");
         return;
     }
 
@@ -1162,7 +1155,7 @@ static VOID show_udp_sockets(const ToolSnapshot *snap, BOOL have_live, BOOL all)
     /* Same stale-snapshot window as the TCP list (F-125). */
     if (!have_live)
     {
-        tool_printf("  the stack is not readable from here\n");
+        tool_printf("  stack not readable\n");
         return;
     }
 
@@ -1242,7 +1235,7 @@ static VOID show_igmp(const AmiConfig *cfg, BOOL stack_running)
     base = tool_netstatus_open(TRUE);
     if (base == NULL)
     {
-        tool_printf("  the stack is not readable from here\n");
+        tool_printf("  stack not readable\n");
         return;
     }
 
@@ -1279,7 +1272,7 @@ static VOID show_igmp(const AmiConfig *cfg, BOOL stack_running)
     }
 
     if (hdr->nsh_Available > hdr->nsh_Count)
-        tool_printf("(%lu more than this list holds)\n",
+        tool_printf("(%lu more not shown)\n",
                     (ULONG)(hdr->nsh_Available - hdr->nsh_Count));
 
     tool_netstatus_close(base);
@@ -1295,9 +1288,7 @@ static VOID show_igmp(const AmiConfig *cfg, BOOL stack_running)
 static VOID show_mcast_routing(VOID)
 {
     tool_printf("\nMulticast routing\n");
-    tool_printf("  this machine does not forward multicast, so there is "
-                "none\n");
-    tool_printf("  ShowNetStatus IGMP lists the groups it has joined\n");
+    tool_printf("  not forwarding multicast\n");
 }
 
 /*
@@ -1309,7 +1300,7 @@ static VOID show_mcast_routing(VOID)
 static VOID show_routing(const AmiConfig *cfg, BOOL have_live)
 {
     tool_printf("\nRouting\n");
-    tool_printf("  no per-event counters: this stack does not keep them\n");
+    tool_printf("  no per-event counters\n");
     show_routes(cfg, have_live);
 }
 
@@ -1346,10 +1337,7 @@ static VOID diagnose_interface(const AmiIfConfig *cfg, const ToolIfInfo *live,
     if (!live->link_up)
     {
         problem_head();
-        advice("  * %s has no link: the card sees no network.\n",
-                    (LONG)cfg->name);
-        advice("    Check the cable at both ends. Check that the device\n");
-        advice("    at the far end is switched on.\n");
+        advice("  * %s: no link\n", (LONG)cfg->name);
     }
 
     /*
@@ -1363,32 +1351,17 @@ static VOID diagnose_interface(const AmiIfConfig *cfg, const ToolIfInfo *live,
         ami_config_iface_wants_ipv6(cfg))
     {
         problem_head();
-        advice("  * %s carries IPv6 only and has no IPv6 address yet.\n",
-                    (LONG)cfg->name);
-        advice("    Check the cable, and that a router on this network\n");
-        advice("    advertises IPv6. Even without one the link-local\n");
-        advice("    address should appear within a few seconds.\n");
+        advice("  * %s: no IPv6 address\n", (LONG)cfg->name);
         return;
     }
 
-    {
-        problem_head();
-        advice("  * %s has no address, so it cannot be used yet.\n",
-                    (LONG)cfg->name);
+    problem_head();
 
-        if (cfg->iptype == AMI_IPTYPE_DHCP)
-        {
-            advice("    It is set to ask for one (DHCP) and nothing has\n");
-            advice("    answered. Check the cable. Check that something\n");
-            advice("    on this network hands out addresses. To use a\n");
-            advice("    fixed address instead, run NetSetup.\n");
-        }
-        else
-        {
-            advice("    It is set to use a fixed address but the interface\n");
-            advice("    file has no ADDRESS line. Run NetSetup to set one.\n");
-        }
-    }
+    if (cfg->iptype == AMI_IPTYPE_DHCP)
+        advice("  * %s: no address, no DHCP answer\n", (LONG)cfg->name);
+    else
+        advice("  * %s: no address, no ADDRESS line in interface file\n",
+               (LONG)cfg->name);
 }
 
 /* --------------------------------------------------------- the host name,
@@ -1581,31 +1554,29 @@ static VOID show_events(VOID)
     LONG  n;
     LONG  i;
 
-    tool_printf("\nWhat the network did\n");
+    tool_printf("\nEvents\n");
 
     n = sns_events_read(&status);
 
     if (n < 0)
     {
         if (status == SNS_EV_BAD_VERSION)
-            tool_printf("(bsdsocket.library keeps a record this command "
-                        "cannot read; install the two together)\n");
+            tool_printf("(event log version mismatch)\n");
         else
-            tool_printf("(bsdsocket.library is not in memory, so its record "
-                        "of what happened has gone with it)\n");
+            tool_printf("(bsdsocket.library not in memory)\n");
         return;
     }
 
     if (n == 0)
     {
-        tool_printf("(nothing has happened worth recording)\n");
+        tool_printf("(none)\n");
         return;
     }
 
     /* nse_Seq counts every event ever recorded, so the oldest one surviving in
        the ring having a sequence above 1 says how many went past. */
     if (sns_events.e[0].nse_Seq > 1UL)
-        tool_printf("(the %ld events before these were overwritten)\n",
+        tool_printf("(%ld earlier events overwritten)\n",
                     (LONG)(sns_events.e[0].nse_Seq - 1UL));
 
     for (i = 0; i < n; i++)
@@ -1758,11 +1729,9 @@ static LONG report(const Wanted *w, const AmiConfig *cfg, BOOL from_disk)
         if (have_live && snap.have_mdns && mdns_answering(&snap))
         {
             if (snap.mdns_name[0] != '\0')
-                tool_printf("Known here as:  %s (to other machines on this "
-                            "network)\n", (LONG)snap.mdns_name);
+                tool_printf("mDNS name:      %s\n", (LONG)snap.mdns_name);
             else
-                tool_printf("Known here as:  nothing yet, still claiming a "
-                            "name on this network\n");
+                tool_printf("mDNS name:      (probing)\n");
         }
 
         if (elsewhere && ext_addr != 0)
@@ -1951,11 +1920,7 @@ static LONG report(const Wanted *w, const AmiConfig *cfg, BOOL from_disk)
     if (!stack_running)
     {
         problem_head();
-        advice("  * The network has not been started.\n");
-        advice("    Start it with:   AddNetInterface %s\n",
-                    (LONG)cfg->interfaces[0].name);
-        advice("    Put that line in S:User-Startup to run it at every\n");
-        advice("    boot.\n");
+        advice("  * network not started\n");
     }
 
     /*
@@ -1977,26 +1942,13 @@ static LONG report(const Wanted *w, const AmiConfig *cfg, BOOL from_disk)
                 (!have_live && cfg->default_gateway == 0))
             {
                 problem_head();
-                advice("  * There is no default route, so only machines "
-                            "on this\n");
-                advice("    network can be reached, nothing beyond it.\n");
-                advice("    Run NetSetup and give it the router address, "
-                            "or put\n");
-                advice("    DEFAULT=<router address> in "
-                            "DEVS:Internet/routes.\n");
+                advice("  * no default route\n");
             }
 
             if (!have_ns)
             {
                 problem_head();
-                advice("  * No name server is configured, so names like\n");
-                advice("    www.example.com cannot be looked up. Numeric "
-                            "addresses\n");
-                advice("    still work.\n");
-                advice("    Run NetSetup, or put  NAMESERVER <address>  in\n");
-                advice("    DEVS:Internet/name_resolution. On a home network "
-                            "the\n");
-                advice("    router is usually the name server too.\n");
+                advice("  * no name server\n");
             }
         }
     }
@@ -2004,10 +1956,8 @@ static LONG report(const Wanted *w, const AmiConfig *cfg, BOOL from_disk)
     if (elsewhere)
     {
         problem_head();
-        advice("  * The counters and per-interface detail above come from\n");
-        advice("    the configuration, not from the running stack. The\n");
-        advice("    stack is inside bsdsocket.library, which has no call\n");
-        advice("    yet that lets another command read it.\n");
+        advice("  * stack not readable; figures above are from the "
+               "configuration\n");
     }
 
     if (problem_count == 0)

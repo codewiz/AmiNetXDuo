@@ -207,7 +207,7 @@ block() {
     ' "$REPORT"
 }
 
-if block "AddNetRoute" | grep -q "now go through"; then
+if block "AddNetRoute" | grep -q "route .* via "; then
     pass "the lab route is in"
 else
     fail "AddNetRoute did not take the lab route"

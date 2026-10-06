@@ -194,9 +194,9 @@ run_arm() { # arm cpu extra nominal
     report="$ROOT/build/amiberry-testhd-$tag/tools.txt"
     uaelog="$ROOT/build/amiberry-$tag.log"
 
-    spins=$(sed -n 's/.*delay clock measured \([0-9][0-9]*\) spin(s) per raster line.*/\1/p' \
+    spins=$(sed -n 's/.*Delay clock measured \([0-9][0-9]*\) spin(s) per raster line.*/\1/p' \
             "$report" 2>/dev/null | head -1)
-    us=$(sed -n 's/.*A scan line was measured at \([0-9][0-9]*\) us.*/\1/p' \
+    us=$(sed -n 's/.*Scan line measured at \([0-9][0-9]*\) us.*/\1/p' \
          "$report" 2>/dev/null | head -1)
 
     claimed=no

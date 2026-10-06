@@ -87,7 +87,7 @@ static BOOL parse_range(const char *text, UWORD *lo, UWORD *hi)
 
     if (text == NULL || text[0] < '0' || text[0] > '9')
     {
-        tool_error("a port range must be numbers, not \"%s\"", (LONG)text);
+        tool_error("\"%s\" is not a port range", (LONG)text);
         return FALSE;
     }
 
@@ -97,8 +97,7 @@ static BOOL parse_range(const char *text, UWORD *lo, UWORD *hi)
 
         if (a > (65535UL - digit) / 10UL)
         {
-            tool_error("\"%s\" is not a port range this machine can reach",
-                       (LONG)text);
+            tool_error("port range \"%s\" outside 1-65535", (LONG)text);
             return FALSE;
         }
         a = (a * 10UL) + digit;
@@ -118,7 +117,7 @@ static BOOL parse_range(const char *text, UWORD *lo, UWORD *hi)
 
             if (b > (65535UL - digit) / 10UL)
             {
-                tool_error("\"%s\" is not a port range this machine can reach",
+                tool_error("port range \"%s\" outside 1-65535",
                            (LONG)text);
                 return FALSE;
             }
@@ -139,8 +138,7 @@ static BOOL parse_range(const char *text, UWORD *lo, UWORD *hi)
 
     if (a == 0 || b == 0 || a > 65535UL || b > 65535UL || a > b)
     {
-        tool_error("\"%s\" is not a port range this machine can reach",
-                   (LONG)text);
+        tool_error("port range \"%s\" outside 1-65535", (LONG)text);
         return FALSE;
     }
 
@@ -242,8 +240,7 @@ static LONG nc_shovel(struct Library *sb, LONG sock, const NcOptions *opt)
 
                     if (opt->verbose)
                     {
-                        tool_printf("end of input, so the write half is "
-                                    "closed\n");
+                        tool_printf("EOF, write half closed\n");
                         (VOID)Flush(Output());
                     }
                 }
@@ -363,7 +360,7 @@ static LONG nc_shovel(struct Library *sb, LONG sock, const NcOptions *opt)
             if (idle_limit != 0 && idle >= idle_limit)
             {
                 if (opt->verbose)
-                    tool_error("nothing for %lu seconds, so stopping",
+                    tool_error("idle %lu s, stopping",
                                opt->timeout);
                 rc = RETURN_WARN;
                 break;
@@ -716,7 +713,7 @@ static LONG nc_scan(struct Library *sb, const NcOptions *opt,
             {
                 silent++;
                 if (opt->verbose)
-                    tool_printf("%s port %lu no answer: open, or filtered\n",
+                    tool_printf("%s port %lu open|filtered\n",
                                 (LONG)dotted, port);
             }
             else if (opt->verbose)
@@ -744,8 +741,7 @@ static LONG nc_scan(struct Library *sb, const NcOptions *opt,
 
     if (open_ports == 0 && silent != 0)
     {
-        tool_error("no UDP port on %s answered; %lu gave no answer at all, "
-                   "which UDP cannot tell apart from filtered",
+        tool_error("%s: no UDP answer, %lu open|filtered",
                    (LONG)dotted, silent);
         return RETURN_WARN;
     }
@@ -883,7 +879,7 @@ int main(int argc, char **argv)
 
     if (opt.listen && opt.scan)
     {
-        tool_error("-l and -z do opposite things. Use one of them");
+        tool_error("-l and -z are mutually exclusive");
         FreeArgs(rda);
         return RETURN_ERROR;
     }
@@ -1001,7 +997,7 @@ int main(int argc, char **argv)
                            (LONG)opt.localport, (LONG)tool_sock_errstr(why));
                 break;
             case TOOL_CONNECT_TIMEDOUT:
-                tool_error("%s port %ld did not answer within %lu seconds",
+                tool_error("%s port %ld: no answer after %lu s",
                            (LONG)dotted, (LONG)port, opt.timeout);
                 break;
             default:

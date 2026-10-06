@@ -67,8 +67,7 @@ static VOID iperf_help(VOID)
     tool_printf("  -q                              print only the key=value line\n");
     tool_printf("  -4 / -6                         pin the address family\n");
     tool_printf("\n");
-    tool_printf("  The far end must be iperf 2.x, not iperf3, which is a\n");
-    tool_printf("  different protocol on port 5201 and will not answer.\n");
+    tool_printf("  Peer must be iperf 2.x, not iperf3.\n");
 }
 
 static VOID iperf_print_summary(struct Library *sb, const IperfResult *res)
@@ -107,8 +106,7 @@ static VOID iperf_print_summary(struct Library *sb, const IperfResult *res)
         }
         else
         {
-            tool_printf("  the far end sent no report, so this is the "
-                        "send rate and not the delivered one\n");
+            tool_printf("  no peer report; send rate only\n");
         }
     }
     else if (res->dir == IPERF_UDP_RX)
@@ -129,8 +127,8 @@ static VOID iperf_print_error(struct Library *sb, const IperfResult *res,
     switch (res->err)
     {
     case TOOL_ECONNREFUSED:
-        tool_error("nothing is listening on %s port %lu. Start `iperf -s` "
-                   "there first", (LONG)addr, (LONG)plan->port);
+        tool_error("%s port %lu: connection refused",
+                   (LONG)addr, (LONG)plan->port);
         break;
     case TOOL_ETIMEDOUT:
         tool_error("%s port %lu did not answer", (LONG)addr,
@@ -212,15 +210,14 @@ int main(int argc, char **argv)
 
     if (!server && host == NULL)
     {
-        tool_error("no host was given. Name one to send to, or use -s "
-                   "to receive");
+        tool_error("HOST or -s required");
         FreeArgs(rda);
         return RETURN_ERROR;
     }
 
     if (server && host != NULL)
     {
-        tool_error("-s waits for whoever calls, so it takes no host");
+        tool_error("-s takes no host");
         FreeArgs(rda);
         return RETURN_ERROR;
     }
@@ -258,7 +255,7 @@ int main(int argc, char **argv)
 
         if (t < 1)
         {
-            tool_error("a run of %ld seconds is not a measurement", (LONG)t);
+            tool_error("%ld seconds is not a valid time", (LONG)t);
             FreeArgs(rda);
             return RETURN_ERROR;
         }
@@ -271,7 +268,7 @@ int main(int argc, char **argv)
 
         if (n < 1)
         {
-            tool_error("%ld KBytes is not a size to transfer", (LONG)n);
+            tool_error("%ld KBytes is not a valid size", (LONG)n);
             FreeArgs(rda);
             return RETURN_ERROR;
         }

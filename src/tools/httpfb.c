@@ -496,8 +496,7 @@ static BOOL fb_open_libraries(VOID)
     if (GfxBase != NULL && IntuitionBase != NULL)
         return TRUE;
 
-    fb_say("this needs Kickstart 3.0 or later: graphics and intuition must "
-           "both answer OpenLibrary() at version 39");
+    fb_say("requires Kickstart 3.0 (V39)");
     return FALSE;
 }
 
@@ -614,8 +613,7 @@ enum
 
 static int fb_unsure(VOID)
 {
-    fb_refuse("the front screen offers no lock and is not a planar bitmap, so "
-              "the graphics card that owns it cannot be asked from here");
+    fb_refuse("front screen: no lock, not planar");
     return FB_GEOM_UNSURE;
 }
 
@@ -681,8 +679,7 @@ static int fb_geometry_of(struct BitMap *bm, struct ViewPort *vp,
                                &rs, &why))
         {
             fb_refuse((why != NULL) ? why
-                                    : "the front screen is an RTG screen this "
-                                      "cannot read");
+                                    : "front screen: unreadable RTG screen");
             return FB_GEOM_NO;
         }
 
@@ -726,13 +723,10 @@ static int fb_geometry_of(struct BitMap *bm, struct ViewPort *vp,
             return fb_unsure();
 
         fb_refuse(http_rtg_present()
-                  ? "the front screen is not a standard planar bitmap and "
-                    "neither Picasso96 nor CyberGraphX claims it, so there are "
-                    "no pixels here anything can read"
-                  : "the front screen is not a standard planar bitmap, so it "
-                    "has no bitplanes to read. A graphics card needs "
-                    "Picasso96API.library or cybergraphics.library, and neither "
-                    "answered OpenLibrary()");
+                  ? "front screen: not planar, not claimed by Picasso96 or "
+                    "CyberGraphX"
+                  : "front screen: not planar, no Picasso96API.library or "
+                    "cybergraphics.library");
         return FB_GEOM_NO;
     }
 
@@ -743,8 +737,7 @@ static int fb_geometry_of(struct BitMap *bm, struct ViewPort *vp,
         if (blind)
             return fb_unsure();
 
-        fb_refuse3("the front screen is ", depth,
-                   " planes deep. This handles 1 to 8");
+        fb_refuse3("front screen: ", depth, " planes, 1 to 8 supported");
         return FB_GEOM_NO;
     }
 
@@ -771,8 +764,8 @@ static int fb_geometry_of(struct BitMap *bm, struct ViewPort *vp,
             if (blind)
                 return fb_unsure();
 
-            fb_refuse3("interleaved bitmap with BytesPerRow=", stride,
-                       ", which does not divide by the depth");
+            fb_refuse3("interleaved bitmap: BytesPerRow=", stride,
+                       " not a multiple of depth");
             return FB_GEOM_NO;
         }
         g->row_bytes = (UWORD)(stride / depth);
@@ -787,8 +780,8 @@ static int fb_geometry_of(struct BitMap *bm, struct ViewPort *vp,
         if (blind)
             return fb_unsure();
 
-        fb_refuse3("the bitmap says ", (ULONG)g->row_bytes,
-                   " bytes a row, which is too few for its width");
+        fb_refuse3("bitmap: BytesPerRow=", (ULONG)g->row_bytes,
+                   " too small for width");
         return FB_GEOM_NO;
     }
 
@@ -1490,7 +1483,7 @@ static int fb_grab_frame(const FbGeometry *want, FbGeometry *now,
     sc = fb_lock_front(&pub);
     if (sc == NULL)
     {
-        fb_say("there are no screens left: Intuition's screen list is empty");
+        fb_say("no screens");
         return FB_GRAB_GONE;
     }
 
@@ -1716,7 +1709,7 @@ static BOOL fb_take_buffers(const FbGeometry *g)
 
     if (fb_shadow_len == 0UL || fb_scratch_len == 0UL || worst == 0UL)
     {
-        fb_say("the encoder will not take this screen's geometry");
+        fb_say("encoder refused screen geometry");
         return FALSE;
     }
 
@@ -1737,8 +1730,8 @@ static BOOL fb_take_buffers(const FbGeometry *g)
         fb_stage = (UBYTE *)ami_alloc(fb_stage_len);
         if (fb_stage == NULL)
         {
-            fb_say3("not enough memory for a ", fb_stage_len / 1024UL,
-                    " KB copy of the card's screen");
+            fb_say3("no memory for ", fb_stage_len / 1024UL,
+                    " KB screen copy");
             fb_free_buffers();
             return FALSE;
         }
@@ -1746,8 +1739,8 @@ static BOOL fb_take_buffers(const FbGeometry *g)
 
     if (fb_shadow == NULL || fb_scratch == NULL || fb_tx == NULL)
     {
-        fb_say3("not enough memory for a ", fb_shadow_len / 1024UL,
-                " KB screen and the buffers around it");
+        fb_say3("no memory for ", fb_shadow_len / 1024UL,
+                " KB screen buffers");
         fb_free_buffers();
         return FALSE;
     }
@@ -1758,7 +1751,7 @@ static BOOL fb_take_buffers(const FbGeometry *g)
                          fb_shadow, fb_shadow_len,
                          fb_scratch, fb_scratch_len) != 0L)
     {
-        fb_say("the encoder refused this screen's geometry");
+        fb_say("encoder refused screen geometry");
         fb_free_buffers();
         return FALSE;
     }
@@ -1921,8 +1914,7 @@ static BOOL fb_input_open(VOID)
     if (OpenDevice((CONST_STRPTR)"input.device", 0,
                    (struct IORequest *)fb_in_req, 0) != 0)
     {
-        fb_say("input.device did not open, so the console can show the "
-               "screen but not be typed at");
+        fb_say("input.device did not open; input disabled");
         return FALSE;
     }
 
@@ -2304,7 +2296,7 @@ BOOL http_fb_open(VOID)
         ok = (BOOL)(fb_geometry_of(sc->RastPort.BitMap, &sc->ViewPort,
                                    &fb_open_geom, pub) == FB_GEOM_OK);
     else
-        fb_say("the front screen closed while it was being looked at");
+        fb_say("front screen closed");
 
     if (!pub)
         UnlockIBase(ilock);
@@ -2382,7 +2374,7 @@ BOOL http_fb_start(struct Library *sb, LONG sock,
     sc = fb_lock_front(&pub);
     if (sc == NULL)
     {
-        fb_say("there is no screen to serve");
+        fb_say("no screen");
         return FALSE;
     }
 
@@ -2394,7 +2386,7 @@ BOOL http_fb_start(struct Library *sb, LONG sock,
         ok = (BOOL)(fb_geometry_of(sc->RastPort.BitMap, &sc->ViewPort, &g,
                                    pub) == FB_GEOM_OK);
     else
-        fb_say("the front screen closed while it was being looked at");
+        fb_say("front screen closed");
 
     if (!pub)
         UnlockIBase(ilock);
@@ -3025,7 +3017,7 @@ BOOL http_fb_slice(ULONG now)
         if ((LONG)(fb_ticks() - fb_gone_at) < (LONG)FB_GONE_GRACE)
             return TRUE;
 
-        fb_say("there has been no screen to show for ten seconds");
+        fb_say("no screen for 10 s");
         fb_close_saying(HTTP_WS_CLOSE_GOING, fb_why);
         return TRUE;
 
@@ -3090,7 +3082,7 @@ BOOL http_fb_slice(ULONG now)
 
     if (n < 0)
     {
-        fb_say("the frame encoder did not encode this screen");
+        fb_say("frame encoder failed");
         fb_close_saying(HTTP_WS_CLOSE_PROTOCOL, fb_why);
         return TRUE;
     }
@@ -3363,7 +3355,7 @@ VOID http_fb_evict(UWORD code)
     }
 
     n = http_ws_close_frame(frame, sizeof(frame), code,
-                            "the console was taken over from another browser");
+                            "taken over by another browser");
 
     /* Best effort, still without waiting.  Keep consuming positive short
        writes: the caller closes the socket as soon as this returns, so there
