@@ -134,6 +134,11 @@ BOOL httpzz_available(VOID)
     if (zz_query_service(HTTPZZ_SERVICE_ID, &si) != ZZ9K_STATUS_OK)
         goto no;
 
+    /* ANX-024: the request and reply below are major version 2 of the
+       service; a firmware answering another major speaks another layout. */
+    if ((si.version >> 16) != HTTPZZ_SERVICE_MAJOR)
+        goto no;
+
     zz_probed = 1;
     return TRUE;
 

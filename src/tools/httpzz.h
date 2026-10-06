@@ -27,8 +27,20 @@
 #define HTTPZZ_SERVICE_ID       0x8200UL
 #define HTTPZZ_OP_ENCODE        (HTTPZZ_SERVICE_ID + 0x00UL)
 
-/* Wire codec wrapped around the RFB stream.  v1 ships NONE; LZ4/zstd are a
-   measured bandwidth refinement (browser must advertise a decoder). */
+/* Service version (ANX-024), as the catalog reports it: major in the high
+   16 bits, minor in the low.  A host uses the service only when the major
+   is HTTPZZ_SERVICE_MAJOR; a minor change adds nothing a host must know. */
+#define HTTPZZ_SERVICE_MAJOR    2UL
+
+/* Codec layers (ANX-027).  The request's `codec` and the reply's are the
+   OUTER mailbox codec, wrapped around the whole RFB message; this version
+   answers NONE only, and a host treats any other reply as a failed band.
+   Separately, the firmware may compress the INNER RFB ops: everything after
+   the message's four-byte header becomes a zlib stream (RFC 1950, the
+   wrapper and Adler-32 included -- not raw DEFLATE), and header byte 1 bit 0
+   says so.  The host passes such a message through unchanged; the viewer
+   inflates it (web/client/console/wire.ts).  A viewer that cannot inflate
+   must not be served by this service. */
 #define HTTPZZ_CODEC_NONE       0
 #define HTTPZZ_CODEC_LZ4        1
 #define HTTPZZ_CODEC_ZSTD       2

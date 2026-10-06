@@ -5,6 +5,8 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ## Unreleased
 
+- The httpd /console uses the ZZ9000 console encoder only when it reports
+  service version 2; otherwise the host encodes the screen.
 - A received IPv4 frame shorter than its 20-byte header is dropped before
   its length field is read; a 1-byte frame could read past its buffer.
 - SANA-II extension (anxs2ext.h): version 3 only, with a fixed 24-byte
