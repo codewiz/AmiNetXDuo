@@ -1,0 +1,118 @@
+Short:        Open-source IPv4+IPv6 TCP/IP stack
+Author:       Tinic Uro
+Uploader:     tinic@tinic.net (Tinic Uro)
+Type:         comm/net
+Version:      @VERSION@
+Requires:     68000+, 1 MB RAM, a SANA-II network card driver
+Architecture: m68k-amigaos >= 2.0.4
+Distribution: Aminet
+URL:          https://github.com/tinic/AmiNetXDuo
+
+AmiNetXDuo is a free, open-source TCP/IP stack for the classic Amiga.  It
+provides the bsdsocket.library that Amiga network programs already use, and
+reaches the network through your card's ordinary SANA-II driver, so
+programs written for bsdsocket.library keep working; ssh, NFS mounts and
+ixemul programs included.
+
+It speaks IPv4 and IPv6.  On a network with an IPv6 router the Amiga gets an
+address by itself, with nothing to configure.  Underneath is Eclipse ThreadX
+NetX Duo, an embedded industrial TCP/IP stack, ported to Exec.  Its interface
+files use Roadshow's format.
+
+It is MIT licensed.  This is a beta, and the first release on Aminet.
+
+
+New in @VERSION@
+------------------
+
+  * NetMeter, a small Workbench window with each interface's addresses and
+    its receive and send rates.  Click an address to copy it.
+  * The Amiga's screen in a web browser (httpd -C) now shares the clipboard
+    both ways, and passes the mouse wheel on AmigaOS 3.2.
+  * NetPrefs is clearer and no longer flickers.
+  * D-Link DL10019/DL10022 PC Cards (DFE-670TXD and others) are supported,
+    at up to 9.4 Mbit/s on an A1200.
+  * Faster receive on the X-Surf 100 and other NE2000-family cards, with
+    802.3x flow control where the switch offers it.
+  * Interrupt sharing fixed for X-Surf, Ariadne II, NE2000 and 3Com 3C589
+    cards.
+  * Many TLS hardening fixes, and every command's messages rewritten short.
+
+The full list is in the archive's CHANGELOG.
+
+
+Features
+--------
+
+  - bsdsocket.library (AmiTCP/Roadshow API), usergroup.library
+  - IPv6: SLAAC, DHCPv6, neighbour discovery, duplicate address detection
+  - DHCP, DNS, .local names (mDNS), IPv4 multicast, a packet filter
+  - tls.library for https: and other encrypted connections, CA roots
+    included
+  - ssh and scp clients
+  - httpd: your volumes over HTTP and WebDAV, a Shell in the browser, and
+    the Amiga's screen in the browser with mouse, keyboard and clipboard
+  - NetPrefs (edits interface definitions, keeps your comments) and
+    NetMeter for the Workbench
+  - ping, traceroute, nslookup, netstat, ShowNetStatus, fetch, telnet,
+    tftp, sntp, iperf, NetCapture (writes .pcap files for Wireshark),
+    CheckNetConfig and CheckNetDevice when something does not work
+  - Three stacks to choose from at install time: Full (about 442 KB),
+    Minimal without IPv6 and encryption (272 KB), and Micro (243 KB)
+
+Drivers included:
+
+  anxnet.device     A2065, Ariadne, Ariadne II, AmigaNet, LAN Rover,
+                    X-Surf, X-Surf 100, X-Surf 500, NE2000-compatible and
+                    D-Link DL10019 PC Cards, 3Com 3C589
+  anxgenet.device   Raspberry Pi 4/CM4 Ethernet, PiStorm32 with Emu68
+  anxwifipi.device  Raspberry Pi 4 Wi-Fi, PiStorm32 with Emu68 (experimental)
+
+Any other SANA-II driver works as well.
+
+
+How fast
+--------
+
+Measured with iperf or AmiSpeedTest, receive / send:
+
+  A1200 PiStorm32 Lite, GENET, anxgenet.device         900 / 580 Mbit/s
+  A1200 PiStorm32 Lite, Wi-Fi, anxwifipi.device     34-36 / 52-61 Mbit/s
+  A1200 PiStorm32 Lite, D-Link DFE-670TXD            9.4 / 9.1 Mbit/s
+  A3000 68060/50, X-Surf 100, anxnet.device         22.5 / 11.8 Mbit/s
+  A3000 68030/25, X-Surf 100, anxnet.device          3.8 / 3.3-3.7 Mbit/s
+
+
+What it does not do (yet)
+-------------------------
+
+  - It is a beta.  It is tested on the machines above and booted in
+    emulation on Kickstart 2.04, 2.05 and 3.1, but not on everything.
+  - A first https: connection on a plain 68000 takes a minute or two; a
+    resumed one is quick.
+  - The Wi-Fi driver is experimental and needs WirelessManager to join a
+    network.
+
+
+Installing
+----------
+
+Unpack the archive anywhere and double-click Install-AmiNetXDuo.  The
+installer finds your card's driver, writes the interface definition, and
+puts the stack in the system directories or in a drawer of its own.  The
+ReadMe in the archive lists every file it installs; Docs/AmiNetXDuo.guide is
+the manual.
+
+
+Licence
+-------
+
+MIT.  A few parts keep their own licences (ThreadX and NetX Duo MIT,
+NetBSD's NE2000 core BSD, Dropbear's ssh, Mozilla's CA roots and the Wi-Fi
+driver MPL 2.0); the archive's documentation lists them.
+
+
+Reports from real hardware are the most useful thing you can send: the
+machine, the card, the Kickstart, and what happened.  Source and issues:
+
+  https://github.com/tinic/AmiNetXDuo

@@ -733,6 +733,29 @@ if command -v lha >/dev/null 2>&1; then
     fi
 fi
 
+# -------------------------------------------------------- the Aminet readme --
+
+# Aminet takes a .readme beside every upload, with the archive's basename.
+# dist/AmiNetXDuo.readme is the text; the version is put in here.  The checks
+# are Aminet's own rules (wiki.aminet.net, "The Readme file" and "Uploading
+# instructions"), which an upload that breaks risks being deleted for.
+README_NAME="AmiNetXDuo-$VERSION.readme"
+README="$OUTDIR/$README_NAME"
+sed "s/@VERSION@/$VERSION/g" "$ROOT/dist/AmiNetXDuo.readme" > "$README"
+aminet_fail() { echo "!! $README_NAME: $1" >&2; exit 1; }
+for name in "$ARCHIVE_NAME" "$README_NAME"; do
+    [ "${#name}" -le 30 ] || aminet_fail "$name is over Aminet's 30 characters"
+done
+[ "$(head -n 1 "$README" | cut -c1-6)" = "Short:" ] || \
+    aminet_fail "the first line is not Short:"
+for field in Short Uploader Type Architecture; do
+    grep -q "^$field:" "$README" || aminet_fail "no $field: field"
+done
+SHORT=$(sed -n 's/^Short: *//p' "$README")
+[ "${#SHORT}" -le 40 ] || aminet_fail "Short: is over 40 characters"
+awk 'length > 78 { exit 1 }' "$README" || aminet_fail "a line is over 78 columns"
+! grep -q '@[A-Z]*@' "$README" || aminet_fail "a placeholder was not filled in"
+
 python3 "$INSTALL/tools/checkscript.py" "$TREE/Install-AmiNetXDuo"
 python3 "$INSTALL/tools/showicon.py" "$TREE"/*.info >/dev/null
 
@@ -740,3 +763,4 @@ echo
 echo "==> version $VERSION_FIELD"
 echo "==> $ARCHIVE"
 du -sh "$ARCHIVE" | sed 's/^/    /'
+echo "==> $README"

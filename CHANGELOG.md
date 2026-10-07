@@ -5,6 +5,9 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ## Unreleased
 
+- The release comes with an Aminet readme, AmiNetXDuo-<version>.readme,
+  written beside the archive and checked against Aminet's rules.
+
 ## 1.0.0-beta8
 
 - Bundled NetX Duo and ThreadX include the full 6.5.2.202603 upstream
