@@ -872,6 +872,18 @@ for arm in "${ARMS[@]}"; do
 
     say "${tag}_bridged" "confirmed by an answer at $ADDRESS from ${CLIENT:-this host}"
 
+    # A cycle-exact 68000 can still be painting the chipset screen when
+    # httpd starts.  Wait for the completed report before observing pixels;
+    # a refusal also writes result= and is checked below without another wait.
+    if [ -n "$CHIP" ]; then
+        while [ "$(date +%s)" -lt "$deadline" ] &&
+              kill -0 "$EMU_PID" 2>/dev/null &&
+              ! grep -q '^result=' "$HD/chipscreen.txt" 2>/dev/null; do
+            sleep 1
+        done
+        say "${tag}_chip_ready_seconds" "$(( $(date +%s) - started ))"
+    fi
+
     read -r code bytes <<<"$(fetch_page)"
     say "${tag}_page_status" "${code:-none}"
     say "${tag}_page_bytes" "${bytes:-0}"
