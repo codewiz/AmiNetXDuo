@@ -1015,6 +1015,24 @@ VOID http_term_service(VOID)
         if (pkt->dp_Type == ACTION_END &&
             (pkt->dp_Arg1 & 0xFF) == TERM_ID_CON)
         {
+            /* Ed queues a one-byte asynchronous Read() on its Open("*")
+               handle.  Close() is its lifetime boundary: once END is replied
+               it can free that packet and buffer.  Settle this handle's read
+               first, leaving the Shell's handles, other generations and
+               another task's CON: read untouched.  Open("*") aliases share
+               a handle token, so the reply-port task must match too. */
+            if (term_in.held != NULL &&
+                term_in.held->dp_Arg1 == pkt->dp_Arg1 &&
+                term_in.held->dp_Port != NULL && pkt->dp_Port != NULL &&
+                term_in.held->dp_Port->mp_SigTask != NULL &&
+                term_in.held->dp_Port->mp_SigTask == pkt->dp_Port->mp_SigTask)
+            {
+                struct DosPacket *held = term_in.held;
+
+                term_in.held = NULL;
+                term_reply(held, 0, 0);
+            }
+
             term_reply(pkt, DOSTRUE, 0);
             continue;
         }

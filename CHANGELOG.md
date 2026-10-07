@@ -7,6 +7,9 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ## 1.0.0-beta8
 
+- Ed can save and close in the browser terminal without leaving a pending
+  read behind; subsequent file reads and terminal sessions keep working.
+
 - An IPv6-only interface added with AddNetInterface starts DHCPv6: an explicit
   request, or a router advertisement asking for an address. It previously
   stayed at its link-local address without sending a request.
