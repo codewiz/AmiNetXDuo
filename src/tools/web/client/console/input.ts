@@ -17,6 +17,9 @@
  *   w  DX DY           wheel, in notches
  *   kd RAW QUAL        key down, Amiga rawkey and qualifier bits
  *   ku RAW QUAL        key up
+ *   cp TEXT            a paste: the text goes onto the Amiga's clipboard and
+ *                      Right-Amiga V is pressed there, so it lands where a
+ *                      paste on the Amiga would
  *
  * Moves are coalesced to one animation frame.  A trackpad produces well over
  * 100 events a second and an Amiga cannot act on more than it can redraw, so
@@ -31,7 +34,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { qualifiers, rawkeyOf } from "./rawkey";
+import { QUAL_RCOMMAND, qualifiers, RAWKEY, rawkeyOf, SIDED } from "./rawkey";
 import type { View } from "./view";
 
 export interface InputSink {
@@ -46,11 +49,16 @@ export interface InputSink {
  * not having them: Cmd-W closes the tab whatever anybody prefers, and a page
  * that swallows Cmd-R and then fails to reload is a page that has to be
  * killed.  Ctrl and Amiga-key combinations that are NOT these do go through.
+ *
+ * V is kept so that the browser pastes: its paste event carries the text,
+ * which goes to the Amiga as a `cp` word (onPaste below) rather than as a
+ * keypress that would paste whatever the Amiga's own clipboard held.
  */
-const BROWSER_KEEPS = new Set(["KeyW", "KeyR", "KeyT", "KeyN", "KeyQ"]);
+const BROWSER_KEEPS = new Set(["KeyW", "KeyR", "KeyT", "KeyN", "KeyQ", "KeyV"]);
 
 export function attachInput(view: View, stage: HTMLElement, sink: InputSink): {
   detach: () => void;
+  amigaCopied: (text: string) => void;
 } {
   let pending: { x: number; y: number; b: number } | null = null;
   let scheduled = 0;
@@ -165,7 +173,17 @@ export function attachInput(view: View, stage: HTMLElement, sink: InputSink): {
      stays up, so the browser's context menu cannot have it. */
   const onContext = (e: Event) => { e.preventDefault(); };
 
+  /* Which Shift, Alt and Amiga keys are down, by side: what lets Right-Amiga
+     C reach the Amiga as Right-Amiga C (rawkey.ts, qualifiers()).  Kept
+     whatever has the focus, so a modifier pressed before the click into the
+     screen still counts. */
+  const held = new Set<string>();
+
   const key = (e: KeyboardEvent, down: boolean) => {
+    if (SIDED.has(e.code)) {
+      if (down) held.add(e.code);
+      else held.delete(e.code);
+    }
     if (document.activeElement !== stage) return;
     if ((e.metaKey || e.ctrlKey) && BROWSER_KEEPS.has(e.code)) return;
 
@@ -173,13 +191,49 @@ export function attachInput(view: View, stage: HTMLElement, sink: InputSink): {
     if (raw === null) return;
 
     e.preventDefault();
-    const w = (down ? "kd " : "ku ") + raw + " " + qualifiers(e);
+    const w = (down ? "kd " : "ku ") + raw + " " + qualifiers(e, held);
     sink.send(w);
     sink.log(w);
   };
 
   const onDown = (e: KeyboardEvent) => key(e, true);
   const onUp = (e: KeyboardEvent) => key(e, false);
+
+  /* A paste while the screen has focus.  The text is the browser's to give,
+     and a paste event is the one place it gives it to a plain http:// page. */
+  /*
+   * WHOSE CLIPBOARD A PASTE IS.  The one copied to last: a copy on the Amiga
+   * followed by Cmd-V means the Amiga's text, and sending the browser's would
+   * overwrite it.  The page sees the browser's clipboard only in a paste, so
+   * "copied to last" is: the Amiga has copied since the last `cp`, and the
+   * browser still holds what that `cp` sent, or the Amiga's own text (its
+   * Copy button).  Then only Right-Amiga V goes, and the Amiga pastes its own.
+   */
+  let lastSent = "";
+  let amigaText: string | null = null;
+
+  const amigaPaste = () => {
+    const v = RAWKEY["KeyV"];
+    sink.send("kd " + v + " " + QUAL_RCOMMAND);
+    sink.send("ku " + v + " " + QUAL_RCOMMAND);
+    sink.log("paste of the Amiga's own clipboard");
+  };
+
+  const onPaste = (e: ClipboardEvent) => {
+    if (document.activeElement !== stage) return;
+    const text = e.clipboardData?.getData("text/plain") ?? "";
+    e.preventDefault();
+    if (amigaText !== null && (text === "" || text === lastSent || text === amigaText)) {
+      amigaPaste();
+      return;
+    }
+    if (text === "") return;
+    sink.send("cp " + text);
+    lastSent = text;
+    amigaText = null;
+    const shown = text.replace(/\r?\n/g, "\u23ce");
+    sink.log("cp " + (shown.length > 40 ? shown.slice(0, 40) + "..." : shown));
+  };
 
   stage.addEventListener("pointermove", onMove);
   stage.addEventListener("pointerdown", onDownButton);
@@ -188,12 +242,18 @@ export function attachInput(view: View, stage: HTMLElement, sink: InputSink): {
   stage.addEventListener("lostpointercapture", onCancel);
   stage.addEventListener("pointerleave", onLeave);
   addEventListener("blur", releaseAll);
+  /* Keys released while another window had the keyboard are never seen
+     going up. */
+  const forgetHeld = () => { held.clear(); };
+  addEventListener("blur", forgetHeld);
   stage.addEventListener("wheel", onWheel, { passive: false });
   stage.addEventListener("contextmenu", onContext);
   addEventListener("keydown", onDown);
   addEventListener("keyup", onUp);
+  document.addEventListener("paste", onPaste);
 
   return {
+    amigaCopied: (text: string) => { amigaText = text; },
     detach: () => {
       if (scheduled !== 0) cancelAnimationFrame(scheduled);
       releaseAll();
@@ -207,6 +267,8 @@ export function attachInput(view: View, stage: HTMLElement, sink: InputSink): {
       stage.removeEventListener("wheel", onWheel);
       stage.removeEventListener("contextmenu", onContext);
       removeEventListener("keydown", onDown);
+      removeEventListener("blur", forgetHeld);
+      document.removeEventListener("paste", onPaste);
       removeEventListener("keyup", onUp);
     },
   };
