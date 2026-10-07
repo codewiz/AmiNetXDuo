@@ -5,6 +5,11 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ## Unreleased
 
+## 1.0.0-beta8
+
+- Bundled NetX Duo and ThreadX include the full 6.5.2.202603 upstream
+  releases.
+
 - NetMeter survives a Workbench screen mode change when
   screennotify.library is installed: it closes its window for the change
   and reopens in the same place.
@@ -44,6 +49,10 @@ Add new entries under `Unreleased`; published release sections are history.
   and a 10 Mbit/s link by default: a 100 Mbit/s burst overruns the card
   faster than the Amiga reads it.  A1200 (PiStorm), DFE-670TXD: AmiSpeedTest
   6.1 -> 9.4 Mbit/s down; up 9.1 (was 16-33 at 100 Mbit/s).
+- X-Surf, X-Surf 100, X-Surf 500, Ariadne II, Hydra, LANRover and NE2000
+  PC Cards claim a shared interrupt only when they raised it.
+- 3Com EtherLink III PC Cards (3C589, 3CCFE556, 3CXE556) claim an interrupt
+  only for an enabled cause.
 - Every network command's messages rewritten short: about 790 messages in
   40 commands, the config-file warnings, httpd's error pages and the
   /console refusal reasons.  Explanations and next-step hints after a
