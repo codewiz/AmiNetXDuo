@@ -38,7 +38,7 @@ New in @VERSION@
     cards.
   * Many TLS hardening fixes, and every command's messages rewritten short.
 
-The full list is in the archive's CHANGELOG.
+The full list is in CHANGELOG.md on GitHub.
 
 
 Features
