@@ -111,6 +111,24 @@ for answer in '{"artifacts":[]}' 'not-json' \
 done
 FAKE_ARTIFACTS=$saved_artifacts
 
+# The sentinel must fail closed if a future planner requests builds but
+# accidentally returns an empty matrix.
+no_build=$(awk '
+    /- name: No optional builds selected$/ { found=1 }
+    found && /^        run: \|$/ { body=1; next }
+    body && /^      - uses: actions\/checkout@v4$/ { exit }
+    body { sub(/^          /, ""); print }
+' "$root/.github/workflows/ci.yml")
+[ -n "$no_build" ]
+export GITHUB_STEP_SUMMARY="$work/option-summary"
+OPTION_PLAN=skipped bash -euo pipefail -c "$no_build"
+cases=$((cases + 1))
+if OPTION_PLAN=build bash -euo pipefail -c "$no_build" > "$work/no-build.log" 2>&1; then
+    echo "FAIL empty-build-matrix accepted"
+    failures=$((failures + 1))
+fi
+cases=$((cases + 1))
+
 # Execute the workflow's actual stable gate, not a separate imitation.
 report=$(awk '
     /- name: Report$/ { found=1 }
@@ -135,6 +153,7 @@ gate() {
 gate full 0
 OPTIONS=skipped
 gate missing-matrix 1
+OPTIONS=success
 OPTION_PLAN=reused REUSE_RUN=42
 gate reused 0
 REUSE_RUN=
@@ -143,6 +162,9 @@ REUSE_RUN=abc
 gate invalid-reuse-id 1
 MODE=shipping OPTION_PLAN=skipped REUSE_RUN=
 gate shipping 0
+OPTIONS=skipped
+gate missing-shipping-verdict 1
+OPTIONS=success
 for field in PLAN GITLINKS ANALYZE STACKFRAMES TIER1 HOST_CLANG SHELLCHECK PACKAGE; do
     for status in skipped failure cancelled; do
         export "$field=$status"
@@ -150,11 +172,12 @@ for field in PLAN GITLINKS ANALYZE STACKFRAMES TIER1 HOST_CLANG SHELLCHECK PACKA
     done
     export "$field=success"
 done
-OPTIONS=success
+OPTION_PLAN=build
 gate unexpected-matrix 1
+OPTION_PLAN=skipped
 MODE=unknown
 gate unknown-mode 1
-MODE=docs PLAN=success GITLINKS=skipped ANALYZE=skipped OPTIONS=skipped
+MODE=docs PLAN=success GITLINKS=skipped ANALYZE=skipped OPTIONS=success
 STACKFRAMES=skipped TIER1=skipped HOST_CLANG=skipped SHELLCHECK=skipped PACKAGE=skipped DOCS=success
 gate docs 0
 DOCS=failure
