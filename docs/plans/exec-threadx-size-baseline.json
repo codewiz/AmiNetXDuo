@@ -1,0 +1,55 @@
+{
+  "status": "research baseline; replacement not implemented or validated",
+  "source_sha": "8c93d4a0e7deb7d193682e4e33378b3f0db92e29",
+  "compiler_version": "m68k-amigaos-gcc (GCC) 16.2.0b 20260819152818",
+  "method_limitations": [
+    "LTO inlining prevents a unique component byte total in the shipping image.",
+    "LTO spans include padding or literals until the next named text symbol.",
+    "Non-LTO archive attribution is exact for that diagnostic build only.",
+    "Figures exclude runtime allocations, relocation metadata and the size of any replacement implementation."
+  ],
+  "profiles": {
+    "micro": {
+      "published_image_identical": true,
+      "image_bytes": 204168,
+      "image_sha256": "1a86f8650ef981118567f5d1d4dc309df9675746203491f1c6f4a4c7187520d8",
+      "lto_surviving_function_span_bytes": {
+        "threadx_core": 9466,
+        "amiga_port": 7262
+      },
+      "non_lto_retained_sections_bytes": {
+        "threadx_core": {
+          "text": 10204,
+          "data": 112,
+          "bss": 396
+        },
+        "amiga_port": {
+          "text": 11564,
+          "data": 4,
+          "bss": 4260
+        }
+      }
+    },
+    "full": {
+      "published_image_identical": true,
+      "image_bytes": 355992,
+      "image_sha256": "68943065b30b71031cbbfe4eedd8944ea082ca824df8590641d40ae24254d055",
+      "lto_surviving_function_span_bytes": {
+        "threadx_core": 9906,
+        "amiga_port": 8536
+      },
+      "non_lto_retained_sections_bytes": {
+        "threadx_core": {
+          "text": 10792,
+          "data": 112,
+          "bss": 396
+        },
+        "amiga_port": {
+          "text": 11564,
+          "data": 4,
+          "bss": 4260
+        }
+      }
+    }
+  }
+}
