@@ -5,6 +5,11 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ## Unreleased
 
+- NetMeter's icon carries the DONOTWAIT ToolType, so NetMeter started
+  from SYS:WBStartup no longer brings up a "not responding" requester at
+  boot. An icon already in WBStartup needs DONOTWAIT added in its
+  Information window.
+
 ## 1.0.0-beta8
 
 - An IPv6-only interface added with AddNetInterface starts DHCPv6: an explicit
