@@ -48,6 +48,7 @@ const askText = byId<HTMLParagraphElement>("ask-text");
 const askField = byId<HTMLLabelElement>("ask-field");
 const askName = byId<HTMLInputElement>("ask-name");
 const askOk = byId<HTMLButtonElement>("ask-ok");
+const askCancel = byId<HTMLButtonElement>("ask-cancel");
 const editorDialog = byId<HTMLDialogElement>("editor-dialog");
 const editorHost = byId<HTMLDivElement>("editor-host");
 const editorName = byId<HTMLElement>("editor-name");
@@ -674,6 +675,9 @@ async function uploadFiles(files: FileList | File[]): Promise<void> {
 
 byId("refresh").onclick = () => void load();
 up.onclick = () => go(parentOf(current));
+/* Cancel is a plain button: Enter in the name field submits with the form's
+   first submit button, and that has to be the action, not Cancel. */
+askCancel.onclick = () => askDialog.close("cancel");
 mkdir.onclick = () => void createDrawer();
 upload.onclick = () => pick.click();
 editorSave.onclick = () => void saveEditor();

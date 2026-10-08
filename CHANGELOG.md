@@ -5,6 +5,10 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ## Unreleased
 
+- httpd's file browser (/files): pressing Return in the New drawer and
+  Rename dialogs now creates or renames. It cancelled the dialog instead;
+  only clicking the button worked.
+
 ## 1.0.0-beta8
 
 - An IPv6-only interface added with AddNetInterface starts DHCPv6: an explicit
