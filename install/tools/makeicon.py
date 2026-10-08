@@ -421,9 +421,11 @@ def main(argv):
             prefs_icon(), WBTOOL,
             tooltypes=[],
             stack=8192),
+        # DONOTWAIT: NetMeter stays open, and from WBStartup Workbench would
+        # otherwise wait for it to exit and then call it not responding.
         "NetMeter.info": diskobject(
             meter_icon(), WBTOOL,
-            tooltypes=[],
+            tooltypes=["DONOTWAIT"],
             stack=8192),
     }
 
