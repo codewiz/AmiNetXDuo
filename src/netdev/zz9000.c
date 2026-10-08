@@ -69,6 +69,7 @@
 #include "n68k_iocopy.h"
 #include "netdev_cards.h"
 #include "netdev_mcaf.h"
+#include "netdev_mcast.h"
 #include "netdev_macgen.h"
 #include "netdev_verify.h"
 #include "netdev_clock.h"
@@ -79,6 +80,7 @@
 static BOOL zz_isr(NetdevNic *nic);
 static BOOL zz_tx_reclaim(NetdevNic *nic);
 static UBYTE *zz_tx_at(NetdevNic *nic);
+static VOID zz_write_hash(NetdevNic *nic);
 
 extern struct ExecBase *SysBase;
 
@@ -99,6 +101,14 @@ extern struct ExecBase *SysBase;
 #define ZZ_REG_CONFIG_PRESENT 0x00eaUL
 
 #define ZZ_REG_TX_STATUS    0x0068UL    /* the fork's firmware, else reads 0 */
+
+/* Upstream's ETH_CONFIG: read, capabilities; write, a GEM hash command.  The
+   GEM takes no multicast frame unless its hash bucket is set. */
+#define ZZ_REG_ETH_CONFIG   0x008aUL
+#define ZZ_CFG_CAP_HASH     0x0001u
+#define ZZ_CFG_HASH_SET     0x8000u
+#define ZZ_CFG_HASH_RESET   0x2000u
+#define ZZ_HASH_BUCKETS     64
 
 #define ZZ_RX_WINDOW        0x2000UL
 #define ZZ_RX_PAD           4           /* UWORD length, UWORD serial */
@@ -211,6 +221,7 @@ typedef struct ZzCore
                                follows it: which context a pass ran in     */
     UBYTE       rx_meta;    /* firmware exposes REG_ZZ_ETH_RX_META          */
     UBYTE       int2;       /* ZZ9000.CFG routes the shared interrupt there */
+    UBYTE       hash;       /* firmware filters multicast by the GEM hash   */
 } ZzCore;
 
 #define ZZ(nic) ((ZzCore *)(nic)->core)
@@ -380,6 +391,8 @@ static LONG zz_attach(NetdevNic *nic)
         nic->tx_next = 0;
         nic->rx_capacity = zz_rx_capacity(zz_get(nic, ZZ_REG_RX_FRAMES));
         ZZ(nic)->rx_meta = (UBYTE)((rxm & ZZ_RXM_PRESENT) != 0);
+        ZZ(nic)->hash = (UBYTE)((zz_get(nic, ZZ_REG_ETH_CONFIG)
+                                 & ZZ_CFG_CAP_HASH) != 0);
         nic->tx_at = (fork && (rxm & ZZ_RXM_TX_OFFSET2) != 0)
                    ? zz_tx_at : NULL;
         nic->tx_csum_supported = (UBYTE)(((rxm & ZZ_RXM_TX_CSUM) != 0)
@@ -410,6 +423,7 @@ static LONG zz_attach(NetdevNic *nic)
 static LONG zz_init(NetdevNic *nic)
 {
     zz_write_mac(nic);
+    zz_write_hash(nic);
     nic->core_stat[ZZ_ST_SERIAL] = 0;
     nic->txb_inuse = 0;
     nic->tx_next   = 0;
@@ -425,11 +439,51 @@ static VOID zz_stop(NetdevNic *nic)
     nic->running = FALSE;
 }
 
-/* The ARM does the filtering it does; the station address is the one thing
-   the card takes from us, and the group hash is applied on the way in. */
+/* The GEM's hash bucket for a group address: the 48 address bits, first
+   bit on the wire first, folded six at a time by exclusive or. */
+static UWORD zz_gem_hash(const UBYTE *a)
+{
+    return (UWORD)(((a[0] & 0x3fu) ^
+                    ((a[0] >> 6) | ((a[1] & 0x0fu) << 2)) ^
+                    ((a[1] >> 4) | ((a[2] & 0x03u) << 4)) ^
+                    (a[2] >> 2) ^
+                    (a[3] & 0x3fu) ^
+                    ((a[3] >> 6) | ((a[4] & 0x0fu) << 2)) ^
+                    ((a[4] >> 4) | ((a[5] & 0x03u) << 4)) ^
+                    (a[5] >> 2)) & 0x3fu);
+}
+
+/* The groups into the GEM's hash, rebuilt whole: every bucket when promiscuous
+   or asked for every group, else one per joined group.  The 64 buckets
+   collide; zz_rx_wanted() still drops the groups nobody joined. */
+static VOID zz_write_hash(NetdevNic *nic)
+{
+    UWORD i;
+
+    if (!ZZ(nic)->hash)
+        return;
+    zz_put(nic, ZZ_REG_ETH_CONFIG, ZZ_CFG_HASH_RESET);
+    if (nic->promisc || nic->all_multi)
+    {
+        for (i = 0; i < ZZ_HASH_BUCKETS; i++)
+            zz_put(nic, ZZ_REG_ETH_CONFIG, (UWORD)(ZZ_CFG_HASH_SET | i));
+        return;
+    }
+    if (nic->mc_table == NULL)
+        return;
+    for (i = 0; i < nic->mc_max; i++)
+        if (nic->mc_table[i].refs != 0)
+            zz_put(nic, ZZ_REG_ETH_CONFIG,
+                   (UWORD)(ZZ_CFG_HASH_SET
+                           | zz_gem_hash(nic->mc_table[i].addr)));
+}
+
+/* The station address and the group hash are what the card takes from us;
+   the hash is applied on the way in as well (zz_rx_wanted). */
 static VOID zz_setfilter(NetdevNic *nic)
 {
     zz_write_mac(nic);
+    zz_write_hash(nic);
 }
 
 static VOID zz_reset(NetdevNic *nic)
