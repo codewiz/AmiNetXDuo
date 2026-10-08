@@ -5,6 +5,10 @@ Add new entries under `Unreleased`; published release sections are history.
 
 ## Unreleased
 
+- httpd's file browser (/files): pressing Return in the New drawer and
+  Rename dialogs now creates or renames. It cancelled the dialog instead;
+  only clicking the button worked.
+
 - NetMeter's icon carries the DONOTWAIT ToolType, so NetMeter started
   from SYS:WBStartup no longer brings up a "not responding" requester at
   boot. An icon already in WBStartup needs DONOTWAIT added in its
